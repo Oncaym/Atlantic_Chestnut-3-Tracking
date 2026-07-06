@@ -75,7 +75,7 @@
     gate.innerHTML = `
       <div class="cs-auth-card">
         <div class="cs-auth-brand">
-          <div class="cs-auth-logo">CP2</div>
+          <div class="cs-auth-logo">AC3</div>
           <div>
             <div class="cs-auth-title">Atlantic-Chestnut Building 3</div>
             <div class="cs-auth-sub">Installation Progress Monitor</div>
