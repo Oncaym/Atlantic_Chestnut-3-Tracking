@@ -2289,9 +2289,7 @@ function renderElevation(){
   stage.innerHTML='<svg id="elevSvg" viewBox="'+E.viewBox+'" xmlns="http://www.w3.org/2000/svg">'+E.base+'<g>'+hot+'</g></svg>';
   const svg=document.getElementById('elevSvg');
   svg.querySelectorAll('.el-el').forEach(el=>{
-    el.addEventListener('click',ev=>{ ev.stopPropagation();
-      if(_elevEdit){ const nx=_ELEV_NEXT_TYPE[el.dataset.type]||'glass'; const s=_elevStore(key); s.el[el.dataset.id]=Object.assign({},s.el[el.dataset.id],{type:nx}); saveState(); renderElevation(); }
-      else { openElevStatus(el.dataset.id); } });
+    el.addEventListener('click',ev=>{ ev.stopPropagation(); openElevStatus(el.dataset.id); });
   });
   let dr=null;
   svg.addEventListener('mousedown',e=>{ if(!_elevEdit||e.target.classList.contains('el-el'))return; const q=_elevSvgPt(svg,e); dr={x:q.x,y:q.y}; });
@@ -2319,7 +2317,7 @@ function setElevMode(edit){ _elevEdit=edit;
   const bs=document.getElementById('elevModeStatus'), be=document.getElementById('elevModeEdit');
   if(bs)bs.classList.toggle('btn-primary',!edit); if(be)be.classList.toggle('btn-primary',edit);
   const pe=document.getElementById('panel-elev'); if(pe)pe.classList.toggle('editing',edit);
-  const h=document.getElementById('elevHint'); if(h)h.textContent=edit?'Click element → change type (Glass→Metal→Door→Louver→Hidden). Drag on empty area → draw new glass.':'Click an element to set its status · click the frame/empty area for frame status';
+  const h=document.getElementById('elevHint'); if(h)h.textContent=edit?'Drag on empty area → draw new glass. Click an element → edit its type/status in the popup.':'Click an element to set its status/type · click the frame/empty area for frame status';
 }
 function _updateElevFrameBtn(){ const b=document.getElementById('elevFrameBtn'); if(!b) return; const key=_elevKey(); const fu=_elevFrameUnit();
   if(!fu||!(window.ELEVATIONS||{})[key]){ b.style.display='none'; return; }
@@ -2329,6 +2327,7 @@ function _updateElevFrameBtn(){ const b=document.getElementById('elevFrameBtn');
 function openElevFrameStatus(){ const fu=_elevFrameUnit(); if(!fu) return; _elevCurEl='__frame__';
   const nr=document.getElementById('elevStatusName').closest('.form-row'); if(nr)nr.style.display='none';
   const tr=document.getElementById('elevStatusNote').closest('.form-row'); if(tr)tr.style.display='none';
+  const ty=document.getElementById('elevStatusTypeRow'); if(ty)ty.style.display='none';
   document.getElementById('elevStatusTitle').textContent=fu.id+' · frame (framing installation)';
   document.getElementById('elevStatusSel').value=fu.status||'pending';
   document.getElementById('elevStatusDate').value=fu.date||'';
@@ -2339,6 +2338,8 @@ function openElevStatus(elId){ const key=_elevKey(); if(!key)return; _elevCurEl=
   const tr=document.getElementById('elevStatusNote').closest('.form-row'); if(tr)tr.style.display='';
   const base=(E.elements||[]).find(e=>e.id===elId)||S.custom.find(c=>c.id===elId)||{}; const rec=S.el[elId]||{};
   const type=rec.type||base.t0||base.type||'glass';
+  const ty=document.getElementById('elevStatusTypeRow'); if(ty)ty.style.display='';
+  const tysel=document.getElementById('elevStatusType'); if(tysel)tysel.value=type;
   document.getElementById('elevStatusTitle').textContent=(rec.name||elId)+' · '+type;
   document.getElementById('elevStatusName').value=rec.name||elId;
   document.getElementById('elevStatusSel').value=rec.status||'pending';
@@ -2354,6 +2355,7 @@ function saveElevStatus(){ const key=_elevKey(); if(!key||!_elevCurEl)return;
   const S=_elevStore(key);
   const nm=document.getElementById('elevStatusName').value.trim();
   S.el[_elevCurEl]=Object.assign({},S.el[_elevCurEl],{
+    type:(document.getElementById('elevStatusType')||{}).value||undefined,
     status:document.getElementById('elevStatusSel').value,
     date:document.getElementById('elevStatusDate').value,
     name:(nm && nm!==_elevCurEl)? nm : '',

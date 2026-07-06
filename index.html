@@ -2888,7 +2888,10 @@
   #elevKpis .kpi-sub{font-size:10px}
   .elev-empty{padding:26px 10px;text-align:center;color:var(--text-dim);font-size:13px}
   .el-el{fill:transparent;stroke:transparent;stroke-width:1.1;cursor:pointer}
-  .el-el[data-type="glass"]{stroke:#3a6ea5}.el-el[data-type="panel"]{stroke:#8b949e}.el-el[data-type="door"]{stroke:var(--orange)}.el-el[data-type="louver"]{stroke:var(--purple)}
+  /* glass & metal panel: no extra outline — the frame's own rectangles already
+     define them; hotspots stay invisible until hover/status. Door & louver keep
+     their identifying stroke. */
+  .el-el[data-type="door"]{stroke:var(--orange)}.el-el[data-type="louver"]{stroke:var(--purple)}
   .el-el[data-type="hidden"]{stroke:transparent;pointer-events:none;opacity:0}
   .el-el[data-status="installed"]{fill:rgba(63,185,80,.45)}.el-el[data-status="in-progress"]{fill:rgba(9,105,218,.4)}.el-el[data-status="issue"]{fill:rgba(248,81,73,.5)}
   .el-el:hover{stroke:#fff;stroke-width:1.6;fill:rgba(255,255,255,.10)}
@@ -2905,6 +2908,15 @@
   <div class="modal" style="max-width:340px">
     <h3 id="elevStatusTitle">Element</h3>
     <div class="form-row"><label>Name / ID</label><input type="text" id="elevStatusName" autocomplete="off"></div>
+    <div class="form-row" id="elevStatusTypeRow"><label>Type</label>
+      <select id="elevStatusType">
+        <option value="glass">Glass</option>
+        <option value="panel">Metal Panel</option>
+        <option value="door">Door</option>
+        <option value="louver">Louver</option>
+        <option value="hidden">Hidden (not tracked)</option>
+      </select>
+    </div>
     <div class="form-row"><label>Status</label>
       <select id="elevStatusSel">
         <option value="pending">Pending</option>
