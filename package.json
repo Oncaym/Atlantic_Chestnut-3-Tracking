@@ -1,0 +1,7 @@
+{
+  "name": "cp2-tracker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Atlantic-Chestnut Building 3 install tracker — static site + /api/parse serverless function"
+}

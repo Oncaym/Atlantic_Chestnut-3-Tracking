@@ -1,0 +1,188 @@
+# CP2 Cloud Sync — Setup Guide
+
+End-to-end: from zero to "team is editing the same dashboard live."
+**Time: ~20 minutes**, no server needed, free.
+
+---
+
+## What you're getting
+
+| Before | After |
+|---|---|
+| Edits saved to your browser only | Edits saved to cloud, everyone sees them in ~1s |
+| `💾 Save to HTML` → upload to share | Just edit. Done. |
+| No auth | Email + password login (admin-created accounts only) |
+| No history | Every edit logged: who, when, what |
+
+Files involved:
+- **`CP2 Cloud Sync.html`** — the new cloud-enabled dashboard
+- **`cloud-sync.js`** — sync engine (don't edit)
+- **`firebase-config.js`** — paste your Firebase project keys here
+- **`firebase-database-rules.json`** — security rules to upload to Firebase
+- **`vercel.json`** — Vercel deployment config (optional)
+
+---
+
+## Step 1 — Create Firebase project (5 min)
+
+1. Go to https://console.firebase.google.com → **Add project**
+2. Name it `cp2-tracker` (or whatever). Disable Google Analytics — you don't need it.
+3. Once created, in the left sidebar:
+
+### a) Enable Authentication
+- **Build → Authentication → Get started**
+- Sign-in method tab → **Enable "Email/Password"** → Save
+- Settings tab → **User actions** → **Uncheck "Enable create"** (disables self-signup)
+
+### b) Enable Realtime Database
+- **Build → Realtime Database → Create database**
+- Location: **United States (us-central1)** (closest to your team)
+- Start in **locked mode** — we'll paste real rules next.
+- Once created, click the **Rules** tab.
+- Replace the contents with the contents of `firebase-database-rules.json` from this project. **Publish.**
+
+### c) Register a Web App
+- Project Overview (gear icon) → **Project settings**
+- Scroll to **Your apps** → click `</>` (Web)
+- Nickname: `CP2 Dashboard`
+- **Skip** Firebase Hosting
+- It will show you a `firebaseConfig = { ... }` snippet. **Copy those values.**
+
+### d) Paste into `firebase-config.js`
+Open `firebase-config.js` in this project, paste the values from step (c). It should look like:
+
+```js
+window.FIREBASE_CONFIG = {
+  apiKey:      "AIzaSy...real-key...",
+  authDomain:  "cp2-tracker.firebaseapp.com",
+  databaseURL: "https://cp2-tracker-default-rtdb.firebaseio.com",
+  projectId:   "cp2-tracker",
+  ...
+};
+```
+
+> ⚠️ `apiKey` is **not** a secret — it's a project identifier. Real protection comes from the database rules + auth login.
+
+---
+
+## Step 2 — Create team accounts (2 min per person)
+
+For each teammate (5–15 people):
+
+1. Firebase Console → **Authentication → Users tab → Add user**
+2. Enter their email + a temporary password
+3. Send them the email + temp password through Slack/text
+4. They sign in at the dashboard → click "Forgot password" to set their own
+
+That's it. **No self-signup, no spam, you control who has access.**
+
+---
+
+## Step 3 — Deploy (pick one)
+
+### Option A — Vercel (recommended, free, public URL)
+
+1. Push this folder to a GitHub repo (private is fine)
+2. Go to https://vercel.com → **New Project → Import** your repo
+3. Framework preset: **Other**. Click Deploy.
+4. After ~30s you'll have a URL like `cp2-tracker.vercel.app`
+5. Send it to your team. They open the URL → see the login → sign in → done.
+
+The `vercel.json` in this folder makes `/` serve the dashboard.
+
+> Since auth is handled in-app, the public URL is fine — anyone hitting it without an account just sees the login wall.
+
+### Option B — SharePoint / OneDrive shared link
+
+1. Drop the **whole folder** (`CP2 Cloud Sync.html`, `cloud-sync.js`, `firebase-config.js`) into a SharePoint document library
+2. Right-click the HTML → **Copy link**
+3. Send the link.
+4. **Important:** SharePoint must open it in the browser (not download). For a folder of files this works if you host in SharePoint Pages, otherwise use Vercel/Netlify.
+
+### Option C — Netlify drop (zero-config)
+
+1. Go to https://app.netlify.com/drop
+2. Drag this whole folder onto the page
+3. Get a URL, share it. Done.
+
+### Option D — Internal company server (most private)
+
+Just serve the folder with any static file server (nginx, IIS, even `python -m http.server`). Same files, no internet exposure.
+
+---
+
+## How team members use it
+
+1. Open the URL → see login screen
+2. Sign in with their assigned email
+3. **Edit anything** — click a marker, edit status, add log entries
+4. **Changes save automatically** to cloud — no "Save" button needed
+5. The green **Live** indicator in the header confirms sync is working
+6. When someone else edits, a toast appears: *"↻ Updated by alice"*
+7. The user menu (top right) has:
+   - 📜 Edit history (who changed what, when)
+   - 👥 Who's online
+   - ↪ Sign out
+
+---
+
+## Operation playbook
+
+### "I want to add a new teammate"
+Firebase Console → Authentication → Add user. Send them email + temp password.
+
+### "Someone left the company"
+Firebase Console → Authentication → find their row → ⋮ menu → **Delete account**. They lose access instantly.
+
+### "We need to reset everything"
+Firebase Console → Realtime Database → click the root node `/` → ⋮ → Delete. Next time someone opens the dashboard, it'll re-seed from the local HTML.
+
+### "I want to download a backup"
+Firebase Console → Realtime Database → ⋮ menu → **Export JSON**.
+
+### "Two people edited at the same time"
+Last save wins. The earlier edit is overwritten. The history panel shows both edits so you can manually re-apply the lost one. (We picked simple-merge per your spec — switch to field-level if conflicts become common.)
+
+### "I want to check who changed something"
+Top-right user menu → **Edit history**. Last 200 edits shown with timestamp + user + change summary.
+
+---
+
+## Free-tier limits (Firebase Spark plan)
+
+For a 5–15 person team doing 50 edits/day each, you'll use:
+- ~30 MB/day downloaded (limit: 10 GB/month) — **0.3% of limit**
+- ~1 MB stored (limit: 1 GB) — **0.1% of limit**
+- ~1500 simultaneous connections used at peak (limit: 100 concurrent) — **plenty**
+
+You will not pay anything. If usage explodes, upgrade to Blaze (pay-as-you-go) — typical bill: <$1/month even for heavy use.
+
+---
+
+## Troubleshooting
+
+| Symptom | Cause / Fix |
+|---|---|
+| Red banner "Firebase config missing" | You haven't edited `firebase-config.js` |
+| Login says "Wrong email or password" | Account doesn't exist yet — add it in Firebase Console |
+| Status indicator stuck on "Offline" | Check browser console for CORS / network errors. Most often: database rules not published, or `databaseURL` wrong. |
+| "Permission denied" in console | The database rules in step 1b weren't pasted/published. Repeat. |
+| Edits don't appear on other browsers | Open browser devtools → Application → Service Workers → unregister any. Then refresh. |
+| Old saved-to-HTML data showing instead of cloud | The cloud version reads from cloud only — old `Save to HTML` snapshots embedded in the file are ignored once cloud has data. To wipe and re-seed: delete `/state` in Firebase Console. |
+
+---
+
+## Files you can still use from the old workflow
+
+- `💾 Save to HTML` button is **still there** for offline backups. Saving locally also pushes to cloud, so you get both.
+- `⬇ Export JSON` / `⬆ Import JSON` still work for bulk operations.
+
+---
+
+## Security notes
+
+- **The `apiKey` in `firebase-config.js` is not secret.** Firebase keys identify your project; security comes from auth + database rules.
+- **Database rules** require `auth != null` for all reads/writes — anonymous access is impossible.
+- **Self-signup is disabled** in step 1a — only emails you add manually can sign in.
+- **HTTPS is enforced** automatically by Vercel/Netlify/Firebase.
+- For extra paranoia, restrict the API key to specific HTTP referrers: Google Cloud Console → APIs & Services → Credentials → your key → Application restrictions → HTTP referrers → add `your-domain.vercel.app/*`.
