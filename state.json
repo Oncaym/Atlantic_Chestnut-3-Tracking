@@ -9,9 +9,10 @@
       "status": "pending",
       "date": "",
       "louver": "yes",
+      "facecap": "yes",
       "note": "Residential Lobby · 5 Vision Lites +1 Door · 254.0 sf",
-      "glass": "",
-      "panels": ""
+      "glass": [],
+      "panels": []
     },
     {
       "key": "SF02",
@@ -22,9 +23,10 @@
       "status": "pending",
       "date": "",
       "louver": "yes",
+      "facecap": "yes",
       "note": "Storefront · 2 Vision Lites · 87.8 sf",
-      "glass": "",
-      "panels": ""
+      "glass": [],
+      "panels": []
     },
     {
       "key": "SF03",
@@ -35,9 +37,10 @@
       "status": "pending",
       "date": "",
       "louver": "yes",
+      "facecap": "yes",
       "note": "Chestnut Residential Lobby · 3 Vision Lites +1 Door · 185.7 sf",
-      "glass": "",
-      "panels": ""
+      "glass": [],
+      "panels": []
     },
     {
       "key": "SF04",
@@ -48,9 +51,10 @@
       "status": "pending",
       "date": "",
       "louver": "yes",
+      "facecap": "yes",
       "note": "Retail Storefront · 5 Vision Lites +1 Door · 286.7 sf",
-      "glass": "",
-      "panels": ""
+      "glass": [],
+      "panels": []
     },
     {
       "key": "SF05",
@@ -61,9 +65,10 @@
       "status": "pending",
       "date": "",
       "louver": "yes",
+      "facecap": "yes",
       "note": "Retail Storefront · 7 Vision Lites · 332.1 sf",
-      "glass": "",
-      "panels": ""
+      "glass": [],
+      "panels": []
     },
     {
       "key": "SF06",
@@ -74,9 +79,10 @@
       "status": "pending",
       "date": "",
       "louver": "yes",
+      "facecap": "yes",
       "note": "Retail (Atlantic West) · 8 Vision Lites +1 Door · 383.6 sf",
-      "glass": "",
-      "panels": ""
+      "glass": [],
+      "panels": []
     },
     {
       "key": "SF07",
@@ -87,9 +93,10 @@
       "status": "pending",
       "date": "",
       "louver": "yes",
+      "facecap": "yes",
       "note": "Retail (Atlantic East) · 8 Vision Lites +1 Door · 409.1 sf",
-      "glass": "",
-      "panels": ""
+      "glass": [],
+      "panels": []
     },
     {
       "key": "SF08",
@@ -100,9 +107,10 @@
       "status": "pending",
       "date": "",
       "louver": "yes",
+      "facecap": "yes",
       "note": "Retail (Euclid, Bldg 3) · 9 Vision Lites +1 Door · 518.8 sf",
-      "glass": "",
-      "panels": ""
+      "glass": [],
+      "panels": []
     },
     {
       "key": "SF09",
@@ -113,9 +121,10 @@
       "status": "pending",
       "date": "",
       "louver": "yes",
+      "facecap": "yes",
       "note": "Retail (Atlantic) · 7 Vision Lites +1 Door · 353.1 sf",
-      "glass": "",
-      "panels": ""
+      "glass": [],
+      "panels": []
     },
     {
       "key": "SF10",
@@ -126,9 +135,10 @@
       "status": "pending",
       "date": "",
       "louver": "yes",
+      "facecap": "yes",
       "note": "Retail w/ Double Door · 2 Vision Lites +2 Doors · 125.9 sf",
-      "glass": "",
-      "panels": ""
+      "glass": [],
+      "panels": []
     },
     {
       "key": "SF11",
@@ -139,9 +149,10 @@
       "status": "pending",
       "date": "",
       "louver": "yes",
+      "facecap": "yes",
       "note": "Retail Storefront · 4 Vision Lites · 183.0 sf",
-      "glass": "",
-      "panels": ""
+      "glass": [],
+      "panels": []
     },
     {
       "key": "SF12",
@@ -152,9 +163,10 @@
       "status": "pending",
       "date": "",
       "louver": "yes",
+      "facecap": "yes",
       "note": "Retail Storefront · 3 Vision Lites · 152.8 sf",
-      "glass": "",
-      "panels": ""
+      "glass": [],
+      "panels": []
     },
     {
       "key": "SF13",
@@ -165,9 +177,10 @@
       "status": "pending",
       "date": "",
       "louver": "yes",
+      "facecap": "yes",
       "note": "Retail Storefront · 3 Vision Lites · 139.5 sf",
-      "glass": "",
-      "panels": ""
+      "glass": [],
+      "panels": []
     },
     {
       "key": "SF14",
@@ -178,9 +191,10 @@
       "status": "pending",
       "date": "",
       "louver": "yes",
+      "facecap": "yes",
       "note": "Retail Storefront · 3 Vision Lites · 141.4 sf",
-      "glass": "",
-      "panels": ""
+      "glass": [],
+      "panels": []
     },
     {
       "key": "SF15",
@@ -191,9 +205,10 @@
       "status": "pending",
       "date": "",
       "louver": "no",
+      "facecap": "yes",
       "note": "Window Unit · 1 Vision Lite · 37.1 sf",
-      "glass": "",
-      "panels": ""
+      "glass": [],
+      "panels": []
     },
     {
       "key": "SF16",
@@ -204,9 +219,10 @@
       "status": "pending",
       "date": "",
       "louver": "no",
+      "facecap": "yes",
       "note": "Window Unit · 3 Vision Lites · 104.8 sf",
-      "glass": "",
-      "panels": ""
+      "glass": [],
+      "panels": []
     },
     {
       "key": "SF17",
@@ -217,12 +233,13 @@
       "status": "pending",
       "date": "",
       "louver": "no",
+      "facecap": "yes",
       "note": "Window Unit · 1 Vision Lite · 26.2 sf",
-      "glass": "",
-      "panels": ""
+      "glass": [],
+      "panels": []
     }
   ],
   "log": [],
   "positions": {},
-  "updatedAt": "2026-07-02T12:00:23.802298Z"
+  "updatedAt": "2026-07-06T12:45:00"
 }

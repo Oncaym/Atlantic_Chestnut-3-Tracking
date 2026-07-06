@@ -27,6 +27,7 @@ const I18N = {
     kpi_percent_sub_dyn: "{installed} / {total} units · Ground FL",
     sec_plan_title: "Floor Plan (from DXF) · Click marker to edit / drag to reposition",
     legend_louver: "Louver",
+    legend_facecap: "Face Cap",
     level_gf: "Ground Floor",
     level_l2: "Other Levels",
     tool_edit_pos: "📍 Edit marker position (drag)",
@@ -64,6 +65,7 @@ const I18N = {
     form_status: "Status",
     form_date: "Installation Date",
     form_louver: "Louver Installed?",
+    form_facecap: "Face Cap Installed?",
     opt_no: "No",
     opt_yes: "Yes",
     opt_na: "N/A",
@@ -101,6 +103,7 @@ const I18N = {
     alert_invalid_format: "Invalid format",
     alert_json_parse_fail: "JSON parse failed",
     confirm_reset: "Reset to PDF original data? Edits saved in browser will be lost.",
+    confirm_reset_cloud: "Refresh from cloud? Your local cache will be cleared and reloaded from the shared cloud data. Cloud data is NOT modified.",
     msg_reset: "Reset complete",
     msg_import_ok: "Import successful",
     badge_planned: "Planned",
@@ -172,6 +175,7 @@ const I18N = {
     kpi_percent_sub_dyn: "{installed} / {total} 单元 · 一层",
     sec_plan_title: "平面图（来自 DXF）· 点击标记编辑 / 拖拽调整位置",
     legend_louver: "百叶",
+    legend_facecap: "压条",
     level_gf: "一层",
     level_l2: "其他楼层",
     tool_edit_pos: "📍 编辑标记位置（拖拽）",
@@ -209,6 +213,7 @@ const I18N = {
     form_status: "状态",
     form_date: "安装日期",
     form_louver: "已装百叶？",
+    form_facecap: "已装压条？",
     opt_no: "否",
     opt_yes: "是",
     opt_na: "不适用",
@@ -246,6 +251,7 @@ const I18N = {
     alert_invalid_format: "格式不正确",
     alert_json_parse_fail: "JSON 解析失败",
     confirm_reset: "确认恢复为 PDF 原始数据？浏览器中保存的修改会丢失。",
+    confirm_reset_cloud: "从云端重新拉取数据？本地缓存将被清除并从云端共享数据重建，云端数据不会被修改。",
     msg_reset: "已重置",
     msg_import_ok: "导入成功",
     badge_planned: "计划",
@@ -317,6 +323,7 @@ const I18N = {
     kpi_percent_sub_dyn: "{installed} / {total} 유닛 · 1층",
     sec_plan_title: "평면도 (DXF) · 마커 클릭하여 편집 / 드래그하여 위치 조정",
     legend_louver: "루버",
+    legend_facecap: "페이스 캡",
     level_gf: "1층",
     level_l2: "기타 층",
     tool_edit_pos: "📍 마커 위치 편집 (드래그)",
@@ -354,6 +361,7 @@ const I18N = {
     form_status: "상태",
     form_date: "설치 날짜",
     form_louver: "루버 설치됨?",
+    form_facecap: "페이스 캡 설치됨?",
     opt_no: "아니오",
     opt_yes: "예",
     opt_na: "해당 없음",
@@ -391,6 +399,7 @@ const I18N = {
     alert_invalid_format: "형식이 올바르지 않습니다",
     alert_json_parse_fail: "JSON 파싱 실패",
     confirm_reset: "PDF 원본 데이터로 복원하시겠습니까? 브라우저에 저장된 변경 사항이 손실됩니다.",
+    confirm_reset_cloud: "클라우드에서 데이터를 다시 가져올까요? 로컬 캐시가 삭제되고 공유 클라우드 데이터로 재구성됩니다. 클라우드 데이터는 변경되지 않습니다.",
     msg_reset: "초기화 완료",
     msg_import_ok: "가져오기 성공",
     badge_planned: "예정",
@@ -514,23 +523,23 @@ let doorMode = false;  // when true, floor plan shows only doors (hides storefro
 // Seed data extracted from PDF — Ground Floor + Level 2 units
 // Source: "GLASS and Louver Locations on plans.pdf"
 const SEED_UNITS = [
-  { key:'SF01', id:'SF01', type:'Storefront', zone:'Lobby', level:'GF', status:'pending', date:'', louver:'yes', note:"Residential Lobby \u00b7 5 Vision Lites +1 Door \u00b7 254.0 sf" },
-  { key:'SF02', id:'SF02', type:'Storefront', zone:'Retail', level:'GF', status:'pending', date:'', louver:'yes', note:"Storefront \u00b7 2 Vision Lites \u00b7 87.8 sf" },
-  { key:'SF03', id:'SF03', type:'Storefront', zone:'Lobby', level:'GF', status:'pending', date:'', louver:'yes', note:"Chestnut Residential Lobby \u00b7 3 Vision Lites +1 Door \u00b7 185.7 sf" },
-  { key:'SF04', id:'SF04', type:'Storefront', zone:'Retail', level:'GF', status:'pending', date:'', louver:'yes', note:"Retail Storefront \u00b7 5 Vision Lites +1 Door \u00b7 286.7 sf" },
-  { key:'SF05', id:'SF05', type:'Storefront', zone:'Retail', level:'GF', status:'pending', date:'', louver:'yes', note:"Retail Storefront \u00b7 7 Vision Lites \u00b7 332.1 sf" },
-  { key:'SF06', id:'SF06', type:'Storefront', zone:'Retail', level:'GF', status:'pending', date:'', louver:'yes', note:"Retail (Atlantic West) \u00b7 8 Vision Lites +1 Door \u00b7 383.6 sf" },
-  { key:'SF07', id:'SF07', type:'Storefront', zone:'Retail', level:'GF', status:'pending', date:'', louver:'yes', note:"Retail (Atlantic East) \u00b7 8 Vision Lites +1 Door \u00b7 409.1 sf" },
-  { key:'SF08', id:'SF08', type:'Storefront', zone:'Retail', level:'GF', status:'pending', date:'', louver:'yes', note:"Retail (Euclid, Bldg 3) \u00b7 9 Vision Lites +1 Door \u00b7 518.8 sf" },
-  { key:'SF09', id:'SF09', type:'Storefront', zone:'Retail', level:'GF', status:'pending', date:'', louver:'yes', note:"Retail (Atlantic) \u00b7 7 Vision Lites +1 Door \u00b7 353.1 sf" },
-  { key:'SF10', id:'SF10', type:'Storefront', zone:'Retail', level:'GF', status:'pending', date:'', louver:'yes', note:"Retail w/ Double Door \u00b7 2 Vision Lites +2 Doors \u00b7 125.9 sf" },
-  { key:'SF11', id:'SF11', type:'Storefront', zone:'Retail', level:'GF', status:'pending', date:'', louver:'yes', note:"Retail Storefront \u00b7 4 Vision Lites \u00b7 183.0 sf" },
-  { key:'SF12', id:'SF12', type:'Storefront', zone:'Retail', level:'GF', status:'pending', date:'', louver:'yes', note:"Retail Storefront \u00b7 3 Vision Lites \u00b7 152.8 sf" },
-  { key:'SF13', id:'SF13', type:'Storefront', zone:'Retail', level:'GF', status:'pending', date:'', louver:'yes', note:"Retail Storefront \u00b7 3 Vision Lites \u00b7 139.5 sf" },
-  { key:'SF14', id:'SF14', type:'Storefront', zone:'Retail', level:'GF', status:'pending', date:'', louver:'yes', note:"Retail Storefront \u00b7 3 Vision Lites \u00b7 141.4 sf" },
-  { key:'SF15', id:'SF15', type:'Storefront', zone:'Window', level:'GF', status:'pending', date:'', louver:'no', note:"Window Unit \u00b7 1 Vision Lite \u00b7 37.1 sf" },
-  { key:'SF16', id:'SF16', type:'Storefront', zone:'Window', level:'GF', status:'pending', date:'', louver:'no', note:"Window Unit \u00b7 3 Vision Lites \u00b7 104.8 sf" },
-  { key:'SF17', id:'SF17', type:'Storefront', zone:'Window', level:'GF', status:'pending', date:'', louver:'no', note:"Window Unit \u00b7 1 Vision Lite \u00b7 26.2 sf" }
+  { key:'SF01', id:'SF01', type:'Storefront', zone:'Lobby', level:'GF', status:'pending', date:'', louver:'yes', facecap:'yes', note:"Residential Lobby \u00b7 5 Vision Lites +1 Door \u00b7 254.0 sf" },
+  { key:'SF02', id:'SF02', type:'Storefront', zone:'Retail', level:'GF', status:'pending', date:'', louver:'yes', facecap:'yes', note:"Storefront \u00b7 2 Vision Lites \u00b7 87.8 sf" },
+  { key:'SF03', id:'SF03', type:'Storefront', zone:'Lobby', level:'GF', status:'pending', date:'', louver:'yes', facecap:'yes', note:"Chestnut Residential Lobby \u00b7 3 Vision Lites +1 Door \u00b7 185.7 sf" },
+  { key:'SF04', id:'SF04', type:'Storefront', zone:'Retail', level:'GF', status:'pending', date:'', louver:'yes', facecap:'yes', note:"Retail Storefront \u00b7 5 Vision Lites +1 Door \u00b7 286.7 sf" },
+  { key:'SF05', id:'SF05', type:'Storefront', zone:'Retail', level:'GF', status:'pending', date:'', louver:'yes', facecap:'yes', note:"Retail Storefront \u00b7 7 Vision Lites \u00b7 332.1 sf" },
+  { key:'SF06', id:'SF06', type:'Storefront', zone:'Retail', level:'GF', status:'pending', date:'', louver:'yes', facecap:'yes', note:"Retail (Atlantic West) \u00b7 8 Vision Lites +1 Door \u00b7 383.6 sf" },
+  { key:'SF07', id:'SF07', type:'Storefront', zone:'Retail', level:'GF', status:'pending', date:'', louver:'yes', facecap:'yes', note:"Retail (Atlantic East) \u00b7 8 Vision Lites +1 Door \u00b7 409.1 sf" },
+  { key:'SF08', id:'SF08', type:'Storefront', zone:'Retail', level:'GF', status:'pending', date:'', louver:'yes', facecap:'yes', note:"Retail (Euclid, Bldg 3) \u00b7 9 Vision Lites +1 Door \u00b7 518.8 sf" },
+  { key:'SF09', id:'SF09', type:'Storefront', zone:'Retail', level:'GF', status:'pending', date:'', louver:'yes', facecap:'yes', note:"Retail (Atlantic) \u00b7 7 Vision Lites +1 Door \u00b7 353.1 sf" },
+  { key:'SF10', id:'SF10', type:'Storefront', zone:'Retail', level:'GF', status:'pending', date:'', louver:'yes', facecap:'yes', note:"Retail w/ Double Door \u00b7 2 Vision Lites +2 Doors \u00b7 125.9 sf" },
+  { key:'SF11', id:'SF11', type:'Storefront', zone:'Retail', level:'GF', status:'pending', date:'', louver:'yes', facecap:'yes', note:"Retail Storefront \u00b7 4 Vision Lites \u00b7 183.0 sf" },
+  { key:'SF12', id:'SF12', type:'Storefront', zone:'Retail', level:'GF', status:'pending', date:'', louver:'yes', facecap:'yes', note:"Retail Storefront \u00b7 3 Vision Lites \u00b7 152.8 sf" },
+  { key:'SF13', id:'SF13', type:'Storefront', zone:'Retail', level:'GF', status:'pending', date:'', louver:'yes', facecap:'yes', note:"Retail Storefront \u00b7 3 Vision Lites \u00b7 139.5 sf" },
+  { key:'SF14', id:'SF14', type:'Storefront', zone:'Retail', level:'GF', status:'pending', date:'', louver:'yes', facecap:'yes', note:"Retail Storefront \u00b7 3 Vision Lites \u00b7 141.4 sf" },
+  { key:'SF15', id:'SF15', type:'Storefront', zone:'Window', level:'GF', status:'pending', date:'', louver:'no', facecap:'yes', note:"Window Unit \u00b7 1 Vision Lite \u00b7 37.1 sf" },
+  { key:'SF16', id:'SF16', type:'Storefront', zone:'Window', level:'GF', status:'pending', date:'', louver:'no', facecap:'yes', note:"Window Unit \u00b7 3 Vision Lites \u00b7 104.8 sf" },
+  { key:'SF17', id:'SF17', type:'Storefront', zone:'Window', level:'GF', status:'pending', date:'', louver:'no', facecap:'yes', note:"Window Unit \u00b7 1 Vision Lite \u00b7 26.2 sf" }
 ];
 
 // Daily log from PDF notes (May 2026)
@@ -743,8 +752,13 @@ function mergeSeedUnits(s) {
         if (seed) {
           if (!u.glass)  u.glass  = seed.glass  || '';
           if (!u.panels) u.panels = seed.panels || '';
+          if (u.facecap === undefined) u.facecap = seed.facecap || 'na';
         }
       });
+      // backfill facecap on units with no matching seed (e.g. manually-added
+      // markers like split units or extra doors) so older saved state doesn't
+      // break the edit form / plan badge.
+      s.units.forEach(u => { if (u.facecap === undefined) u.facecap = 'na'; });
       // Sync `zone` (wall direction) from SEED_UNITS — zone is layout metadata,
       // not a user-edited field, so force-update it to match the latest seed.
       // This lets us fix marker fan-out direction without a Reset.
@@ -1039,7 +1053,7 @@ function renderPlan() {
 function showPlanTooltip(e, u) {
   const tt = document.getElementById('planTooltip');
   tt.innerHTML = `<strong>${u.id}</strong> · ${isDoor(u) ? 'Door' : u.type} · ${u.zone}<br>
-    <span style="color:var(--text-dim)">${formatStatus(u.status)}${u.date ? ' · ' + formatDate(u.date) : ''}${u.louver==='yes' ? ' · Louver ✓' : ''}</span>
+    <span style="color:var(--text-dim)">${formatStatus(u.status)}${u.date ? ' · ' + formatDate(u.date) : ''}${u.louver==='yes' ? ' · Louver ✓' : ''}${u.facecap==='yes' ? ' · Face Cap ✓' : ''}</span>
     ${u.note ? '<br><span style="color:var(--text-dim);font-size:10px">' + u.note + '</span>' : ''}`;
   const rect = e.currentTarget.getBoundingClientRect();
   const wrapRect = document.getElementById('planWrap').getBoundingClientRect();
@@ -1540,7 +1554,7 @@ document.getElementById('planImg').addEventListener('click', e => {
           newKey = trimmedId + '__' + n;
           while (state.units.some(u => u.key === newKey)) { n++; newKey = trimmedId + '__' + n; }
         }
-        state.units.push({ key: newKey, id: trimmedId, type:'Storefront', zone:'—', level:currentLevel, status:'pending', date:'', louver:'no', note:'' });
+        state.units.push({ key: newKey, id: trimmedId, type:'Storefront', zone:'—', level:currentLevel, status:'pending', date:'', louver:'no', facecap:'na', note:'' });
         state.positions[newKey] = { x, y };
       }
       togglePlaceMode();
@@ -2223,6 +2237,7 @@ function openUnit(id) {
   document.getElementById('m-status').value = u.status;
   document.getElementById('m-date').value = u.date || '';
   document.getElementById('m-louver').value = u.louver;
+  document.getElementById('m-facecap').value = u.facecap || 'na';
   document.getElementById('m-note').value = u.note || '';
   // populate glass panels list
   let panels = u.glassPanels;
@@ -2297,7 +2312,8 @@ function _renderElevKpis(key,u){
   parts.forEach(p=>{ const r=S.el[p.id]||{}; const type=r.type||p.t0; const status=r.status||'pending'; if(type==='hidden')return; if(!bt[type])bt[type]=[0,0]; bt[type][1]++; if(status==='installed')bt[type][0]++; });
   const sfI=(u&&u.status==='installed'?1:0)+bt.door[0], sfT=1+bt.door[1];
   const card=(l,i,t)=>'<div class="kpi-card"><div class="kpi-label">'+l+'</div><div class="kpi-value">'+i+'</div><div class="kpi-sub">'+i+' / '+t+' installed</div></div>';
-  kpi.innerHTML=card('Storefront',sfI,sfT)+card('Glass',bt.glass[0],bt.glass[1])+card('Metal Panel',bt.panel[0],bt.panel[1])+card('Louver',bt.louver[0],bt.louver[1]);
+  const fc=(u&&u.facecap)||'na'; const fcT=(fc==='na')?0:1; const fcI=(fc==='yes')?1:0;
+  kpi.innerHTML=card('Storefront',sfI,sfT)+card('Glass',bt.glass[0],bt.glass[1])+card('Metal Panel',bt.panel[0],bt.panel[1])+card('Louver',bt.louver[0],bt.louver[1])+card('Face Cap',fcI,fcT);
 }
 function setElevMode(edit){ _elevEdit=edit;
   const bs=document.getElementById('elevModeStatus'), be=document.getElementById('elevModeEdit');
@@ -2369,6 +2385,7 @@ function saveUnit() {
   const _oldStatus = u.status;
   const _oldDate   = u.date || '';
   const _oldLouver = u.louver;
+  const _oldFacecap = u.facecap;
   const _oldNote   = u.note || '';
   const _oldGlassPanels = JSON.parse(JSON.stringify(u.glassPanels || []));
 
@@ -2384,6 +2401,7 @@ function saveUnit() {
   u.status = document.getElementById('m-status').value;
   u.date   = document.getElementById('m-date').value;
   u.louver = document.getElementById('m-louver').value;
+  u.facecap = document.getElementById('m-facecap').value;
   u.glassPanels = readGlassPanels();
   u.glassNote   = document.getElementById('m-glass-note').value;
   u.note   = document.getElementById('m-note').value;
@@ -2391,7 +2409,7 @@ function saveUnit() {
   // --- Auto-generate Daily Log entry from diff ---
   autoLogUnitChanges(u, {
     id: _oldId, status: _oldStatus, date: _oldDate,
-    louver: _oldLouver, note: _oldNote, glassPanels: _oldGlassPanels
+    louver: _oldLouver, facecap: _oldFacecap, note: _oldNote, glassPanels: _oldGlassPanels
   });
 
   closeModal();
@@ -2676,6 +2694,16 @@ function importData(e) {
   e.target.value = '';
 }
 function resetData() {
+  // Cloud mode: Reset must NEVER push the blank seed to the shared database —
+  // that would wipe the whole team's data. Instead, drop the local cache and
+  // reload; the page rebuilds from cloud truth.
+  if (window._cloudQueuePush) {
+    if (!confirm(t('confirm_reset_cloud'))) return;
+    localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(BASELINE_KEY);
+    location.reload();
+    return;
+  }
   if (!confirm(t('confirm_reset'))) return;
   localStorage.removeItem(STORAGE_KEY);
   localStorage.removeItem(BASELINE_KEY);
@@ -3103,11 +3131,13 @@ async function bootstrap() {
       if (data && data.units && data.log) {
         window._embeddedStateJson = data;
       }
-    } else {
-      console.warn('state.json fetch returned', res.status);
     }
-  } catch (e) {
-    console.warn('state.json fetch failed — falling back to inline embedded_state', e);
-  }
+  } catch (e) { console.warn('bootstrap: state.json fetch failed', e); }
   initApp();
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', bootstrap);
+} else {
+  bootstrap();
 }
