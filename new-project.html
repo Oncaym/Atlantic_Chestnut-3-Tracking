@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>New Tracker Wizard · 建新项目向导</title>
+<style>
+  :root { --bg:#0f1419; --panel:#1a2028; --panel2:#232b36; --border:#2d3744; --text:#e6edf3;
+          --dim:#8b949e; --accent:#4493f8; --green:#3fb950; --yellow:#d29922; --red:#f85149; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+         background:var(--bg); color:var(--text); line-height:1.55; padding:28px; max-width:960px; margin:0 auto; }
+  h1 { font-size:20px; margin-bottom:4px; }
+  .sub { color:var(--dim); font-size:13px; margin-bottom:20px; }
+  .topbar { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
+  .langbar { display:flex; gap:4px; background:var(--panel2); padding:3px; border-radius:8px; border:1px solid var(--border); flex:0 0 auto; }
+  .wlang-btn { background:transparent; color:var(--dim); border:0; padding:5px 10px; border-radius:6px; cursor:pointer; font-size:12px; }
+  .wlang-btn:hover { color:var(--text); }
+  .wlang-btn.active { background:var(--accent); color:#fff; }
+  .step { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:18px; margin-bottom:14px; }
+  .step h2 { font-size:14px; margin-bottom:10px; }
+  .step h2 .n { display:inline-flex; width:22px; height:22px; border-radius:50%; background:var(--accent); color:#fff;
+                align-items:center; justify-content:center; font-size:12px; margin-right:8px; }
+  .step.done h2 .n { background:var(--green); }
+  label { display:block; font-size:12px; color:var(--dim); margin:8px 0 4px; }
+  input[type=text], textarea, select { width:100%; background:var(--panel2); color:var(--text);
+    border:1px solid var(--border); border-radius:8px; padding:9px 12px; font-size:14px; outline:none; }
+  input:focus, textarea:focus { border-color:var(--accent); }
+  textarea { font-family:ui-monospace,Menlo,monospace; font-size:12px; min-height:110px; }
+  .row { display:flex; gap:12px; flex-wrap:wrap; } .row > div { flex:1; min-width:180px; }
+  .btn { background:var(--accent); color:#fff; border:none; border-radius:8px; padding:10px 20px;
+         font-size:14px; font-weight:600; cursor:pointer; margin-top:10px; }
+  .btn:disabled { opacity:.4; cursor:not-allowed; }
+  .btn.ghost { background:transparent; border:1px solid var(--border); color:var(--text); font-weight:400; }
+  .pick { background:var(--panel2); border:1px dashed var(--border); border-radius:8px; padding:12px; cursor:pointer; margin-top:6px; }
+  .pick:hover { border-color:var(--accent); } .pick.ok { border-style:solid; border-color:var(--green); }
+  table { width:100%; border-collapse:collapse; font-size:12px; margin-top:10px; }
+  th,td { padding:5px 8px; border-bottom:1px solid var(--border); text-align:left; }
+  th { color:var(--dim); font-size:11px; }
+  td select { padding:3px 6px; font-size:12px; }
+  .hint { font-size:12px; color:var(--dim); margin-top:6px; }
+  #log { font-family:ui-monospace,Menlo,monospace; font-size:12px; color:var(--dim); white-space:pre-wrap; max-height:260px; overflow-y:auto; margin-top:10px; }
+  .err { background:rgba(248,81,73,.10); border:1px solid rgba(248,81,73,.4); border-radius:8px; padding:10px 14px; font-size:13px; margin-bottom:14px; }
+  .note { background:rgba(68,147,248,.10); border:1px solid rgba(68,147,248,.4); border-radius:8px; padding:10px 14px; font-size:13px; margin-bottom:12px; }
+  .checklist { font-size:13px; } .checklist li { margin:6px 0 6px 18px; }
+  .cloud-only { color:var(--dim); }
+  .cloud-tag { font-size:10px; background:var(--yellow); color:#000; padding:1px 6px; border-radius:5px; margin-left:6px; vertical-align:middle; }
+  code { background:var(--panel2); padding:1px 6px; border-radius:4px; font-size:12px; }
+  .floor-row { display:flex; gap:12px; align-items:flex-end; margin-bottom:10px; }
+  .floor-del { margin-top:0; padding:9px 12px; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div>
+    <h1 data-i18n="title">🏗 New Tracker Wizard · 建新项目向导</h1>
+    <div class="sub" data-i18n="sub">照现有项目建一个新工地的 tracker：core 原样带走，名单换成新项目的。全程本地，不用写代码。</div>
+  </div>
+  <div class="langbar">
+    <button class="wlang-btn" data-lang="zh" onclick="setWizLang('zh')">中文</button>
+    <button class="wlang-btn" data-lang="en" onclick="setWizLang('en')">ENG</button>
+    <button class="wlang-btn" data-lang="ko" onclick="setWizLang('ko')">한국어</button>
+  </div>
+</div>
+
+<div id="unsupported" class="err" style="display:none" data-i18n="unsupported">这个浏览器不支持所需能力——请用 Chrome 或 Edge 打开本页。</div>
+
+<div class="step" id="s1">
+  <h2><span class="n">1</span><span data-i18n="s1_h">选模板项目（比如 AC3 的文件夹）</span></h2>
+  <div class="pick" id="pickSrc" onclick="pickSrc()" data-i18n="s1_pick">📁 点这里选择现有 tracker 文件夹</div>
+</div>
+
+<div class="step" id="s2">
+  <h2><span class="n">2</span><span data-i18n="s2_h">新项目信息</span></h2>
+  <div class="row">
+    <div><label data-i18n="s2_name">项目全名（登录页/标题用）</label><input type="text" id="pName" placeholder="e.g. Atlantic-Chestnut Building 4"></div>
+    <div><label data-i18n="s2_code">短代号（logo/存储键用，字母数字）</label><input type="text" id="pCode" placeholder="e.g. AC4" maxlength="8"></div>
+    <div><label data-i18n="s2_gc">GC / 总包名（副标题用）</label><input type="text" id="pGC" placeholder="e.g. Monadnock"></div>
+  </div>
+</div>
+
+<div class="step" id="s3">
+  <h2><span class="n">3</span><span data-i18n="s3_h">粘贴单元清单</span></h2>
+  <div class="row">
+    <div style="flex:0 0 220px"><label data-i18n="s3_cat">这一批是什么类别</label>
+      <select id="catSel" onchange="document.getElementById('catCustom').style.display=this.value==='__custom'?'':'none'">
+        <option>Exterior SF</option><option>Interior SF</option><option>Aluminum Door</option>
+        <option>Sliding Door</option><option>Hollow Metal Door</option><option>Metal Panel</option>
+        <option>Sun Shade</option><option>Canopy</option><option>Glass</option><option>Louver</option>
+        <option value="__custom" data-i18n="s3_cat_custom">自定义…</option>
+      </select>
+    </div>
+    <div style="flex:0 0 200px;display:none" id="catCustom"><label data-i18n="s3_cat_custom_lbl">自定义类别名</label><input type="text" id="catInput" placeholder="e.g. Curtain Wall"></div>
+  </div>
+  <div class="hint" data-i18n-html="s3_hint">每行一个单元，<b>只需要编号</b>（例：SF01）。想带更多信息可选：编号后用 Tab 依次接 描述、区域、楼层、Vision Lites 数、门数、面积 sf、Louver(yes/no)——用不到就留空。表头行自动跳过。</div>
+  <textarea id="tsv" placeholder="SF01&#10;SF02&#10;SF03"></textarea>
+  <button class="btn ghost" onclick="addBatch()" data-i18n="s3_add">➕ 添加这一批</button>
+  <button class="btn ghost" onclick="clearAll()" data-i18n="s3_clear">🗑 清空名单</button>
+  <div id="previewBox"></div>
+</div>
+
+<div class="step" id="s35">
+  <h2><span class="n">4</span><span data-i18n="s4_h">导入平面图底图（可选，之后随时能换）</span></h2>
+  <div id="floorList"></div>
+  <button class="btn ghost" onclick="addFloor()" data-i18n="s4_add">➕ 添加楼层</button>
+  <div class="hint" data-i18n="s4_hint">默认一个 Ground Floor 输入口；点"添加楼层"可加任意多个自定义楼层（各自命名 + 各自底图）。不选底图就先用模板占位图，之后放进文件夹同名替换即可。</div>
+</div>
+
+<div class="step" id="s4">
+  <h2><span class="n">5</span><span data-i18n="s5_h">选目标文件夹并生成</span></h2>
+  <div class="hint" data-i18n-html="s5_hint">先在电脑上新建一个<b>空文件夹</b>（比如 "AC4 tracker"），然后选它。</div>
+  <div class="pick" id="pickDst" onclick="pickDst()" data-i18n="s5_pick">📁 点这里选择新建的空文件夹</div>
+  <button class="btn" id="goBtn" onclick="generate()" disabled data-i18n="s5_go">🚀 生成新 tracker</button>
+  <div id="log"></div>
+</div>
+
+<div class="step" id="s5" style="display:none">
+  <h2><span class="n">✓</span><span data-i18n="done_h">接下来</span></h2>
+  <div class="note" data-i18n-html="done_note">✅ 只想在本地单机看：<b>双击新文件夹里的 index.html 就能用</b>，下面第 2–6 步全部跳过。<br>下面这些只有在需要<b>多人云端协作</b>（实时同步、手机现场更新）时才做，约 25 分钟一次性开通。</div>
+  <ol class="checklist">
+    <li data-i18n-html="done_1">双击新文件夹里的 <code>index.html</code> —— 应该能看到全部单元（本地模式横幅是正常的）</li>
+    <li class="cloud-only" data-i18n-html="done_2">照文件夹里的 <code>SETUP.md</code> 建一个<b>新的</b> Firebase 项目（20 分钟，不要复用别的项目的）<span class="cloud-tag" data-i18n="tag_cloud">仅云端</span></li>
+    <li class="cloud-only" data-i18n-html="done_3">新建 GitHub 仓库并推送，接上 Vercel；仓库 Secrets 里配 <code>FIREBASE_SERVICE_ACCOUNT</code> + <code>FIREBASE_DATABASE_URL</code>（每日备份用），Vercel 环境变量配 <code>ANTHROPIC_API_KEY</code>（Chat 用）<span class="cloud-tag" data-i18n="tag_cloud">仅云端</span></li>
+    <li data-i18n-html="done_4">把真实平面图换掉占位图（文件名不变），在页面上用 Place mode 摆标记</li>
+    <li data-i18n-html="done_5">对 Claude 说：<code>按新 takeoff 重建 index.html 的 scope 卡片区</code>（那块数量还是模板项目的）</li>
+    <li class="cloud-only" data-i18n-html="done_6">Firebase Console 里给每个 PM 建登录账号<span class="cloud-tag" data-i18n="tag_cloud">仅云端</span></li>
+  </ol>
+</div>
+
+<script>
+/* ---------- i18n ---------- */
+const T = {
+  zh: {
+    title:'🏗 New Tracker Wizard · 建新项目向导',
+    sub:'照现有项目建一个新工地的 tracker：core 原样带走，名单换成新项目的。全程本地，不用写代码。',
+    unsupported:'这个浏览器不支持所需能力——请用 Chrome 或 Edge 打开本页。',
+    s1_h:'选模板项目（比如 AC3 的文件夹）', s1_pick:'📁 点这里选择现有 tracker 文件夹',
+    s2_h:'新项目信息', s2_name:'项目全名（登录页/标题用）', s2_code:'短代号（logo/存储键用，字母数字）', s2_gc:'GC / 总包名（副标题用）',
+    s3_h:'粘贴单元清单', s3_cat:'这一批是什么类别', s3_cat_custom:'自定义…', s3_cat_custom_lbl:'自定义类别名',
+    s3_hint:'每行一个单元，<b>只需要编号</b>（例：SF01）。想带更多信息可选：编号后用 Tab 依次接 描述、区域、楼层、Vision Lites 数、门数、面积 sf、Louver(yes/no)——用不到就留空。表头行自动跳过。',
+    s3_add:'➕ 添加这一批', s3_clear:'🗑 清空名单',
+    s4_h:'导入平面图底图（可选，之后随时能换）', s4_add:'➕ 添加楼层',
+    s4_hint:'默认一个 Ground Floor 输入口；点"添加楼层"可加任意多个自定义楼层（各自命名 + 各自底图）。不选底图就先用模板占位图，之后放进文件夹同名替换即可。',
+    floor_name_lbl:'楼层名称', floor_img_lbl:'底图 (PNG/JPG/SVG)', floor_gf_default:'Ground Floor', floor_new_default:'Level ',
+    s5_h:'选目标文件夹并生成', s5_hint:'先在电脑上新建一个<b>空文件夹</b>（比如 "AC4 tracker"），然后选它。',
+    s5_pick:'📁 点这里选择新建的空文件夹', s5_go:'🚀 生成新 tracker',
+    done_h:'接下来',
+    done_note:'✅ 只想在本地单机看：<b>双击新文件夹里的 index.html 就能用</b>，下面第 2–6 步全部跳过。<br>下面这些只有在需要<b>多人云端协作</b>（实时同步、手机现场更新）时才做，约 25 分钟一次性开通。',
+    done_1:'双击新文件夹里的 <code>index.html</code> —— 应该能看到全部单元（本地模式横幅是正常的）',
+    done_2:'照文件夹里的 <code>SETUP.md</code> 建一个<b>新的</b> Firebase 项目（20 分钟，不要复用别的项目的）<span class="cloud-tag">仅云端</span>',
+    done_3:'新建 GitHub 仓库并推送，接上 Vercel；仓库 Secrets 里配 <code>FIREBASE_SERVICE_ACCOUNT</code> + <code>FIREBASE_DATABASE_URL</code>（每日备份用），Vercel 环境变量配 <code>ANTHROPIC_API_KEY</code>（Chat 用）<span class="cloud-tag">仅云端</span>',
+    done_4:'把真实平面图换掉占位图（文件名不变），在页面上用 Place mode 摆标记',
+    done_5:'对 Claude 说：<code>按新 takeoff 重建 index.html 的 scope 卡片区</code>（那块数量还是模板项目的）',
+    done_6:'Firebase Console 里给每个 PM 建登录账号<span class="cloud-tag">仅云端</span>',
+    tag_cloud:'仅云端',
+    th_id:'编号', th_cat:'类别', th_zone:'区域', th_level:'楼层', th_louver:'Louver', th_note:'Note',
+    sum_units:'个单元', sum_check:'请和 takeoff 的合计行核对！', empty:'名单为空。选好类别，粘贴编号，点"添加这一批"，可以多批累加。',
+    dup:'行编号重复已跳过：',
+    a_src:'这个文件夹里没有 project-config.js——请选一个已完成 core 架构的 tracker 文件夹',
+    a_dst_notempty:'⚠ 这个文件夹不是空的——请新建一个空文件夹再选', a_dst_ok:'✓ 目标：',
+    a_noparse:'没解析出任何行——每行至少要有一个编号', a_tpl:'✓ 模板：',
+  },
+  en: {
+    title:'🏗 New Tracker Wizard',
+    sub:'Clone a new job-site tracker from an existing one: core carried over as-is, unit list swapped for the new project. All local, no coding.',
+    unsupported:'This browser lacks the required capability — please open this page in Chrome or Edge.',
+    s1_h:'Pick a template project (e.g. the AC3 folder)', s1_pick:'📁 Click here to choose an existing tracker folder',
+    s2_h:'New project info', s2_name:'Full project name (login/title)', s2_code:'Short code (logo / storage key, alphanumeric)', s2_gc:'GC / general contractor (subtitle)',
+    s3_h:'Paste the unit list', s3_cat:'What category is this batch', s3_cat_custom:'Custom…', s3_cat_custom_lbl:'Custom category name',
+    s3_hint:'One unit per line — <b>only the ID is required</b> (e.g. SF01). Optional extra columns after a Tab: description, zone, level, vision-lite count, door count, area sf, Louver(yes/no). Leave blank if unused; header rows are skipped.',
+    s3_add:'➕ Add this batch', s3_clear:'🗑 Clear list',
+    s4_h:'Import floor-plan images (optional, swap anytime)', s4_add:'➕ Add floor',
+    s4_hint:'One Ground Floor input by default; click "Add floor" to add any number of custom floors (each with its own name + image). Skip the image to start with the template placeholder, then drop the real file in with the same name.',
+    floor_name_lbl:'Floor name', floor_img_lbl:'Plan image (PNG/JPG/SVG)', floor_gf_default:'Ground Floor', floor_new_default:'Level ',
+    s5_h:'Choose the target folder and generate', s5_hint:'First create an <b>empty folder</b> on your computer (e.g. "AC4 tracker"), then select it.',
+    s5_pick:'📁 Click here to choose the new empty folder', s5_go:'🚀 Generate new tracker',
+    done_h:'Next steps',
+    done_note:'✅ For local single-machine use: <b>just double-click index.html in the new folder</b> — skip steps 2–6 below.<br>The steps below are only needed for <b>multi-user cloud collaboration</b> (live sync, phone field updates), ~25 min one-time setup.',
+    done_1:'Double-click <code>index.html</code> in the new folder — you should see all units (the local-mode banner is normal)',
+    done_2:'Follow <code>SETUP.md</code> in the folder to create a <b>new</b> Firebase project (20 min, do not reuse another project\'s)<span class="cloud-tag">Cloud only</span>',
+    done_3:'Create a GitHub repo and push, connect Vercel; set repo Secrets <code>FIREBASE_SERVICE_ACCOUNT</code> + <code>FIREBASE_DATABASE_URL</code> (daily backup), Vercel env var <code>ANTHROPIC_API_KEY</code> (Chat)<span class="cloud-tag">Cloud only</span>',
+    done_4:'Replace the placeholder plan with the real image (same filename), then place markers with Place mode',
+    done_5:'Tell Claude: <code>rebuild the scope card section of index.html from the new takeoff</code> (those counts are still the template\'s)',
+    done_6:'Create a login account for each PM in the Firebase Console<span class="cloud-tag">Cloud only</span>',
+    tag_cloud:'Cloud only',
+    th_id:'ID', th_cat:'Category', th_zone:'Zone', th_level:'Level', th_louver:'Louver', th_note:'Note',
+    sum_units:'units', sum_check:'Cross-check against the takeoff total row!', empty:'List is empty. Pick a category, paste IDs, click "Add this batch" — you can stack multiple batches.',
+    dup:'duplicate IDs skipped: ',
+    a_src:'No project-config.js in that folder — pick a tracker folder already on the core architecture',
+    a_dst_notempty:'⚠ That folder is not empty — create a new empty folder and pick it', a_dst_ok:'✓ Target: ',
+    a_noparse:'No rows parsed — every line needs at least an ID', a_tpl:'✓ Template: ',
+  },
+  ko: {
+    title:'🏗 New Tracker Wizard · 신규 프로젝트 마법사',
+    sub:'기존 프로젝트로 새 현장 트래커를 복제합니다: core는 그대로, 목록만 새 프로젝트로 교체. 전부 로컬, 코딩 불필요.',
+    unsupported:'이 브라우저는 필요한 기능을 지원하지 않습니다 — Chrome 또는 Edge로 열어 주세요.',
+    s1_h:'템플릿 프로젝트 선택 (예: AC3 폴더)', s1_pick:'📁 기존 트래커 폴더 선택',
+    s2_h:'새 프로젝트 정보', s2_name:'프로젝트 전체 이름 (로그인/제목)', s2_code:'짧은 코드 (로고/저장 키, 영숫자)', s2_gc:'GC / 원청 (부제목)',
+    s3_h:'유닛 목록 붙여넣기', s3_cat:'이 배치의 카테고리', s3_cat_custom:'사용자 지정…', s3_cat_custom_lbl:'사용자 지정 카테고리명',
+    s3_hint:'한 줄에 하나 — <b>번호만 있으면 됩니다</b> (예: SF01). 추가 정보는 선택: 번호 뒤 Tab 으로 설명, 구역, 층, Vision Lites 수, 문 수, 면적 sf, Louver(yes/no). 안 쓰면 비워 두세요. 헤더 행은 자동 건너뜀.',
+    s3_add:'➕ 이 배치 추가', s3_clear:'🗑 목록 비우기',
+    s4_h:'평면도 이미지 가져오기 (선택, 언제든 교체 가능)', s4_add:'➕ 층 추가',
+    s4_hint:'기본 Ground Floor 입력 하나; "층 추가"로 사용자 지정 층을 얼마든지 추가 (각각 이름 + 이미지). 이미지를 안 고르면 템플릿 자리표시자를 쓰고, 나중에 같은 이름으로 교체하세요.',
+    floor_name_lbl:'층 이름', floor_img_lbl:'평면도 (PNG/JPG/SVG)', floor_gf_default:'Ground Floor', floor_new_default:'Level ',
+    s5_h:'대상 폴더 선택 후 생성', s5_hint:'먼저 컴퓨터에 <b>빈 폴더</b>를 만드세요 (예: "AC4 tracker"), 그 다음 선택하세요.',
+    s5_pick:'📁 새로 만든 빈 폴더 선택', s5_go:'🚀 새 트래커 생성',
+    done_h:'다음 단계',
+    done_note:'✅ 로컬 단독 사용: <b>새 폴더의 index.html 더블클릭이면 끝</b> — 아래 2–6단계는 건너뛰세요.<br>아래는 <b>다중 사용자 클라우드 협업</b>(실시간 동기화, 휴대폰 현장 업데이트)에만 필요합니다. 약 25분 일회성 설정.',
+    done_1:'새 폴더의 <code>index.html</code> 더블클릭 — 모든 유닛이 보여야 함 (로컬 모드 배너는 정상)',
+    done_2:'폴더의 <code>SETUP.md</code>대로 <b>새</b> Firebase 프로젝트 생성 (20분, 다른 프로젝트 재사용 금지)<span class="cloud-tag">클라우드 전용</span>',
+    done_3:'GitHub 저장소 생성·푸시, Vercel 연결; 저장소 Secrets에 <code>FIREBASE_SERVICE_ACCOUNT</code> + <code>FIREBASE_DATABASE_URL</code> (일일 백업), Vercel 환경변수 <code>ANTHROPIC_API_KEY</code> (Chat)<span class="cloud-tag">클라우드 전용</span>',
+    done_4:'자리표시자 평면도를 실제 이미지로 교체 (같은 파일명), Place mode로 마커 배치',
+    done_5:'Claude에게: <code>새 takeoff로 index.html의 scope 카드 영역 재구성</code> (그 수치는 아직 템플릿 것)',
+    done_6:'Firebase Console에서 각 PM 로그인 계정 생성<span class="cloud-tag">클라우드 전용</span>',
+    tag_cloud:'클라우드 전용',
+    th_id:'번호', th_cat:'카테고리', th_zone:'구역', th_level:'층', th_louver:'Louver', th_note:'Note',
+    sum_units:'유닛', sum_check:'takeoff 합계 행과 대조하세요!', empty:'목록이 비었습니다. 카테고리 선택, 번호 붙여넣기, "이 배치 추가" 클릭 — 여러 배치 누적 가능.',
+    dup:'중복 번호 건너뜀: ',
+    a_src:'그 폴더에 project-config.js가 없습니다 — core 아키텍처가 적용된 트래커 폴더를 선택하세요',
+    a_dst_notempty:'⚠ 폴더가 비어 있지 않습니다 — 새 빈 폴더를 만들어 선택하세요', a_dst_ok:'✓ 대상: ',
+    a_noparse:'파싱된 행 없음 — 각 줄에 최소 번호가 필요합니다', a_tpl:'✓ 템플릿: ',
+  }
+};
+let wlang = localStorage.getItem('wiznav_lang') || 'zh';
+function WT(k){ return (T[wlang]&&T[wlang][k]) || T.en[k] || k; }
+function setWizLang(lang){
+  if(!T[lang]) lang='en';
+  wlang=lang; localStorage.setItem('wiznav_lang',lang);
+  document.documentElement.setAttribute('lang', lang==='zh'?'zh-CN':lang==='ko'?'ko':'en');
+  document.querySelectorAll('[data-i18n]').forEach(el=>el.textContent=WT(el.getAttribute('data-i18n')));
+  document.querySelectorAll('[data-i18n-html]').forEach(el=>el.innerHTML=WT(el.getAttribute('data-i18n-html')));
+  document.querySelectorAll('.wlang-btn').forEach(b=>b.classList.toggle('active', b.dataset.lang===lang));
+  preview();
+}
+
+/* ---------- capability check ---------- */
+if (!window.showDirectoryPicker) document.getElementById('unsupported').style.display='block';
+let srcDir=null, dstDir=null, srcCfg=null, units=[];
+
+const CORE = ['app.js','app-log.js','cloud-sync.js','chat.html','api/parse.js',
+              '.github/workflows/backup.yml','.github/scripts/backup-state.js'];
+const META = ['SYNC.md','FEATURES.md','sync.html','new-project.html','SETUP.md',
+              'firebase-database-rules.json','vercel.json'];
+
+/* ---------- floors ---------- */
+function addFloor(name){
+  const list=document.getElementById('floorList');
+  const idx=list.querySelectorAll('.floor-row').length;
+  const isGF = idx===0;
+  const def = isGF ? WT('floor_gf_default') : (name || (WT('floor_new_default')+(idx+1)));
+  const row=document.createElement('div');
+  row.className='floor-row';
+  row.innerHTML =
+    `<div style="flex:1"><label data-i18n="floor_name_lbl">${WT('floor_name_lbl')}</label>`+
+    `<input type="text" class="floor-name" value="${def.replace(/"/g,'&quot;')}"></div>`+
+    `<div style="flex:1"><label data-i18n="floor_img_lbl">${WT('floor_img_lbl')}</label>`+
+    `<input type="file" class="floor-file" accept="image/*"></div>`+
+    (isGF ? '' : `<button class="btn ghost floor-del" onclick="this.closest('.floor-row').remove()">✕</button>`);
+  list.appendChild(row);
+}
+
+function slug(code){ return (code||'prj').toLowerCase().replace(/[^a-z0-9]/g,''); }
+function currentCat(){
+  const v=document.getElementById('catSel').value;
+  return v==='__custom' ? (document.getElementById('catInput').value.trim()||'Other') : v;
+}
+function parseTSV(cat){
+  const rows = document.getElementById('tsv').value.trim().split(/\r?\n/).map(r=>r.split('\t').map(c=>c.trim()));
+  const out=[];
+  for(const r of rows){
+    if(r.length<1 || !r[0]) continue;
+    if(/^(id|mark|编号|unit|type|类别|번호)/i.test(r[0])) continue;   // header row
+    const [id,desc,zone,level,lites,doors,sf,louver]=r;
+    const L=parseInt(lites)||0, D=parseInt(doors)||0, S=parseFloat(sf)||0;
+    const parts=[desc||cat];
+    if(L) parts.push(`${L} Vision Lites${D?` +${D} Door${D>1?'s':''}`:''}`);
+    else if(D) parts.push(`${D} Door${D>1?'s':''}`);
+    if(S) parts.push(`${S} sf`);
+    const lv = louver ? (/^y/i.test(louver)?'yes':'no') : 'na';
+    out.push({key:id,id,type:cat,zone:zone||'—',level:level||'GF',status:'pending',date:'',
+              louver:lv,facecap:'na',note:parts.join(' · '),_L:L,_D:D,_S:S});
+  }
+  return out;
+}
+function addBatch(){
+  const cat=currentCat();
+  const batch=parseTSV(cat);
+  if(!batch.length){ alert(WT('a_noparse')); return; }
+  const seen=new Set(units.map(u=>u.id));
+  const dup=batch.filter(b=>seen.has(b.id));
+  units=units.concat(batch.filter(b=>!seen.has(b.id)));
+  document.getElementById('tsv').value='';
+  preview(dup);
+}
+function clearAll(){ units=[]; preview(); }
+function preview(dup){
+  const tl=units.reduce((a,u)=>a+(u._L||0),0), td=units.reduce((a,u)=>a+(u._D||0),0), ts=units.reduce((a,u)=>a+(u._S||0),0);
+  const cats={}; units.forEach(u=>cats[u.type]=(cats[u.type]||0)+1);
+  const doorN=units.filter(u=>/door/i.test(u.type)).length;
+  const lvOpt=v=>['yes','no','na'].map(o=>`<option value="${o}"${v===o?' selected':''}>${o}</option>`).join('');
+  document.getElementById('previewBox').innerHTML = units.length
+    ? ((dup&&dup.length)?`<div class="hint" style="color:var(--red)">⚠ ${dup.length} ${WT('dup')}${dup.map(d=>d.id).join(', ')}</div>`:'')
+      + `<table><tr><th>${WT('th_id')}</th><th>${WT('th_cat')}</th><th>${WT('th_zone')}</th><th>${WT('th_level')}</th><th>${WT('th_louver')}</th><th>${WT('th_note')}</th><th></th></tr>`
+      + units.map((u,i)=>`<tr><td>${u.id}</td><td>${u.type}</td><td>${u.zone}</td><td>${u.level}</td>
+          <td><select onchange="units[${i}].louver=this.value">${lvOpt(u.louver)}</select></td><td>${u.note}</td>
+          <td><a href="#" onclick="units.splice(${i},1);preview();return false" style="color:var(--red)">×</a></td></tr>`).join('')
+      + `</table><div class="hint">${units.length} <b>${WT('sum_units')}</b>（${Object.entries(cats).map(([k,v])=>k+' × '+v).join(' · ')}）
+         · ${tl} vision lites · ${(td||doorN)?`${td||doorN} door`:''} · ${ts.toFixed(1)} sf —— <b>${WT('sum_check')}</b></div>`
+    : `<div class="hint">${WT('empty')}</div>`;
+  document.getElementById('s3').classList.toggle('done', units.length>0); ready();
+}
+function ready(){
+  const ok = srcDir && dstDir && units.length>0 &&
+             document.getElementById('pName').value.trim() && document.getElementById('pCode').value.trim();
+  document.getElementById('goBtn').disabled = !ok;
+}
+['pName','pCode','pGC'].forEach(id=>document.getElementById(id).addEventListener('input',ready));
+
+async function pickSrc(){
+  try{
+    srcDir = await showDirectoryPicker({mode:'read'});
+    const f = await (await srcDir.getFileHandle('project-config.js')).getFile();
+    const t = await f.text();
+    srcCfg = { name:(t.match(/name:\s*'([^']+)'/)||[])[1], code:(t.match(/code:\s*'([^']+)'/)||[])[1],
+               storageKey:(t.match(/storageKey:\s*'([^']+)'/)||[])[1] };
+    const el=document.getElementById('pickSrc'); el.classList.add('ok');
+    el.textContent = `${WT('a_tpl')}${srcDir.name}（${srcCfg.name}）`;
+    document.getElementById('s1').classList.add('done'); ready();
+  }catch(e){ if(srcDir) alert(WT('a_src')); }
+}
+async function pickDst(){
+  try{
+    dstDir = await showDirectoryPicker({mode:'readwrite'});
+    let n=0; for await (const _ of dstDir.values()) n++;
+    const el=document.getElementById('pickDst');
+    if(n>0){ el.textContent=WT('a_dst_notempty'); el.classList.remove('ok'); dstDir=null; return; }
+    el.classList.add('ok'); el.textContent=WT('a_dst_ok')+dstDir.name; ready();
+  }catch(e){}
+}
+
+function logLine(s){ const el=document.getElementById('log'); el.textContent+=s+'\n'; el.scrollTop=el.scrollHeight; }
+async function getH(dir,path,create){ const p=path.split('/'); let d=dir;
+  for(let i=0;i<p.length-1;i++) d=await d.getDirectoryHandle(p[i],{create:!!create});
+  return d.getFileHandle(p[p.length-1],{create:!!create}); }
+async function copyFile(path){ try{
+    const src=await (await getH(srcDir,path)).getFile();
+    const w=await (await getH(dstDir,path,true)).createWritable();
+    await w.write(await src.arrayBuffer()); await w.close(); logLine('✅ '+path); return true;
+  }catch(e){ logLine('⚠ skip '+path+'（'+e.message+'）'); return false; } }
+async function writeFile(path,text){ const w=await (await getH(dstDir,path,true)).createWritable();
+  await w.write(text); await w.close(); logLine('📝 '+path); }
+async function writeBin(path,buf){ const w=await (await getH(dstDir,path,true)).createWritable();
+  await w.write(buf); await w.close(); logLine('🖼 '+path); }
+function esc(s){ return String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
+function extOf(f){ return (f.name.match(/\.[a-z0-9]+$/i)||['.png'])[0].toLowerCase(); }
+
+async function generate(){
+  document.getElementById('goBtn').disabled=true;
+  const name=document.getElementById('pName').value.trim();
+  const code=document.getElementById('pCode').value.trim().toUpperCase();
+  const gc=document.getElementById('pGC').value.trim()||'GC';
+  const sl=slug(code);
+
+  // collect floors from the UI
+  const rows=[...document.querySelectorAll('#floorList .floor-row')];
+  const floors=rows.map((row,i)=>{
+    const nm=row.querySelector('.floor-name').value.trim() || (i===0?'Ground Floor':('Level '+(i+1)));
+    const key=i===0?'GF':('L'+(i+1));
+    const file=row.querySelector('.floor-file').files[0]||null;
+    const img=file?('plan-'+key.toLowerCase()+extOf(file)):null;
+    return {key,name:nm,file,img};
+  });
+  const gfFloor=floors[0];
+
+  try{
+    logLine('—— generate '+name+' ——');
+    for(const f of CORE) await copyFile(f);
+    for(const f of META) await copyFile(f);
+
+    // write all floor images that were provided
+    for(const fl of floors){ if(fl.file){ await writeBin(fl.img, await fl.file.arrayBuffer()); } }
+
+    // floors block for project-config (one typed name reused across langs)
+    const floorsJs = '[\n' + floors.map(fl=>{
+      const n=esc(fl.name);
+      return `    { key: '${esc(fl.key)}', name: { en: '${n}', zh: '${n}', ko: '${n}' }${fl.img?`, img: '${esc(fl.img)}'`:''} }`;
+    }).join(',\n') + '\n  ]';
+
+    // project-config.js
+    const seed = JSON.stringify(units.map(({_L,_D,_S,...u})=>u),null,2).replace(/"([a-zA-Z]+)":/g,'$1:').replace(/"/g,"'");
+    await writeFile('project-config.js',
+`/* PROJECT CONFIG — ${name}
+   项目专属数据都在这里；core 文件跨项目同步。规则见 SYNC.md。 */
+window.PROJECT = {
+  name: '${esc(name)}',
+  code: '${esc(code)}',
+  storageKey:  '${sl}_install_v1',
+  baselineKey: '${sl}_install_v1_baseline',
+  langKey:     '${sl}_lang',
+  fileSlug:    '${sl}',
+  doorPatterns: ['^SD'],
+  requirePlacedMarkers: true,
+  floors: ${floorsJs},
+  i18n: {
+    en: { header_sub: "${esc(gc)} · Ground Floor · Storefront Install & Glass Tracking", img_alt_gf: "${esc(name)} — Ground Floor Plan" },
+    zh: { header_sub: "${esc(gc)} · 一层 · 店面安装与玻璃追踪", img_alt_gf: "${esc(name)} — 一层平面图" },
+    ko: { header_sub: "${esc(gc)} · 지상층 · 설치 추적", img_alt_gf: "${esc(name)} — 지상층 평면도" }
+  },
+  seedUnits: ${seed},
+  seedLog: [],
+  defaultPositions: {}
+};
+`);
+    // state.json
+    await writeFile('state.json', JSON.stringify({units:units.map(({_L,_D,_S,...u})=>u),log:[],positions:{},updatedAt:''},null,1));
+    // stubs & placeholders
+    await writeFile('elevations.js','/* Elevation geometry — generate per project from shop drawings. */\nwindow.ELEVATIONS = {};\n');
+    await writeFile('firebase-config.js',
+`/* Firebase config for ${esc(name)} tracker — create a NEW Firebase project
+   (never reuse another tracker's), then paste its web-app config below.
+   Until then the app runs in LOCAL mode. See SETUP.md. */
+window.FIREBASE_CONFIG = {
+  apiKey: "PASTE_YOUR_API_KEY",
+  authDomain: "YOUR_PROJECT.firebaseapp.com",
+  databaseURL: "https://YOUR_PROJECT-default-rtdb.firebaseio.com",
+  projectId: "YOUR_PROJECT",
+  storageBucket: "YOUR_PROJECT.firebasestorage.app",
+  messagingSenderId: "PASTE_SENDER_ID",
+  appId: "PASTE_APP_ID"
+};
+`);
+    await writeFile('package.json', JSON.stringify({name:sl+'-tracker',version:'1.0.0',private:true,type:'module',
+      description:name+' install tracker — static site + /api/parse serverless function'},null,2));
+
+    // index.html — copy + rebrand title strings + wire ground-floor plan image
+    let idx = await (await (await getH(srcDir,'index.html')).getFile()).text();
+    if(srcCfg.name) idx = idx.split(srcCfg.name).join(name);
+    if(gfFloor && gfFloor.file){
+      const gfName='plan-gf'+extOf(gfFloor.file);
+      // gfFloor.img already written above; wire planImg to it
+      const before=idx;
+      idx = idx.replace(/(<img[^>]*id="planImg"[^>]*src=")[^"]+(")/, '$1'+gfFloor.img+'$2');
+      if(idx===before) idx = idx.replace(/(<img[^>]*src=")[^"]+("[^>]*id="planImg")/, '$1'+gfFloor.img+'$2');
+      logLine(idx===before?'⚠ planImg tag not found, image saved but not wired':'🔗 planImg → '+gfFloor.img);
+    } else {
+      const m = idx.match(/<img[^>]*id="planImg"[^>]*src="([^"]+)"/) || idx.match(/src="([^"]+)"[^>]*id="planImg"/);
+      if(m) await copyFile(m[1]);
+    }
+    await writeFile('index.html', idx);
+
+    // recover.html — copy + swap storage keys
+    try{
+      let rec = await (await (await getH(srcDir,'recover.html')).getFile()).text();
+      if(srcCfg.storageKey) rec = rec.split(srcCfg.storageKey).join(sl+'_install_v1');
+      if(srcCfg.name) rec = rec.split(srcCfg.name).join(name);
+      await writeFile('recover.html', rec);
+    }catch(e){ logLine('⚠ recover.html skipped'); }
+
+    // CLAUDE.md + README
+    await writeFile('CLAUDE.md',
+`# ${name} Tracker — Claude 会话交接文件
+
+由 New Tracker Wizard 从「${srcCfg.name||'模板'}」生成（${new Date().toISOString().slice(0,10)}）。
+架构与 AC3/CP2 相同：core/config 分离。**改任何文件前先读 SYNC.md**（core 同步规则 +
+编辑锁协议），功能台账见 FEATURES.md，数据模型见 project-config.js。
+
+- 项目专属：project-config.js（SEED / storageKey ${sl}_install_v1 / 项目名 / floors 楼层）、
+  state.json、firebase-config.js、index.html（混合件）、平面图
+- 楼层：project-config.js 的 floors 数组定义看板的楼层标签与底图（key/name/img）；
+  app.js 会据此生成楼层按钮和 Tab。单元靠 level 字段归属楼层（值＝floor 的 key）。
+- 待办：① Firebase 未配置（SETUP.md，仅云端需要）② scope 卡片区还是模板项目的数量，
+  对 Claude 说"按新 takeoff 重建 scope 卡片"③ 平面图是模板占位，需替换后 Place mode 摆点
+- 编辑锁：改文件前查 EDITING.lock（2 小时内他人持有→停），改完删除。
+`);
+    await writeFile('README.md',
+`# ${name} — Installation Progress Monitor
+
+Generated from ${srcCfg.name||'template'} by New Tracker Wizard. ${units.length} units seeded.
+Open index.html locally (LOCAL mode) · cloud setup: SETUP.md · sync rules: SYNC.md
+`);
+    logLine('—— done ✓ '+units.length+' units, '+floors.length+' floor(s). See step 5 below.');
+    document.getElementById('s4').classList.add('done');
+    document.getElementById('s5').style.display='block';
+    document.getElementById('s5').scrollIntoView({behavior:'smooth'});
+  }catch(e){ logLine('❌ failed: '+e.message); document.getElementById('goBtn').disabled=false; }
+}
+
+/* ---------- init ---------- */
+addFloor();            // seed the default Ground Floor row
+setWizLang(wlang);     // apply saved language + render preview
+</script>
+</body>
+</html>

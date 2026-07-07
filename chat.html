@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CP2 Chat Updater</title>
+<title>Chat Updater</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E💬%3C/text%3E%3C/svg%3E">
 <style>
   :root {
@@ -277,10 +277,10 @@
 <div id="gate">
   <div class="gate-card">
     <div class="gate-brand">
-      <div class="gate-logo">CP2</div>
+      <div class="gate-logo" id="gateLogo"></div>
       <div>
         <div class="gate-title">Chat Updater</div>
-        <div class="gate-sub">Atlantic-Chestnut Building 3 · Natural-language progress</div>
+        <div class="gate-sub" id="gateSub">Natural-language progress</div>
       </div>
     </div>
     <form id="gate-form">
@@ -301,7 +301,7 @@
 <div id="app">
   <header>
     <div>
-      <div class="h-title">CP2 Chat Updater</div>
+      <div class="h-title" id="chatTitle">Chat Updater</div>
       <div class="h-sub" id="user-label">—</div>
     </div>
     <div class="h-spacer"></div>
@@ -327,11 +327,22 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
 <script src="firebase-config.js"></script>
+<script src="project-config.js"></script>
 
 <script>
 /* ============================================================
-   CP2 Chat — main script
+   Tracker Chat — main script (core; project identity from project-config.js)
    ============================================================ */
+
+  // ---- project branding from project-config.js ----
+  (function(){
+    const P = window.PROJECT || {};
+    document.title = (P.code ? P.code + ' ' : '') + 'Chat Updater';
+    const el = (id) => document.getElementById(id);
+    if (el('gateLogo'))  el('gateLogo').textContent  = P.code || '—';
+    if (el('gateSub'))   el('gateSub').textContent   = (P.name ? P.name + ' · ' : '') + 'Natural-language progress';
+    if (el('chatTitle')) el('chatTitle').textContent = (P.code ? P.code + ' ' : '') + 'Chat Updater';
+  })();
 (() => {
   const $ = (id) => document.getElementById(id);
 
@@ -479,6 +490,7 @@
         body: JSON.stringify({
           message: text,
           today,
+          project: (window.PROJECT || {}).name || '',
           state: {
             units: (cachedState.units || []).map(u => ({
               key: u.key, id: u.id, zone: u.zone, status: u.status, date: u.date,
@@ -621,7 +633,7 @@
     const logRows = (parsed.log_entries || []).map(le => `
       <div class="diff-row">
         <span class="diff-key">+log ${escapeHtml(le.date)}</span>
-        <span class="diff-change">[${escapeHtml(le.category)}] ${escapeHtml(le.content)}${le.planned ? ' <span style="color:var(--warn)">(planned)</span>' : ''}</span>
+        <span class="diff-change">[${escapeHtml(le.category)}] ${escapeHtml(le.content)}${le.planned ? ' <span style="color:var(--warn)">(planned)</span>' : ''}${le.party ? ' · party: ' + escapeHtml(le.party) : ''}${le.fault ? ' · fault: ' + escapeHtml(le.fault) : ''}${le.ref ? ' · ref: ' + escapeHtml(le.ref) : ''}</span>
       </div>`).join('');
 
     card.innerHTML = `
@@ -681,6 +693,10 @@
           category: le.category,
           content: le.content,
           ...(le.planned ? { planned: true } : {}),
+          // Evidence fields (responsibility / verification / paper trail)
+          ...(le.ref   ? { ref:   le.ref   } : {}),
+          ...(le.party ? { party: le.party } : {}),
+          ...(le.fault ? { fault: le.fault } : {}),
         });
       });
 
