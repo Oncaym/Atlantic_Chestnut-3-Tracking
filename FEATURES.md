@@ -31,6 +31,7 @@ Status: ✅ live · ⬜ not enabled · ⚠ diverged (see note)
 | F-024 | New Tracker Wizard 云端模板模式（Step 1 可从 Hub raw 拉模板生成，不用本地模板文件夹） | ✅ | ⬜ | meta 工具 new-project.html；复用 localStorage `tracker_hub` |
 | F-025 | 贡献回 Hub（"📤 贡献回 Hub" 按钮 → serverless `api/contribute.js` 用 bot token 自动开 PR；无端点则降级下载打包） | ✅ | ⬜ | 端点只需部署在 Hub；env `GITHUB_HUB_TOKEN`；说明见 HUB-SETUP.md |
 | F-026 | **Project Sync**（`project-sync.html`）：把 sync + new-project 合并成单文件双分页工具，中/英/韩三语，Hub 改为**粘贴 GitHub 链接**自动解析 owner/repo/branch，全部按钮 node 校验可点击 | ✅ | ⬜ | meta 工具；**取代 `sync.html` + `new-project.html`（已删除）**；F-023/24/25 的能力都并入此文件 |
+| F-027 | Project Sync 同步"工具/文档文件"（project-sync.html/SYNC.md/FEATURES.md/HUB-SETUP.md 可从 Hub 拉取，🔧 标记）+ 旧文件清理（sync.html/new-project.html 若残留可一键 🗑 删除） | ✅ | ⬜ | 让工具能自我分发；contribDiffFiles 限定 core，不误报"贡献" |
 
 ## Divergence watchlist
 - **F-021 (app.js 数据驱动楼层, 2026-07-07)**: AC3 的 app.js 已加 getFloors/renderFloorControls，CP2 尚未同步。改动向后兼容（无 `PROJECT.floors` 时零行为变化），所以 CP2 现状不受影响；但下次改 core 前应把 app.js 原样复制到 CP2 并 md5 校验，避免漂移。

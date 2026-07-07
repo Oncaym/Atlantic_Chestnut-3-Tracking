@@ -265,6 +265,7 @@ const T = {
     a_noparse:'没解析出任何行——每行至少要有一个编号', a_hub_unreach:'拉不到 Hub（{o}/{r}@{b}）。确认仓库存在、public、分支和路径正确。',
     hub_verifying:'⏳ 正在验证 Hub…', hub_ok:'✓ Hub 模板：', hub_fail:'❌ 验证失败（读不到 project-config.js）：',
     my_proj:'我的项目：', src_lbl:'源：', dst_lbl:'目标：', no_cfg:'⚠ 没有 project-config.js —— 可能不是 tracker 文件夹',
+    stale_del:'删除旧文件', stale_confirm:'删除旧文件（已被 project-sync.html 取代）：',
   },
   en: {
     app_title:'🔁 Project Sync', app_sub:'One toolkit: pull from Hub / contribute back / create a new project. All local, no coding.',
@@ -307,6 +308,7 @@ const T = {
     a_noparse:'No rows parsed — every line needs at least an ID', a_hub_unreach:'Cannot reach Hub ({o}/{r}@{b}). Check it exists, is public, branch/paths correct.',
     hub_verifying:'⏳ Verifying Hub…', hub_ok:'✓ Hub template: ', hub_fail:'❌ Verify failed (cannot read project-config.js): ',
     my_proj:'My project: ', src_lbl:'Source: ', dst_lbl:'Target: ', no_cfg:'⚠ No project-config.js — may not be a tracker folder',
+    stale_del:'delete stale', stale_confirm:'Delete stale file (superseded by project-sync.html):',
   },
   ko: {
     app_title:'🔁 Project Sync', app_sub:'하나의 도구: Hub에서 최신 받기 / Hub에 기여 / 새 프로젝트 생성. 전부 로컬, 코딩 불필요.',
@@ -349,6 +351,7 @@ const T = {
     a_noparse:'파싱된 행 없음 — 각 줄에 최소 번호 필요', a_hub_unreach:'Hub에 연결 불가 ({o}/{r}@{b}). 존재/public/브랜치/경로 확인.',
     hub_verifying:'⏳ Hub 확인 중…', hub_ok:'✓ Hub 템플릿: ', hub_fail:'❌ 확인 실패 (project-config.js 읽기 불가): ',
     my_proj:'내 프로젝트: ', src_lbl:'소스: ', dst_lbl:'대상: ', no_cfg:'⚠ project-config.js 없음 — tracker 폴더가 아닐 수 있음',
+    stale_del:'삭제', stale_confirm:'오래된 파일 삭제 (project-sync.html로 대체됨):',
   }
 };
 let lang = localStorage.getItem('tracker_lang_wiz') || 'zh';
@@ -464,6 +467,10 @@ function parseFeatures(md){
 const CORE_FILES = ['app.js','app-log.js','cloud-sync.js','chat.html','api/parse.js',
   '.github/workflows/backup.yml','.github/scripts/backup-state.js'];
 const PROTECTED = ['project-config.js','firebase-config.js','state.json','elevations.js','index.html'];
+// Shared tooling/docs — synced like core so the tool distributes itself.
+const TOOLING = ['project-sync.html','SYNC.md','FEATURES.md','HUB-SETUP.md'];
+// Superseded files: if present locally, offer one-click deletion.
+const STALE = ['sync.html','new-project.html'];
 
 /* ================= SYNC TAB ================= */
 let syncMode='cloud', dirA=null, dirB=null, dirTarget=null, hubCache={}, results=[], localOnlyFeats=[];
@@ -510,7 +517,7 @@ async function scanCloud(){
   document.getElementById('lockWarn').innerHTML = lock
     ? `<div class="warn">⚠ ${lock.user} · ${lock.started}</div>` : '';
   hubCache={}; let diffs=0, reachable=true;
-  for(const p of CORE_FILES){
+  for(const p of CORE_FILES.concat(TOOLING)){
     let hub=null;
     try{ hub = await fetchHub(p); }catch(e){ reachable=false; }
     hubCache[p]=hub;
@@ -524,11 +531,12 @@ async function scanCloud(){
     results.push({path:p, hSrc:hHub, hLoc, same, missing});
     tb.insertAdjacentHTML('beforeend', `<tr>
       <td><input type="checkbox" data-p="${p}" ${(!same&&!missing)?'checked':''} ${(same||missing)?'disabled':''}></td>
-      <td>${p}</td><td class="mono">${hHub||'—'}</td><td class="mono">${hLoc||'—'}</td>
+      <td>${TOOLING.includes(p)?'🔧 ':''}${p}</td><td class="mono">${hHub||'—'}</td><td class="mono">${hLoc||'—'}</td>
       <td class="${cls}">${status}</td></tr>`);
   }
   for(const p of PROTECTED)
     tb.insertAdjacentHTML('beforeend', `<tr><td></td><td>${p}</td><td class="mono">—</td><td class="mono">—</td><td class="st-protected">🔒</td></tr>`);
+  await addStaleRows(dirTarget);
   await renderFeatureDiff();
   if(!reachable && Object.values(hubCache).every(v=>!v))
     document.getElementById('featBox').innerHTML = `<div class="err">${fmt(t('a_hub_unreach'),{o:c.owner,r:c.repo,b:c.branch})}</div>`;
@@ -549,7 +557,7 @@ async function renderFeatureDiff(){
   if(localOnly.length) html += `<div class="feat"><h3>🟣 you ⊃ Hub</h3>`+localOnly.map(id=>`<div class="item"><span class="pill local">${id}</span>${loc[id]}</div>`).join('')+`</div>`;
   document.getElementById('featBox').innerHTML = html;
 }
-function contribDiffFiles(){ return results.filter(r=>!r.same && !r.missing).map(r=>r.path); }
+function contribDiffFiles(){ return results.filter(r=>!r.same && !r.missing && CORE_FILES.includes(r.path)).map(r=>r.path); }
 function renderContribBtn(){
   const holder=document.getElementById('contribHolder');
   if(!holder) return;
@@ -590,6 +598,22 @@ async function contribute(){
     el.insertAdjacentHTML('beforeend', `   <a href="${data.url}" target="_blank">${data.url}</a>\n`); el.scrollTop=el.scrollHeight;
   }catch(e){ syncLog(`❌ ${e.message}`); }
 }
+async function addStaleRows(dir){
+  const tb=document.getElementById('rows');
+  for(const p of STALE){
+    const hLoc=await localHash(dir,p);
+    if(!hLoc) continue;
+    tb.insertAdjacentHTML('beforeend', `<tr><td></td><td>${p}</td><td class="mono">—</td><td class="mono">${hLoc}</td>`+
+      `<td class="st-diff"><a href="#" onclick="deleteStale('${p}');return false" style="color:var(--red)">🗑 ${t('stale_del')}</a></td></tr>`);
+  }
+}
+async function deleteStale(p){
+  const target = syncMode==='cloud' ? dirTarget : dirB;
+  if(!target) return;
+  if(!confirm(t('stale_confirm')+' '+p+' ?')) return;
+  try{ await target.removeEntry(p); syncLog('🗑 '+p); }catch(e){ syncLog('❌ '+p+': '+e.message); }
+  scan();
+}
 async function scanLocal(){
   const tb=document.getElementById('rows'); tb.innerHTML=''; results=[];
   document.getElementById('syncTable').style.display='block';
@@ -598,7 +622,7 @@ async function scanLocal(){
   const lock = await checkLock(dirB);
   document.getElementById('lockWarn').innerHTML = lock ? `<div class="warn">⚠ ${lock.user} · ${lock.started}</div>` : '';
   let diffs=0;
-  for(const p of CORE_FILES){
+  for(const p of CORE_FILES.concat(TOOLING)){
     const ha=await localHash(dirA,p), hb=await localHash(dirB,p);
     const same=ha&&hb&&ha===hb, missing=!ha;
     const status=missing?'—':same?'✓':(hb?'●':'+');
@@ -607,11 +631,12 @@ async function scanLocal(){
     results.push({path:p, hSrc:ha, hLoc:hb, same, missing});
     tb.insertAdjacentHTML('beforeend', `<tr>
       <td><input type="checkbox" data-p="${p}" ${(!same&&!missing)?'checked':''} ${(same||missing)?'disabled':''}></td>
-      <td>${p}</td><td class="mono">${ha||'—'}</td><td class="mono">${hb||'—'}</td>
+      <td>${TOOLING.includes(p)?'🔧 ':''}${p}</td><td class="mono">${ha||'—'}</td><td class="mono">${hb||'—'}</td>
       <td class="${cls}">${status}</td></tr>`);
   }
   for(const p of PROTECTED)
     tb.insertAdjacentHTML('beforeend', `<tr><td></td><td>${p}</td><td class="mono">—</td><td class="mono">—</td><td class="st-protected">🔒</td></tr>`);
+  await addStaleRows(dirB);
   document.getElementById('summary').textContent = diffs ? `${diffs} core` : '✓';
   document.getElementById('syncBtn').disabled = !diffs || !!lock;
 }
