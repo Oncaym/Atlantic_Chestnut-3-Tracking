@@ -67,7 +67,23 @@
 
 <div class="step" id="s1">
   <h2><span class="n">1</span><span data-i18n="s1_h">选模板项目（比如 AC3 的文件夹）</span></h2>
-  <div class="pick" id="pickSrc" onclick="pickSrc()" data-i18n="s1_pick">📁 点这里选择现有 tracker 文件夹</div>
+  <div class="langbar" style="margin-bottom:12px">
+    <button class="wlang-btn" id="modeCloudBtn" onclick="setSrcMode('cloud')" data-i18n="s1_mode_cloud">☁ 从云端 Hub 拉模板</button>
+    <button class="wlang-btn" id="modeLocalBtn" onclick="setSrcMode('local')" data-i18n="s1_mode_local">📁 选本地模板文件夹</button>
+  </div>
+  <div id="cloudSrc">
+    <div class="row">
+      <div><label data-i18n="hub_owner">GitHub 用户/组织 (owner)</label><input type="text" id="hubOwner" placeholder="e.g. leosun"></div>
+      <div><label data-i18n="hub_repo">仓库名 (repo)</label><input type="text" id="hubRepo" placeholder="e.g. tracker-hub"></div>
+      <div style="flex:0 0 140px"><label data-i18n="hub_branch">分支 (branch)</label><input type="text" id="hubBranch" placeholder="main"></div>
+    </div>
+    <button class="btn ghost" onclick="saveHub()" data-i18n="hub_save">💾 记住 Hub</button>
+    <button class="btn ghost" onclick="verifyHub()" data-i18n="hub_verify">✓ 验证 Hub</button>
+    <div class="pick" id="hubStatus" style="display:none"></div>
+  </div>
+  <div id="localSrc" style="display:none">
+    <div class="pick" id="pickSrc" onclick="pickSrc()" data-i18n="s1_pick">📁 点这里选择现有 tracker 文件夹</div>
+  </div>
 </div>
 
 <div class="step" id="s2">
@@ -134,7 +150,12 @@ const T = {
     title:'🏗 New Tracker Wizard · 建新项目向导',
     sub:'照现有项目建一个新工地的 tracker：core 原样带走，名单换成新项目的。全程本地，不用写代码。',
     unsupported:'这个浏览器不支持所需能力——请用 Chrome 或 Edge 打开本页。',
-    s1_h:'选模板项目（比如 AC3 的文件夹）', s1_pick:'📁 点这里选择现有 tracker 文件夹',
+    s1_h:'选模板来源', s1_pick:'📁 点这里选择现有 tracker 文件夹',
+    s1_mode_cloud:'☁ 从云端 Hub 拉模板', s1_mode_local:'📁 选本地模板文件夹',
+    hub_owner:'GitHub 用户/组织 (owner)', hub_repo:'仓库名 (repo)', hub_branch:'分支 (branch)',
+    hub_save:'💾 记住 Hub', hub_verify:'✓ 验证 Hub',
+    hub_saved:'✅ Hub 已保存到本地', hub_incomplete:'请先填写 owner 和 repo',
+    hub_verifying:'⏳ 正在验证 Hub…', hub_ok:'✓ Hub：', hub_fail:'❌ 验证失败（读不到 project-config.js）：',
     s2_h:'新项目信息', s2_name:'项目全名（登录页/标题用）', s2_code:'短代号（logo/存储键用，字母数字）', s2_gc:'GC / 总包名（副标题用）',
     s3_h:'粘贴单元清单', s3_cat:'这一批是什么类别', s3_cat_custom:'自定义…', s3_cat_custom_lbl:'自定义类别名',
     s3_hint:'每行一个单元，<b>只需要编号</b>（例：SF01）。想带更多信息可选：编号后用 Tab 依次接 描述、区域、楼层、Vision Lites 数、门数、面积 sf、Louver(yes/no)——用不到就留空。表头行自动跳过。',
@@ -164,7 +185,12 @@ const T = {
     title:'🏗 New Tracker Wizard',
     sub:'Clone a new job-site tracker from an existing one: core carried over as-is, unit list swapped for the new project. All local, no coding.',
     unsupported:'This browser lacks the required capability — please open this page in Chrome or Edge.',
-    s1_h:'Pick a template project (e.g. the AC3 folder)', s1_pick:'📁 Click here to choose an existing tracker folder',
+    s1_h:'Choose the template source', s1_pick:'📁 Click here to choose an existing tracker folder',
+    s1_mode_cloud:'☁ Pull template from cloud Hub', s1_mode_local:'📁 Pick a local template folder',
+    hub_owner:'GitHub user/org (owner)', hub_repo:'Repository (repo)', hub_branch:'Branch',
+    hub_save:'💾 Remember Hub', hub_verify:'✓ Verify Hub',
+    hub_saved:'✅ Hub saved locally', hub_incomplete:'Please fill in owner and repo first',
+    hub_verifying:'⏳ Verifying Hub…', hub_ok:'✓ Hub: ', hub_fail:'❌ Verification failed (could not read project-config.js): ',
     s2_h:'New project info', s2_name:'Full project name (login/title)', s2_code:'Short code (logo / storage key, alphanumeric)', s2_gc:'GC / general contractor (subtitle)',
     s3_h:'Paste the unit list', s3_cat:'What category is this batch', s3_cat_custom:'Custom…', s3_cat_custom_lbl:'Custom category name',
     s3_hint:'One unit per line — <b>only the ID is required</b> (e.g. SF01). Optional extra columns after a Tab: description, zone, level, vision-lite count, door count, area sf, Louver(yes/no). Leave blank if unused; header rows are skipped.',
@@ -194,7 +220,12 @@ const T = {
     title:'🏗 New Tracker Wizard · 신규 프로젝트 마법사',
     sub:'기존 프로젝트로 새 현장 트래커를 복제합니다: core는 그대로, 목록만 새 프로젝트로 교체. 전부 로컬, 코딩 불필요.',
     unsupported:'이 브라우저는 필요한 기능을 지원하지 않습니다 — Chrome 또는 Edge로 열어 주세요.',
-    s1_h:'템플릿 프로젝트 선택 (예: AC3 폴더)', s1_pick:'📁 기존 트래커 폴더 선택',
+    s1_h:'템플릿 소스 선택', s1_pick:'📁 기존 트래커 폴더 선택',
+    s1_mode_cloud:'☁ 클라우드 Hub에서 템플릿 가져오기', s1_mode_local:'📁 로컬 템플릿 폴더 선택',
+    hub_owner:'GitHub 사용자/조직 (owner)', hub_repo:'저장소 (repo)', hub_branch:'브랜치 (branch)',
+    hub_save:'💾 Hub 기억', hub_verify:'✓ Hub 확인',
+    hub_saved:'✅ Hub가 로컬에 저장됨', hub_incomplete:'먼저 owner와 repo를 입력하세요',
+    hub_verifying:'⏳ Hub 확인 중…', hub_ok:'✓ Hub: ', hub_fail:'❌ 확인 실패 (project-config.js를 읽을 수 없음): ',
     s2_h:'새 프로젝트 정보', s2_name:'프로젝트 전체 이름 (로그인/제목)', s2_code:'짧은 코드 (로고/저장 키, 영숫자)', s2_gc:'GC / 원청 (부제목)',
     s3_h:'유닛 목록 붙여넣기', s3_cat:'이 배치의 카테고리', s3_cat_custom:'사용자 지정…', s3_cat_custom_lbl:'사용자 지정 카테고리명',
     s3_hint:'한 줄에 하나 — <b>번호만 있으면 됩니다</b> (예: SF01). 추가 정보는 선택: 번호 뒤 Tab 으로 설명, 구역, 층, Vision Lites 수, 문 수, 면적 sf, Louver(yes/no). 안 쓰면 비워 두세요. 헤더 행은 자동 건너뜀.',
@@ -236,6 +267,51 @@ function setWizLang(lang){
 /* ---------- capability check ---------- */
 if (!window.showDirectoryPicker) document.getElementById('unsupported').style.display='block';
 let srcDir=null, dstDir=null, srcCfg=null, units=[];
+let cloudMode=true;   // default: pull template from cloud Hub
+
+/* ---------- Hub config (shared key/format with sync.html) ---------- */
+function loadHub(){
+  try{ return JSON.parse(localStorage.getItem('tracker_hub')||'{}'); }catch(e){ return {}; }
+}
+function hubCfg(){
+  return { owner:document.getElementById('hubOwner').value.trim(),
+           repo: document.getElementById('hubRepo').value.trim(),
+           branch:document.getElementById('hubBranch').value.trim()||'main' };
+}
+function saveHub(){
+  const h=hubCfg();
+  if(!h.owner||!h.repo){ alert(WT('hub_incomplete')); return; }
+  localStorage.setItem('tracker_hub', JSON.stringify({owner:h.owner,repo:h.repo,branch:h.branch}));
+  const el=document.getElementById('hubStatus'); el.style.display='block';
+  el.classList.remove('ok'); el.textContent=WT('hub_saved');
+}
+function rawUrl(path){
+  const h=hubCfg();
+  return `https://raw.githubusercontent.com/${h.owner}/${h.repo}/${h.branch}/${path}`;
+}
+function setSrcMode(mode){
+  cloudMode = (mode==='cloud');
+  document.getElementById('cloudSrc').style.display = cloudMode?'':'none';
+  document.getElementById('localSrc').style.display = cloudMode?'none':'';
+  document.getElementById('modeCloudBtn').classList.toggle('active', cloudMode);
+  document.getElementById('modeLocalBtn').classList.toggle('active', !cloudMode);
+  // switching mode invalidates any prior source confirmation
+  srcCfg=null;
+  document.getElementById('s1').classList.remove('done');
+  ready();
+}
+
+/* ---------- source read helpers (route through Hub or srcDir) ---------- */
+async function readSrcBuf(path){
+  if(cloudMode){
+    const r=await fetch(rawUrl(path),{cache:'no-cache'});
+    if(!r.ok) throw new Error('Hub 404: '+path);
+    return await r.arrayBuffer();
+  } else {
+    return await (await (await getH(srcDir,path)).getFile()).arrayBuffer();
+  }
+}
+async function readSrcText(path){ return new TextDecoder().decode(await readSrcBuf(path)); }
 
 const CORE = ['app.js','app-log.js','cloud-sync.js','chat.html','api/parse.js',
               '.github/workflows/backup.yml','.github/scripts/backup-state.js'];
@@ -310,23 +386,42 @@ function preview(dup){
   document.getElementById('s3').classList.toggle('done', units.length>0); ready();
 }
 function ready(){
-  const ok = srcDir && dstDir && units.length>0 &&
+  const srcOk = cloudMode ? !!srcCfg : !!srcDir;
+  const ok = srcOk && dstDir && units.length>0 &&
              document.getElementById('pName').value.trim() && document.getElementById('pCode').value.trim();
   document.getElementById('goBtn').disabled = !ok;
 }
 ['pName','pCode','pGC'].forEach(id=>document.getElementById(id).addEventListener('input',ready));
 
+function parseCfg(t){
+  return { name:(t.match(/name:\s*'([^']+)'/)||[])[1], code:(t.match(/code:\s*'([^']+)'/)||[])[1],
+           storageKey:(t.match(/storageKey:\s*'([^']+)'/)||[])[1] };
+}
 async function pickSrc(){
   try{
     srcDir = await showDirectoryPicker({mode:'read'});
     const f = await (await srcDir.getFileHandle('project-config.js')).getFile();
-    const t = await f.text();
-    srcCfg = { name:(t.match(/name:\s*'([^']+)'/)||[])[1], code:(t.match(/code:\s*'([^']+)'/)||[])[1],
-               storageKey:(t.match(/storageKey:\s*'([^']+)'/)||[])[1] };
+    srcCfg = parseCfg(await f.text());
     const el=document.getElementById('pickSrc'); el.classList.add('ok');
     el.textContent = `${WT('a_tpl')}${srcDir.name}（${srcCfg.name}）`;
     document.getElementById('s1').classList.add('done'); ready();
   }catch(e){ if(srcDir) alert(WT('a_src')); }
+}
+async function verifyHub(){
+  const h=hubCfg(); const el=document.getElementById('hubStatus'); el.style.display='block';
+  if(!h.owner||!h.repo){ el.classList.remove('ok'); el.textContent=WT('hub_incomplete'); return; }
+  el.classList.remove('ok'); el.textContent=WT('hub_verifying');
+  try{
+    const t = await readSrcText('project-config.js');   // cloudMode is true here
+    srcCfg = parseCfg(t);
+    el.classList.add('ok');
+    el.textContent = `${WT('hub_ok')}${h.owner}/${h.repo}@${h.branch}${srcCfg.name?`（${srcCfg.name}）`:''}`;
+    document.getElementById('s1').classList.add('done'); ready();
+  }catch(e){
+    srcCfg=null; el.classList.remove('ok');
+    el.textContent = WT('hub_fail')+e.message;
+    document.getElementById('s1').classList.remove('done'); ready();
+  }
 }
 async function pickDst(){
   try{
@@ -343,9 +438,9 @@ async function getH(dir,path,create){ const p=path.split('/'); let d=dir;
   for(let i=0;i<p.length-1;i++) d=await d.getDirectoryHandle(p[i],{create:!!create});
   return d.getFileHandle(p[p.length-1],{create:!!create}); }
 async function copyFile(path){ try{
-    const src=await (await getH(srcDir,path)).getFile();
+    const buf=await readSrcBuf(path);
     const w=await (await getH(dstDir,path,true)).createWritable();
-    await w.write(await src.arrayBuffer()); await w.close(); logLine('✅ '+path); return true;
+    await w.write(buf); await w.close(); logLine('✅ '+path); return true;
   }catch(e){ logLine('⚠ skip '+path+'（'+e.message+'）'); return false; } }
 async function writeFile(path,text){ const w=await (await getH(dstDir,path,true)).createWritable();
   await w.write(text); await w.close(); logLine('📝 '+path); }
@@ -433,7 +528,7 @@ window.FIREBASE_CONFIG = {
       description:name+' install tracker — static site + /api/parse serverless function'},null,2));
 
     // index.html — copy + rebrand title strings + wire ground-floor plan image
-    let idx = await (await (await getH(srcDir,'index.html')).getFile()).text();
+    let idx = await readSrcText('index.html');
     if(srcCfg.name) idx = idx.split(srcCfg.name).join(name);
     if(gfFloor && gfFloor.file){
       const gfName='plan-gf'+extOf(gfFloor.file);
@@ -450,7 +545,7 @@ window.FIREBASE_CONFIG = {
 
     // recover.html — copy + swap storage keys
     try{
-      let rec = await (await (await getH(srcDir,'recover.html')).getFile()).text();
+      let rec = await readSrcText('recover.html');
       if(srcCfg.storageKey) rec = rec.split(srcCfg.storageKey).join(sl+'_install_v1');
       if(srcCfg.name) rec = rec.split(srcCfg.name).join(name);
       await writeFile('recover.html', rec);
@@ -487,6 +582,13 @@ Open index.html locally (LOCAL mode) · cloud setup: SETUP.md · sync rules: SYN
 
 /* ---------- init ---------- */
 addFloor();            // seed the default Ground Floor row
+(function initHub(){
+  const h=loadHub();
+  document.getElementById('hubOwner').value = h.owner||'';
+  document.getElementById('hubRepo').value  = h.repo||'';
+  document.getElementById('hubBranch').value= h.branch||'main';
+})();
+setSrcMode('cloud');   // default source = cloud Hub
 setWizLang(wlang);     // apply saved language + render preview
 </script>
 </body>
