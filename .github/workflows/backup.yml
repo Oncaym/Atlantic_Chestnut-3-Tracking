@@ -1,0 +1,47 @@
+name: Nightly Firebase state backup
+
+# Exports /state and /history from the Realtime Database and commits them to
+# this repo. Serves three purposes at once:
+#   1. Backup — the tracker's cloud data is otherwise a single copy
+#   2. Rollback — any day's state can be restored via Import JSON
+#   3. Evidence preservation — git commit timestamps are third-party proof
+#      of when each log entry / verification record existed
+
+on:
+  schedule:
+    - cron: '0 8 * * *'   # 08:00 UTC = 4am ET, daily
+  workflow_dispatch: {}    # manual run button
+
+permissions:
+  contents: write
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install firebase-admin
+        run: npm install --no-save firebase-admin
+
+      - name: Export state
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          FIREBASE_DATABASE_URL: ${{ secrets.FIREBASE_DATABASE_URL }}
+        run: node .github/scripts/backup-state.js
+
+      - name: Commit backup
+        run: |
+          git config user.name "state-backup-bot"
+          git config user.email "actions@github.com"
+          git add backups/
+          if git diff --cached --quiet; then
+            echo "No changes since last backup."
+          else
+            git commit -m "backup: state $(date -u +%F)"
+            git push
+          fi
