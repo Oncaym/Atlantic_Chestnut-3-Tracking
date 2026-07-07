@@ -25,11 +25,14 @@
 
 ## 二、让项目连上 Hub
 
-在每个项目的 `sync.html`（以及 `new-project.html`，如果用它脚手架新项目）里：
+打开 `project-sync.html`（合并后的单一工具：🔁 拉取/贡献 + 🏗 新建项目 两个分页，中/英/韩）：
 
-1. 填 **owner / repo / branch** → 点 **💾 记住 Hub**（存进浏览器 localStorage 的 `tracker_hub`）。
-2. 选自己的 tracker 文件夹 → 自动比对 core 差异 + 功能差异。
+1. 在顶部 **☁ Hub 仓库** 卡片，直接**粘贴 Hub 的 GitHub 链接**（形如
+   `https://github.com/账号/仓库` 或 `.../tree/分支`）→ 自动解析 owner/repo/branch → 点 **💾 记住**
+   （存进浏览器 localStorage 的 `tracker_hub`）。不用手输 owner/repo。
+2. 「🔁 拉取/贡献」页选自己的 tracker 文件夹 → 自动比对 core 差异 + 功能差异。
 3. 勾选要更新的 core 文件 → **拉取到本地**（项目件 project-config / state / index 永不被触碰）。
+4. 「🏗 新建项目」页复用同一个 Hub，直接从云端拉模板生成新项目。
 
 ## 三、打通"贡献回 Hub"（自动发 PR，可选但推荐）
 
@@ -44,9 +47,9 @@
    - 权限：**Contents: write** + **Pull requests: write**。
    - **Repository access：只勾选 Hub 这一个仓库**，别给它别的仓库权限。
    - 这个 token 只存在服务端，端点代码从不打印、从不返回它。
-3. **填端点地址**：在 `sync.html` 的 Hub 配置栏，把上面的
-   `https://your-hub.vercel.app/api/contribute` 填进 **contribUrl** 栏 → 记住 Hub。
-   （因为 `sync.html` 从 `file://` 打开，这里必须是**已部署端点的绝对地址**。）
+3. **填端点地址**：在 `project-sync.html` 顶部 Hub 卡片的 **贡献端点 URL (contribUrl)** 栏，
+   填入 `https://your-hub.vercel.app/api/contribute` → 记住。
+   （因为页面从 `file://` 打开，这里必须是**已部署端点的绝对地址**。）
 
 ### 没配端点也能贡献（降级方案）
 如果 `contribUrl` 留空：点"📤 贡献回 Hub"会**下载一个手动打包文件**

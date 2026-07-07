@@ -1,0 +1,15 @@
+# The tracker is a static site — it needs NO npm packages at runtime.
+# node_modules only ever appears if someone runs `npm install` locally
+# (e.g. for a one-off test tool). Never commit it.
+node_modules/
+package-lock.json
+npm-debug.log*
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+*.swp
+
+# OneDrive edit-lock and conflict copies
+EDITING.lock
+*conflict*

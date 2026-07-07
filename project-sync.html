@@ -1,0 +1,901 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Project Sync</title>
+<style>
+  :root { --bg:#0f1419; --panel:#1a2028; --panel2:#232b36; --border:#2d3744; --text:#e6edf3;
+          --dim:#8b949e; --accent:#4493f8; --green:#3fb950; --yellow:#d29922; --red:#f85149; --purple:#a371f7; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+         background:var(--bg); color:var(--text); line-height:1.5; padding:24px; max-width:980px; margin:0 auto; }
+  h1 { font-size:20px; margin-bottom:2px; }
+  .sub { color:var(--dim); font-size:13px; margin-bottom:14px; }
+  .topbar { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
+  .bar { display:flex; gap:5px; background:var(--panel2); padding:4px; border-radius:9px; border:1px solid var(--border); width:fit-content; }
+  .bar button { background:transparent; color:var(--dim); border:0; padding:7px 14px; border-radius:6px; cursor:pointer; font-size:13px; font-weight:600; }
+  .bar button.active { background:var(--accent); color:#fff; }
+  .langbar button { padding:5px 10px; font-size:12px; font-weight:400; }
+  .tabbar { margin:6px 0 16px; }
+  .card { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:18px; margin-bottom:14px; }
+  .step h2, .card h2 { font-size:14px; margin-bottom:10px; }
+  .step h2 .n { display:inline-flex; width:22px; height:22px; border-radius:50%; background:var(--accent); color:#fff;
+                align-items:center; justify-content:center; font-size:12px; margin-right:8px; }
+  .step.done h2 .n { background:var(--green); }
+  .step { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:18px; margin-bottom:14px; }
+  label { display:block; font-size:12px; color:var(--dim); margin:8px 0 4px; }
+  input[type=text], textarea, select { width:100%; background:var(--panel2); color:var(--text);
+    border:1px solid var(--border); border-radius:8px; padding:9px 12px; font-size:14px; outline:none; }
+  input:focus, textarea:focus { border-color:var(--accent); }
+  textarea { font-family:ui-monospace,Menlo,monospace; font-size:12px; min-height:110px; }
+  .row { display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; } .row > div { flex:1; min-width:180px; }
+  .btn { background:var(--accent); color:#fff; border:none; border-radius:8px; padding:10px 18px;
+         font-size:14px; font-weight:600; cursor:pointer; margin-top:10px; }
+  .btn:disabled { opacity:.4; cursor:not-allowed; }
+  .btn.ghost { background:transparent; border:1px solid var(--border); color:var(--text); font-weight:400; }
+  .pick { background:var(--panel2); border:1px dashed var(--border); border-radius:8px; padding:13px; cursor:pointer; margin-top:6px; text-align:center; }
+  .pick:hover { border-color:var(--accent); } .pick.ok { border-style:solid; border-color:var(--green); text-align:left; }
+  .pickers { display:flex; gap:14px; flex-wrap:wrap; align-items:center; } .pickers .pick { flex:1; min-width:240px; }
+  .dir { font-size:22px; color:var(--dim); }
+  table { width:100%; border-collapse:collapse; font-size:13px; margin-top:10px; }
+  th,td { padding:6px 9px; border-bottom:1px solid var(--border); text-align:left; }
+  th { color:var(--dim); font-size:11px; }
+  td.mono { font-family:ui-monospace,Menlo,monospace; font-size:11px; color:var(--dim); }
+  td select { padding:3px 6px; font-size:12px; }
+  .st-same { color:var(--green); } .st-diff { color:var(--yellow); font-weight:600; }
+  .st-missing { color:var(--red); } .st-protected { color:var(--dim); }
+  .hint { font-size:12px; color:var(--dim); margin-top:6px; }
+  .log { font-family:ui-monospace,Menlo,monospace; font-size:12px; color:var(--dim); white-space:pre-wrap; max-height:220px; overflow-y:auto; margin-top:10px; }
+  .err { background:rgba(248,81,73,.10); border:1px solid rgba(248,81,73,.4); border-radius:8px; padding:10px 14px; font-size:13px; margin-bottom:12px; }
+  .warn { background:rgba(210,153,34,.12); border:1px solid rgba(210,153,34,.4); border-radius:8px; padding:10px 14px; font-size:13px; margin-bottom:12px; }
+  .note { background:rgba(68,147,248,.10); border:1px solid rgba(68,147,248,.4); border-radius:8px; padding:10px 14px; font-size:13px; margin-bottom:12px; }
+  .feat { border:1px solid var(--border); border-radius:8px; padding:12px 14px; margin-bottom:12px; background:var(--panel2); }
+  .feat h3 { font-size:12px; color:var(--dim); margin-bottom:8px; }
+  .feat .item { font-size:13px; margin:4px 0; }
+  .pill { font-size:10px; padding:1px 7px; border-radius:6px; margin-right:6px; font-family:ui-monospace,Menlo,monospace; }
+  .pill.new { background:var(--green); color:#04260f; } .pill.local { background:var(--purple); color:#fff; }
+  .cloud-tag { font-size:10px; background:var(--yellow); color:#000; padding:1px 6px; border-radius:5px; margin-left:6px; }
+  .checklist { font-size:13px; } .checklist li { margin:6px 0 6px 18px; }
+  .floor-row { display:flex; gap:12px; align-items:flex-end; margin-bottom:10px; }
+  .floor-del { margin-top:0; padding:9px 12px; }
+  code { background:var(--panel2); padding:1px 6px; border-radius:4px; font-size:12px; }
+  a { color:var(--accent); }
+  .parsed { font-size:12px; color:var(--green); margin-top:6px; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div>
+    <h1 data-i18n="app_title">🔁 Project Sync</h1>
+    <div class="sub" data-i18n="app_sub">同一套工具：从 Hub 拉最新 / 贡献回 Hub / 建新项目。全程本地，不用写代码。</div>
+  </div>
+  <div class="bar langbar">
+    <button data-lang="zh" onclick="setLang('zh')">中文</button>
+    <button data-lang="en" onclick="setLang('en')">ENG</button>
+    <button data-lang="ko" onclick="setLang('ko')">한국어</button>
+  </div>
+</div>
+
+<div id="unsupported" class="err" style="display:none" data-i18n="unsupported">这个浏览器不支持 File System Access API——请用 Chrome 或 Edge 打开本页。</div>
+
+<div class="bar tabbar">
+  <button id="tabSync" class="active" onclick="showTab('sync')" data-i18n="tab_sync">🔁 拉取 / 贡献</button>
+  <button id="tabNew" onclick="showTab('new')" data-i18n="tab_new">🏗 新建项目</button>
+</div>
+
+<!-- ===== Shared Hub config ===== -->
+<div class="card">
+  <h2 data-i18n="hub_h">☁ Hub 仓库（粘贴 GitHub 链接即可）</h2>
+  <div class="row">
+    <div style="flex:2"><label data-i18n="hub_link">GitHub 仓库链接</label>
+      <input type="text" id="hubLink" placeholder="https://github.com/leosun/tracker-hub" oninput="onHubLink()"></div>
+    <div style="flex:1.4"><label data-i18n="hub_contrib">贡献端点 URL（选填，用于自动发 PR）</label>
+      <input type="text" id="hubContrib" placeholder="https://your-hub.vercel.app/api/contribute"></div>
+    <button class="btn ghost" onclick="saveHub()" data-i18n="hub_save">💾 记住</button>
+  </div>
+  <div class="parsed" id="hubParsed"></div>
+</div>
+
+<!-- ===================== SYNC TAB ===================== -->
+<div id="paneSync">
+  <div class="card">
+    <div class="bar" style="margin-bottom:14px">
+      <button id="smCloud" class="active" onclick="setSyncMode('cloud')" data-i18n="sm_cloud">☁ 云端 Hub（拉最新）</button>
+      <button id="smLocal" onclick="setSyncMode('local')" data-i18n="sm_local">📁 本地文件夹对文件夹</button>
+    </div>
+    <div id="syncCloud">
+      <div class="pickers">
+        <div style="flex:0 0 auto;color:var(--dim);font-size:13px" data-i18n="sm_cloud_from">☁ 权威 core（Hub） →</div>
+        <div class="pick" id="pickTarget" onclick="pickTarget()" data-i18n="sm_pick_mine">📁 选择我的 tracker 文件夹（要更新的）</div>
+      </div>
+    </div>
+    <div id="syncLocal" style="display:none">
+      <div class="pickers">
+        <div class="pick" id="pickA" onclick="pickAB('A')" data-i18n="sm_pick_src">📁 选择 源 tracker 文件夹（以谁为准）</div>
+        <div class="dir">→</div>
+        <div class="pick" id="pickB" onclick="pickAB('B')" data-i18n="sm_pick_dst">📁 选择 目标 tracker 文件夹</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" id="syncTable" style="display:none">
+    <div id="lockWarn"></div>
+    <div id="featBox"></div>
+    <table>
+      <thead><tr><th style="width:26px"></th><th data-i18n="th_file">文件</th><th id="thSrc">Hub</th><th data-i18n="th_local">本地</th><th data-i18n="th_status">状态</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <div class="row">
+      <button class="btn" id="syncBtn" onclick="doSync()" disabled data-i18n="btn_pull">⇢ 拉取选中项到本地</button>
+      <button class="btn ghost" onclick="scan()" data-i18n="btn_rescan">↻ 重新比对</button>
+      <span id="summary" style="color:var(--dim);font-size:13px"></span>
+    </div>
+    <div class="row" id="contribHolder"></div>
+    <div class="log" id="syncLog"></div>
+  </div>
+
+  <div class="card" style="font-size:13px;color:var(--dim)">
+    <b style="color:var(--text)" data-i18n="info_h">这个页做什么 / 不做什么</b>
+    <div data-i18n-html="info_body">☁ <b>云端模式</b>：从 Hub 拉最新 core，并列出 Hub 里你还没有的新功能（读 FEATURES.md）。Hub 需 public。<br>📁 <b>本地模式</b>：两个本地文件夹直接对比复制 core（离线可用）。<br>✅ 同步前查 EDITING.lock，同步时自动上锁、完成删锁、写入后哈希校验。<br>⛔ 永不触碰项目件：project-config.js / firebase-config.js / state.json / elevations.js / 平面图 / index.html。<br>📤 <b>贡献回 Hub</b>：本地 core 领先或有 Hub 没有的功能时出现按钮，配好 contribUrl 就自动发 PR；没配则下载打包文件手动发。详见 HUB-SETUP.md。</div>
+  </div>
+</div>
+
+<!-- ===================== NEW PROJECT TAB ===================== -->
+<div id="paneNew" style="display:none">
+  <div class="step" id="w1">
+    <h2><span class="n">1</span><span data-i18n="w1_h">选模板来源</span></h2>
+    <div class="bar" style="margin-bottom:12px">
+      <button id="tmCloud" class="active" onclick="setSrcMode('cloud')" data-i18n="w1_cloud">☁ 从上面的 Hub 拉模板</button>
+      <button id="tmLocal" onclick="setSrcMode('local')" data-i18n="w1_local">📁 选本地模板文件夹</button>
+    </div>
+    <div id="tmCloudBox">
+      <button class="btn ghost" onclick="verifyHub()" data-i18n="w1_verify">✓ 验证 Hub 模板</button>
+      <div class="pick" id="hubStatus" style="display:none"></div>
+    </div>
+    <div id="tmLocalBox" style="display:none">
+      <div class="pick" id="pickSrc" onclick="pickSrc()" data-i18n="w1_pick">📁 点这里选择现有 tracker 文件夹</div>
+    </div>
+  </div>
+
+  <div class="step" id="w2">
+    <h2><span class="n">2</span><span data-i18n="w2_h">新项目信息</span></h2>
+    <div class="row">
+      <div><label data-i18n="w2_name">项目全名（登录页/标题用）</label><input type="text" id="pName" placeholder="e.g. Atlantic-Chestnut Building 4"></div>
+      <div><label data-i18n="w2_code">短代号（logo/存储键用）</label><input type="text" id="pCode" placeholder="e.g. AC4" maxlength="8"></div>
+      <div><label data-i18n="w2_gc">GC / 总包名（副标题用）</label><input type="text" id="pGC" placeholder="e.g. Monadnock"></div>
+    </div>
+  </div>
+
+  <div class="step" id="w3">
+    <h2><span class="n">3</span><span data-i18n="w3_h">粘贴单元清单</span></h2>
+    <div class="row">
+      <div style="flex:0 0 220px"><label data-i18n="w3_cat">这一批是什么类别</label>
+        <select id="catSel" onchange="document.getElementById('catCustom').style.display=this.value==='__custom'?'':'none'">
+          <option>Exterior SF</option><option>Interior SF</option><option>Aluminum Door</option>
+          <option>Sliding Door</option><option>Hollow Metal Door</option><option>Metal Panel</option>
+          <option>Sun Shade</option><option>Canopy</option><option>Glass</option><option>Louver</option>
+          <option value="__custom" data-i18n="w3_cat_custom">自定义…</option>
+        </select>
+      </div>
+      <div style="flex:0 0 200px;display:none" id="catCustom"><label data-i18n="w3_cat_lbl">自定义类别名</label><input type="text" id="catInput" placeholder="e.g. Curtain Wall"></div>
+    </div>
+    <div class="hint" data-i18n-html="w3_hint">每行一个单元，<b>只需要编号</b>（例：SF01）。想带更多信息可选：编号后用 Tab 依次接 描述、区域、楼层、Vision Lites 数、门数、面积 sf、Louver(yes/no)——用不到就留空。表头行自动跳过。</div>
+    <textarea id="tsv" placeholder="SF01&#10;SF02&#10;SF03"></textarea>
+    <button class="btn ghost" onclick="addBatch()" data-i18n="w3_add">➕ 添加这一批</button>
+    <button class="btn ghost" onclick="clearAll()" data-i18n="w3_clear">🗑 清空名单</button>
+    <div id="previewBox"></div>
+  </div>
+
+  <div class="step" id="w4">
+    <h2><span class="n">4</span><span data-i18n="w4_h">导入平面图底图（可选，之后随时能换）</span></h2>
+    <div id="floorList"></div>
+    <button class="btn ghost" onclick="addFloor()" data-i18n="w4_add">➕ 添加楼层</button>
+    <div class="hint" data-i18n="w4_hint">默认一个 Ground Floor 输入口；点"添加楼层"可加任意多个自定义楼层（各自命名 + 各自底图）。不选底图就先用模板占位图，之后放进文件夹同名替换即可。</div>
+  </div>
+
+  <div class="step" id="w5">
+    <h2><span class="n">5</span><span data-i18n="w5_h">选目标文件夹并生成</span></h2>
+    <div class="hint" data-i18n-html="w5_hint">先在电脑上新建一个<b>空文件夹</b>（比如 "AC4 tracker"），然后选它。</div>
+    <div class="pick" id="pickDst" onclick="pickDst()" data-i18n="w5_pick">📁 点这里选择新建的空文件夹</div>
+    <button class="btn" id="goBtn" onclick="generate()" disabled data-i18n="w5_go">🚀 生成新 tracker</button>
+    <div class="log" id="wizLog"></div>
+  </div>
+
+  <div class="step" id="w6" style="display:none">
+    <h2><span class="n">✓</span><span data-i18n="w6_h">接下来</span></h2>
+    <div class="note" data-i18n-html="w6_note">✅ 只想本地单机看：<b>双击新文件夹里的 index.html 就能用</b>，下面第 2–6 步全部跳过。<br>下面这些只有需要<b>多人云端协作</b>时才做，约 25 分钟一次性开通。</div>
+    <ol class="checklist">
+      <li data-i18n-html="w6_1">双击新文件夹里的 <code>index.html</code> —— 应该能看到全部单元（本地模式横幅是正常的）</li>
+      <li data-i18n-html="w6_2">照 <code>SETUP.md</code> 建一个<b>新的</b> Firebase 项目<span class="cloud-tag">仅云端</span></li>
+      <li data-i18n-html="w6_3">新建 GitHub 仓库并推送，接 Vercel；配 <code>FIREBASE_SERVICE_ACCOUNT</code>+<code>FIREBASE_DATABASE_URL</code>、<code>ANTHROPIC_API_KEY</code><span class="cloud-tag">仅云端</span></li>
+      <li data-i18n-html="w6_4">把真实平面图换掉占位图（文件名不变），用 Place mode 摆标记</li>
+      <li data-i18n-html="w6_5">对 Claude 说：<code>按新 takeoff 重建 index.html 的 scope 卡片区</code></li>
+      <li data-i18n-html="w6_6">Firebase Console 给每个 PM 建登录账号<span class="cloud-tag">仅云端</span></li>
+    </ol>
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   Project Sync — merged Sync Console + New Tracker Wizard
+   Single self-contained file. Pure static, no npm deps.
+   ============================================================ */
+
+/* ---------------- i18n ---------------- */
+const T = {
+  zh: {
+    app_title:'🔁 Project Sync', app_sub:'同一套工具：从 Hub 拉最新 / 贡献回 Hub / 建新项目。全程本地，不用写代码。',
+    unsupported:'这个浏览器不支持 File System Access API——请用 Chrome 或 Edge 打开本页。',
+    tab_sync:'🔁 拉取 / 贡献', tab_new:'🏗 新建项目',
+    hub_h:'☁ Hub 仓库（粘贴 GitHub 链接即可）', hub_link:'GitHub 仓库链接',
+    hub_contrib:'贡献端点 URL（选填，用于自动发 PR）', hub_save:'💾 记住',
+    hub_parsed_ok:'已识别 → owner: {o} · repo: {r} · 分支: {b}', hub_parsed_bad:'⚠ 没识别出 owner/repo，检查链接格式（形如 https://github.com/账号/仓库）',
+    sm_cloud:'☁ 云端 Hub（拉最新）', sm_local:'📁 本地文件夹对文件夹',
+    sm_cloud_from:'☁ 权威 core（Hub） →', sm_pick_mine:'📁 选择我的 tracker 文件夹（要更新的）',
+    sm_pick_src:'📁 选择 源 tracker 文件夹（以谁为准）', sm_pick_dst:'📁 选择 目标 tracker 文件夹',
+    th_file:'文件', th_local:'本地', th_status:'状态', src_hub:'Hub', src_src:'源',
+    btn_pull:'⇢ 拉取选中项到本地', btn_syncto:'⇢ 同步选中项到目标', btn_rescan:'↻ 重新比对',
+    info_h:'这个页做什么 / 不做什么',
+    info_body:'☁ <b>云端模式</b>：从 Hub 拉最新 core，并列出 Hub 里你还没有的新功能（读 FEATURES.md）。Hub 需 public。<br>📁 <b>本地模式</b>：两个本地文件夹直接对比复制 core（离线可用）。<br>✅ 同步前查 EDITING.lock，同步时自动上锁、完成删锁、写入后哈希校验。<br>⛔ 永不触碰项目件：project-config.js / firebase-config.js / state.json / elevations.js / 平面图 / index.html。<br>📤 <b>贡献回 Hub</b>：本地 core 领先或有 Hub 没有的功能时出现按钮，配好 contribUrl 就自动发 PR；没配则下载打包文件手动发。详见 HUB-SETUP.md。',
+    contrib_btn:'📤 贡献回 Hub（发起 PR）', contrib_meta:'{n} 个改动 core 文件', contrib_meta_feat:' · {n} 个本地功能 ({ids})',
+    w1_h:'选模板来源', w1_cloud:'☁ 从上面的 Hub 拉模板', w1_local:'📁 选本地模板文件夹',
+    w1_verify:'✓ 验证 Hub 模板', w1_pick:'📁 点这里选择现有 tracker 文件夹',
+    w2_h:'新项目信息', w2_name:'项目全名（登录页/标题用）', w2_code:'短代号（logo/存储键用）', w2_gc:'GC / 总包名（副标题用）',
+    w3_h:'粘贴单元清单', w3_cat:'这一批是什么类别', w3_cat_custom:'自定义…', w3_cat_lbl:'自定义类别名',
+    w3_hint:'每行一个单元，<b>只需要编号</b>（例：SF01）。想带更多信息可选：编号后用 Tab 依次接 描述、区域、楼层、Vision Lites 数、门数、面积 sf、Louver(yes/no)——用不到就留空。表头行自动跳过。',
+    w3_add:'➕ 添加这一批', w3_clear:'🗑 清空名单',
+    w4_h:'导入平面图底图（可选，之后随时能换）', w4_add:'➕ 添加楼层',
+    w4_hint:'默认一个 Ground Floor 输入口；点"添加楼层"可加任意多个自定义楼层（各自命名 + 各自底图）。不选底图就先用模板占位图，之后放进文件夹同名替换即可。',
+    floor_name:'楼层名称', floor_img:'底图 (PNG/JPG/SVG)', floor_gf:'Ground Floor', floor_new:'Level ',
+    w5_h:'选目标文件夹并生成', w5_hint:'先在电脑上新建一个<b>空文件夹</b>（比如 "AC4 tracker"），然后选它。',
+    w5_pick:'📁 点这里选择新建的空文件夹', w5_go:'🚀 生成新 tracker',
+    w6_h:'接下来', w6_note:'✅ 只想本地单机看：<b>双击新文件夹里的 index.html 就能用</b>，下面第 2–6 步全部跳过。<br>下面这些只有需要<b>多人云端协作</b>时才做，约 25 分钟一次性开通。',
+    w6_1:'双击新文件夹里的 <code>index.html</code> —— 应该能看到全部单元（本地模式横幅是正常的）',
+    w6_2:'照 <code>SETUP.md</code> 建一个<b>新的</b> Firebase 项目<span class="cloud-tag">仅云端</span>',
+    w6_3:'新建 GitHub 仓库并推送，接 Vercel；配 <code>FIREBASE_SERVICE_ACCOUNT</code>+<code>FIREBASE_DATABASE_URL</code>、<code>ANTHROPIC_API_KEY</code><span class="cloud-tag">仅云端</span>',
+    w6_4:'把真实平面图换掉占位图（文件名不变），用 Place mode 摆标记',
+    w6_5:'对 Claude 说：<code>按新 takeoff 重建 index.html 的 scope 卡片区</code>',
+    w6_6:'Firebase Console 给每个 PM 建登录账号<span class="cloud-tag">仅云端</span>',
+    th_id:'编号', th_cat:'类别', th_zone:'区域', th_level:'楼层', th_louver:'Louver', th_note:'Note',
+    sum_units:'个单元', sum_check:'请和 takeoff 的合计行核对！', empty:'名单为空。选好类别，粘贴编号，点"添加这一批"。',
+    dup:'行编号重复已跳过：',
+    a_hub_need:'先在上面粘贴 Hub 的 GitHub 链接。', a_src_bad:'这个文件夹里没有 project-config.js——请选一个 tracker 文件夹',
+    a_dst_full:'⚠ 这个文件夹不是空的——请新建一个空文件夹再选', a_dst_ok:'✓ 目标：', a_tpl:'✓ 模板：',
+    a_noparse:'没解析出任何行——每行至少要有一个编号', a_hub_unreach:'拉不到 Hub（{o}/{r}@{b}）。确认仓库存在、public、分支和路径正确。',
+    hub_verifying:'⏳ 正在验证 Hub…', hub_ok:'✓ Hub 模板：', hub_fail:'❌ 验证失败（读不到 project-config.js）：',
+    my_proj:'我的项目：', src_lbl:'源：', dst_lbl:'目标：', no_cfg:'⚠ 没有 project-config.js —— 可能不是 tracker 文件夹',
+  },
+  en: {
+    app_title:'🔁 Project Sync', app_sub:'One toolkit: pull from Hub / contribute back / create a new project. All local, no coding.',
+    unsupported:'This browser lacks the File System Access API — open this page in Chrome or Edge.',
+    tab_sync:'🔁 Pull / Contribute', tab_new:'🏗 New Project',
+    hub_h:'☁ Hub repo (just paste the GitHub link)', hub_link:'GitHub repo link',
+    hub_contrib:'Contribute endpoint URL (optional, for auto PR)', hub_save:'💾 Remember',
+    hub_parsed_ok:'Parsed → owner: {o} · repo: {r} · branch: {b}', hub_parsed_bad:'⚠ Could not parse owner/repo — check the link (like https://github.com/user/repo)',
+    sm_cloud:'☁ Cloud Hub (pull latest)', sm_local:'📁 Local folder to folder',
+    sm_cloud_from:'☁ Blessed core (Hub) →', sm_pick_mine:'📁 Choose MY tracker folder (to update)',
+    sm_pick_src:'📁 Choose SOURCE tracker folder (source of truth)', sm_pick_dst:'📁 Choose TARGET tracker folder',
+    th_file:'File', th_local:'Local', th_status:'Status', src_hub:'Hub', src_src:'Source',
+    btn_pull:'⇢ Pull selected to local', btn_syncto:'⇢ Sync selected to target', btn_rescan:'↻ Re-compare',
+    info_h:'What this page does / does not do',
+    info_body:'☁ <b>Cloud mode</b>: pull latest core from the Hub and list features in the Hub you lack (reads FEATURES.md). Hub must be public.<br>📁 <b>Local mode</b>: compare & copy core between two local folders (works offline).<br>✅ Checks EDITING.lock, auto-locks during sync, removes lock after, hash-verifies writes.<br>⛔ Never touches project files: project-config.js / firebase-config.js / state.json / elevations.js / plan images / index.html.<br>📤 <b>Contribute back</b>: a button appears when local core is ahead or you have features the Hub lacks; with contribUrl set it opens a PR automatically, otherwise it downloads a bundle to send manually. See HUB-SETUP.md.',
+    contrib_btn:'📤 Contribute to Hub (open PR)', contrib_meta:'{n} changed core file(s)', contrib_meta_feat:' · {n} local feature(s) ({ids})',
+    w1_h:'Choose the template source', w1_cloud:'☁ Pull template from the Hub above', w1_local:'📁 Choose a local template folder',
+    w1_verify:'✓ Verify Hub template', w1_pick:'📁 Click to choose an existing tracker folder',
+    w2_h:'New project info', w2_name:'Full project name (login/title)', w2_code:'Short code (logo/storage key)', w2_gc:'GC / general contractor (subtitle)',
+    w3_h:'Paste the unit list', w3_cat:'What category is this batch', w3_cat_custom:'Custom…', w3_cat_lbl:'Custom category name',
+    w3_hint:'One unit per line — <b>only the ID is required</b> (e.g. SF01). Optional extra columns after a Tab: description, zone, level, vision-lite count, door count, area sf, Louver(yes/no). Leave blank if unused; header rows are skipped.',
+    w3_add:'➕ Add this batch', w3_clear:'🗑 Clear list',
+    w4_h:'Import floor-plan images (optional, swap anytime)', w4_add:'➕ Add floor',
+    w4_hint:'One Ground Floor input by default; click "Add floor" for any number of custom floors (each with its own name + image). Skip the image to use the template placeholder, then drop the real file in with the same name.',
+    floor_name:'Floor name', floor_img:'Plan image (PNG/JPG/SVG)', floor_gf:'Ground Floor', floor_new:'Level ',
+    w5_h:'Choose the target folder and generate', w5_hint:'First create an <b>empty folder</b> (e.g. "AC4 tracker"), then select it.',
+    w5_pick:'📁 Click to choose the new empty folder', w5_go:'🚀 Generate new tracker',
+    w6_h:'Next steps', w6_note:'✅ For local single-machine use: <b>just double-click index.html</b> — skip steps 2–6.<br>The steps below are only for <b>multi-user cloud collaboration</b>, ~25 min one-time.',
+    w6_1:'Double-click <code>index.html</code> — you should see all units (local-mode banner is normal)',
+    w6_2:'Follow <code>SETUP.md</code> to create a <b>new</b> Firebase project<span class="cloud-tag">Cloud only</span>',
+    w6_3:'Create a GitHub repo + push, connect Vercel; set <code>FIREBASE_SERVICE_ACCOUNT</code>+<code>FIREBASE_DATABASE_URL</code>, <code>ANTHROPIC_API_KEY</code><span class="cloud-tag">Cloud only</span>',
+    w6_4:'Replace the placeholder plan (same filename), place markers with Place mode',
+    w6_5:'Tell Claude: <code>rebuild the scope card section of index.html from the new takeoff</code>',
+    w6_6:'Create a login for each PM in the Firebase Console<span class="cloud-tag">Cloud only</span>',
+    th_id:'ID', th_cat:'Category', th_zone:'Zone', th_level:'Level', th_louver:'Louver', th_note:'Note',
+    sum_units:'units', sum_check:'Cross-check against the takeoff total!', empty:'List is empty. Pick a category, paste IDs, click "Add this batch".',
+    dup:'duplicate IDs skipped: ',
+    a_hub_need:'Paste the Hub GitHub link above first.', a_src_bad:'No project-config.js there — pick a tracker folder',
+    a_dst_full:'⚠ That folder is not empty — create a new empty folder and pick it', a_dst_ok:'✓ Target: ', a_tpl:'✓ Template: ',
+    a_noparse:'No rows parsed — every line needs at least an ID', a_hub_unreach:'Cannot reach Hub ({o}/{r}@{b}). Check it exists, is public, branch/paths correct.',
+    hub_verifying:'⏳ Verifying Hub…', hub_ok:'✓ Hub template: ', hub_fail:'❌ Verify failed (cannot read project-config.js): ',
+    my_proj:'My project: ', src_lbl:'Source: ', dst_lbl:'Target: ', no_cfg:'⚠ No project-config.js — may not be a tracker folder',
+  },
+  ko: {
+    app_title:'🔁 Project Sync', app_sub:'하나의 도구: Hub에서 최신 받기 / Hub에 기여 / 새 프로젝트 생성. 전부 로컬, 코딩 불필요.',
+    unsupported:'이 브라우저는 File System Access API를 지원하지 않습니다 — Chrome 또는 Edge로 여세요.',
+    tab_sync:'🔁 받기 / 기여', tab_new:'🏗 새 프로젝트',
+    hub_h:'☁ Hub 저장소 (GitHub 링크 붙여넣기)', hub_link:'GitHub 저장소 링크',
+    hub_contrib:'기여 엔드포인트 URL (선택, 자동 PR용)', hub_save:'💾 기억',
+    hub_parsed_ok:'인식됨 → owner: {o} · repo: {r} · 브랜치: {b}', hub_parsed_bad:'⚠ owner/repo를 못 읽었습니다 — 링크 형식 확인 (예: https://github.com/user/repo)',
+    sm_cloud:'☁ 클라우드 Hub (최신 받기)', sm_local:'📁 로컬 폴더 대 폴더',
+    sm_cloud_from:'☁ 승인된 core (Hub) →', sm_pick_mine:'📁 내 tracker 폴더 선택 (업데이트할)',
+    sm_pick_src:'📁 소스 tracker 폴더 선택 (기준)', sm_pick_dst:'📁 대상 tracker 폴더 선택',
+    th_file:'파일', th_local:'로컬', th_status:'상태', src_hub:'Hub', src_src:'소스',
+    btn_pull:'⇢ 선택 항목 로컬로 받기', btn_syncto:'⇢ 선택 항목 대상으로 동기화', btn_rescan:'↻ 다시 비교',
+    info_h:'이 페이지가 하는 일 / 안 하는 일',
+    info_body:'☁ <b>클라우드 모드</b>: Hub에서 최신 core를 받고, 없는 기능을 나열 (FEATURES.md). Hub는 public.<br>📁 <b>로컬 모드</b>: 두 로컬 폴더 간 core 비교/복사 (오프라인 가능).<br>✅ EDITING.lock 확인, 동기화 중 자동 잠금/해제, 쓰기 후 해시 검증.<br>⛔ 프로젝트 파일은 절대 안 건드림: project-config.js / firebase-config.js / state.json / elevations.js / 평면도 / index.html.<br>📤 <b>Hub에 기여</b>: 로컬 core가 앞서거나 Hub에 없는 기능이 있으면 버튼 표시; contribUrl 설정 시 자동 PR, 아니면 번들 다운로드. HUB-SETUP.md 참고.',
+    contrib_btn:'📤 Hub에 기여 (PR 열기)', contrib_meta:'{n}개 변경된 core 파일', contrib_meta_feat:' · {n}개 로컬 기능 ({ids})',
+    w1_h:'템플릿 소스 선택', w1_cloud:'☁ 위 Hub에서 템플릿 가져오기', w1_local:'📁 로컬 템플릿 폴더 선택',
+    w1_verify:'✓ Hub 템플릿 확인', w1_pick:'📁 기존 tracker 폴더 선택',
+    w2_h:'새 프로젝트 정보', w2_name:'프로젝트 전체 이름 (로그인/제목)', w2_code:'짧은 코드 (로고/저장 키)', w2_gc:'GC / 원청 (부제목)',
+    w3_h:'유닛 목록 붙여넣기', w3_cat:'이 배치의 카테고리', w3_cat_custom:'사용자 지정…', w3_cat_lbl:'사용자 지정 카테고리명',
+    w3_hint:'한 줄에 하나 — <b>번호만 있으면 됩니다</b> (예: SF01). 추가 정보는 선택: 번호 뒤 Tab 으로 설명, 구역, 층, Vision Lites 수, 문 수, 면적 sf, Louver(yes/no). 헤더 행은 건너뜀.',
+    w3_add:'➕ 이 배치 추가', w3_clear:'🗑 목록 비우기',
+    w4_h:'평면도 이미지 가져오기 (선택, 언제든 교체)', w4_add:'➕ 층 추가',
+    w4_hint:'기본 Ground Floor 입력 하나; "층 추가"로 사용자 지정 층을 얼마든지 추가 (각각 이름 + 이미지). 이미지를 안 고르면 자리표시자 사용 후 같은 이름으로 교체.',
+    floor_name:'층 이름', floor_img:'평면도 (PNG/JPG/SVG)', floor_gf:'Ground Floor', floor_new:'Level ',
+    w5_h:'대상 폴더 선택 후 생성', w5_hint:'먼저 <b>빈 폴더</b>를 만드세요 (예: "AC4 tracker"), 그다음 선택.',
+    w5_pick:'📁 새 빈 폴더 선택', w5_go:'🚀 새 tracker 생성',
+    w6_h:'다음 단계', w6_note:'✅ 로컬 단독 사용: <b>index.html 더블클릭이면 끝</b> — 2–6단계 건너뛰기.<br>아래는 <b>다중 사용자 클라우드 협업</b>에만 필요, 약 25분.',
+    w6_1:'<code>index.html</code> 더블클릭 — 모든 유닛 표시 (로컬 모드 배너 정상)',
+    w6_2:'<code>SETUP.md</code>대로 <b>새</b> Firebase 프로젝트 생성<span class="cloud-tag">클라우드 전용</span>',
+    w6_3:'GitHub 저장소 생성·푸시, Vercel 연결; <code>FIREBASE_SERVICE_ACCOUNT</code>+<code>FIREBASE_DATABASE_URL</code>, <code>ANTHROPIC_API_KEY</code> 설정<span class="cloud-tag">클라우드 전용</span>',
+    w6_4:'자리표시자 평면도를 실제 이미지로 교체 (같은 파일명), Place mode로 마커 배치',
+    w6_5:'Claude에게: <code>새 takeoff로 index.html scope 카드 재구성</code>',
+    w6_6:'Firebase Console에서 각 PM 로그인 생성<span class="cloud-tag">클라우드 전용</span>',
+    th_id:'번호', th_cat:'카테고리', th_zone:'구역', th_level:'층', th_louver:'Louver', th_note:'Note',
+    sum_units:'유닛', sum_check:'takeoff 합계와 대조하세요!', empty:'목록이 비었습니다. 카테고리 선택, 번호 붙여넣기, "이 배치 추가".',
+    dup:'중복 번호 건너뜀: ',
+    a_hub_need:'먼저 위에 Hub GitHub 링크를 붙여넣으세요.', a_src_bad:'그 폴더에 project-config.js 없음 — tracker 폴더를 선택',
+    a_dst_full:'⚠ 폴더가 비어있지 않음 — 새 빈 폴더를 만들어 선택', a_dst_ok:'✓ 대상: ', a_tpl:'✓ 템플릿: ',
+    a_noparse:'파싱된 행 없음 — 각 줄에 최소 번호 필요', a_hub_unreach:'Hub에 연결 불가 ({o}/{r}@{b}). 존재/public/브랜치/경로 확인.',
+    hub_verifying:'⏳ Hub 확인 중…', hub_ok:'✓ Hub 템플릿: ', hub_fail:'❌ 확인 실패 (project-config.js 읽기 불가): ',
+    my_proj:'내 프로젝트: ', src_lbl:'소스: ', dst_lbl:'대상: ', no_cfg:'⚠ project-config.js 없음 — tracker 폴더가 아닐 수 있음',
+  }
+};
+let lang = localStorage.getItem('tracker_lang_wiz') || 'zh';
+function t(k){ return (T[lang] && T[lang][k]) || T.en[k] || k; }
+function fmt(s, o){ return String(s).replace(/\{(\w+)\}/g, (_,k)=> (o[k]!=null?o[k]:'')); }
+function setLang(l){
+  if(!T[l]) l='en';
+  lang=l; localStorage.setItem('tracker_lang_wiz', l);
+  document.documentElement.setAttribute('lang', l==='zh'?'zh-CN':l==='ko'?'ko':'en');
+  document.querySelectorAll('[data-i18n]').forEach(el=> el.textContent = t(el.getAttribute('data-i18n')));
+  document.querySelectorAll('[data-i18n-html]').forEach(el=> el.innerHTML = t(el.getAttribute('data-i18n-html')));
+  document.querySelectorAll('.langbar button').forEach(b=> b.classList.toggle('active', b.dataset.lang===l));
+  // dynamic bits that carry translated text
+  document.getElementById('thSrc').textContent = (syncMode==='cloud') ? t('src_hub') : t('src_src');
+  document.getElementById('syncBtn').textContent = (syncMode==='cloud') ? t('btn_pull') : t('btn_syncto');
+  onHubLink(true);
+  if (units.length) preview();
+  renderContribBtn();
+}
+
+/* ---------------- capability ---------------- */
+if (!window.showDirectoryPicker) document.getElementById('unsupported').style.display='block';
+
+/* ---------------- tabs ---------------- */
+function showTab(which){
+  document.getElementById('paneSync').style.display = which==='sync' ? '' : 'none';
+  document.getElementById('paneNew').style.display  = which==='new'  ? '' : 'none';
+  document.getElementById('tabSync').classList.toggle('active', which==='sync');
+  document.getElementById('tabNew').classList.toggle('active', which==='new');
+}
+
+/* ---------------- shared Hub config ---------------- */
+function parseGitHubLink(s){
+  s = (s||'').trim();
+  const m = s.match(/github\.com[/:]([^/\s]+)\/([^/\s#?]+?)(?:\.git)?(?:\/tree\/([^/\s#?]+))?(?:[/#?].*)?$/i);
+  if(!m) return null;
+  return { owner:m[1], repo:m[2], branch:m[3]||'main' };
+}
+function hubCfg(){
+  const p = parseGitHubLink(document.getElementById('hubLink').value) || {};
+  return { owner:p.owner||'', repo:p.repo||'', branch:p.branch||'main',
+           link:document.getElementById('hubLink').value.trim(),
+           contribUrl:document.getElementById('hubContrib').value.trim() };
+}
+function onHubLink(silent){
+  const p = parseGitHubLink(document.getElementById('hubLink').value);
+  const el = document.getElementById('hubParsed');
+  if(!document.getElementById('hubLink').value.trim()){ el.textContent=''; return; }
+  if(p){ el.style.color='var(--green)'; el.textContent = fmt(t('hub_parsed_ok'), {o:p.owner, r:p.repo, b:p.branch}); }
+  else { el.style.color='var(--red)'; el.textContent = t('hub_parsed_bad'); }
+}
+function loadHub(){
+  try{ return JSON.parse(localStorage.getItem('tracker_hub')||'{}'); }catch(e){ return {}; }
+}
+function saveHub(){
+  const c = hubCfg();
+  localStorage.setItem('tracker_hub', JSON.stringify(c));
+  onHubLink();
+  if (dirTarget) scan();
+}
+function rawUrl(path){
+  const c = hubCfg();
+  return `https://raw.githubusercontent.com/${c.owner}/${c.repo}/${c.branch}/${path}`;
+}
+
+/* ---------------- shared FS helpers ---------------- */
+async function getHandle(dir, path, create){
+  const parts = path.split('/');
+  let d = dir;
+  for(let i=0;i<parts.length-1;i++) d = await d.getDirectoryHandle(parts[i], {create:!!create});
+  return d.getFileHandle(parts[parts.length-1], {create:!!create});
+}
+function hashBuf(buf){
+  return crypto.subtle.digest('SHA-256', buf).then(h =>
+    Array.from(new Uint8Array(h)).slice(0,6).map(b=>b.toString(16).padStart(2,'0')).join(''));
+}
+async function localHash(dir, path){
+  try{ return await hashBuf(await (await (await getHandle(dir,path)).getFile()).arrayBuffer()); }
+  catch{ return null; }
+}
+async function readLocalText(dir, path){
+  try{ return await (await (await getHandle(dir,path)).getFile()).text(); }
+  catch{ return null; }
+}
+async function readProjectName(dir){
+  try{
+    const txt = await (await (await dir.getFileHandle('project-config.js')).getFile()).text();
+    const m = txt.match(/name:\s*'([^']+)'/);
+    return m ? m[1] : t('no_cfg');
+  } catch { return t('no_cfg'); }
+}
+async function checkLock(dir){
+  try{
+    const j = JSON.parse(await (await (await dir.getFileHandle('EDITING.lock')).getFile()).text());
+    if ((Date.now() - new Date(j.started).getTime())/3600000 < 2) return j;
+  } catch{}
+  return null;
+}
+async function fetchHub(path){
+  const res = await fetch(rawUrl(path), {cache:'no-cache'});
+  if(!res.ok) return null;
+  const buf = await res.arrayBuffer();
+  return { buf, text:new TextDecoder().decode(buf) };
+}
+function parseFeatures(md){
+  const map = {};
+  (md||'').split('\n').forEach(line=>{
+    const m = line.match(/^\|\s*(F-\d+)\s*\|\s*([^|]+?)\s*\|/);
+    if(m) map[m[1]] = m[2].trim();
+  });
+  return map;
+}
+const CORE_FILES = ['app.js','app-log.js','cloud-sync.js','chat.html','api/parse.js',
+  '.github/workflows/backup.yml','.github/scripts/backup-state.js'];
+const PROTECTED = ['project-config.js','firebase-config.js','state.json','elevations.js','index.html'];
+
+/* ================= SYNC TAB ================= */
+let syncMode='cloud', dirA=null, dirB=null, dirTarget=null, hubCache={}, results=[], localOnlyFeats=[];
+function syncLog(s){ const el=document.getElementById('syncLog'); el.textContent+=s+'\n'; el.scrollTop=el.scrollHeight; }
+function setSyncMode(m){
+  syncMode=m;
+  document.getElementById('smCloud').classList.toggle('active', m==='cloud');
+  document.getElementById('smLocal').classList.toggle('active', m==='local');
+  document.getElementById('syncCloud').style.display = m==='cloud'?'':'none';
+  document.getElementById('syncLocal').style.display = m==='local'?'':'none';
+  document.getElementById('thSrc').textContent = m==='cloud'?t('src_hub'):t('src_src');
+  document.getElementById('syncBtn').textContent = m==='cloud'?t('btn_pull'):t('btn_syncto');
+  document.getElementById('syncTable').style.display='none';
+  document.getElementById('featBox').innerHTML='';
+  document.getElementById('contribHolder').innerHTML='';
+}
+async function pickTarget(){
+  try{
+    dirTarget = await window.showDirectoryPicker({mode:'readwrite'});
+    const el=document.getElementById('pickTarget'); el.classList.add('ok');
+    el.innerHTML = `<b>${t('my_proj')}</b>${dirTarget.name} — ${await readProjectName(dirTarget)}`;
+    scan();
+  }catch(e){}
+}
+async function pickAB(which){
+  try{
+    const h = await window.showDirectoryPicker({mode: which==='B'?'readwrite':'read'});
+    if(which==='A') dirA=h; else dirB=h;
+    const el=document.getElementById('pick'+which); el.classList.add('ok');
+    el.innerHTML = `<b>${which==='A'?t('src_lbl'):t('dst_lbl')}</b>${h.name} — ${await readProjectName(h)}`;
+    if(dirA && dirB) scan();
+  }catch(e){}
+}
+function scan(){ return syncMode==='cloud' ? scanCloud() : scanLocal(); }
+
+async function scanCloud(){
+  const c = hubCfg();
+  if(!c.owner || !c.repo){ alert(t('a_hub_need')); return; }
+  if(!dirTarget) return;
+  const tb=document.getElementById('rows'); tb.innerHTML=''; results=[];
+  document.getElementById('syncTable').style.display='block';
+  document.getElementById('featBox').innerHTML='';
+  const lock = await checkLock(dirTarget);
+  document.getElementById('lockWarn').innerHTML = lock
+    ? `<div class="warn">⚠ ${lock.user} · ${lock.started}</div>` : '';
+  hubCache={}; let diffs=0, reachable=true;
+  for(const p of CORE_FILES){
+    let hub=null;
+    try{ hub = await fetchHub(p); }catch(e){ reachable=false; }
+    hubCache[p]=hub;
+    const hHub = hub ? await hashBuf(hub.buf) : null;
+    const hLoc = await localHash(dirTarget, p);
+    const same = hHub && hLoc && hHub===hLoc;
+    const missing = !hHub;
+    const status = missing?'Hub —':same?'✓':(hLoc?'●':'+');
+    const cls = missing?'st-missing':same?'st-same':'st-diff';
+    if(!same && !missing) diffs++;
+    results.push({path:p, hSrc:hHub, hLoc, same, missing});
+    tb.insertAdjacentHTML('beforeend', `<tr>
+      <td><input type="checkbox" data-p="${p}" ${(!same&&!missing)?'checked':''} ${(same||missing)?'disabled':''}></td>
+      <td>${p}</td><td class="mono">${hHub||'—'}</td><td class="mono">${hLoc||'—'}</td>
+      <td class="${cls}">${status}</td></tr>`);
+  }
+  for(const p of PROTECTED)
+    tb.insertAdjacentHTML('beforeend', `<tr><td></td><td>${p}</td><td class="mono">—</td><td class="mono">—</td><td class="st-protected">🔒</td></tr>`);
+  await renderFeatureDiff();
+  if(!reachable && Object.values(hubCache).every(v=>!v))
+    document.getElementById('featBox').innerHTML = `<div class="err">${fmt(t('a_hub_unreach'),{o:c.owner,r:c.repo,b:c.branch})}</div>`;
+  document.getElementById('summary').textContent = diffs ? `${diffs} core` : '✓';
+  document.getElementById('syncBtn').disabled = !diffs || !!lock;
+  renderContribBtn();
+}
+async function renderFeatureDiff(){
+  const hubMd = await fetchHub('FEATURES.md');
+  const locMd = await readLocalText(dirTarget, 'FEATURES.md');
+  if(!hubMd){ localOnlyFeats=[]; document.getElementById('featBox').innerHTML=''; return; }
+  const hub = parseFeatures(hubMd.text), loc = parseFeatures(locMd||'');
+  const newFeats = Object.keys(hub).filter(id=>!(id in loc)).sort();
+  const localOnly = Object.keys(loc).filter(id=>!(id in hub)).sort();
+  localOnlyFeats = localOnly.slice();
+  let html='';
+  if(newFeats.length) html += `<div class="feat"><h3>☁ Hub ⊃ you</h3>`+newFeats.map(id=>`<div class="item"><span class="pill new">${id}</span>${hub[id]}</div>`).join('')+`</div>`;
+  if(localOnly.length) html += `<div class="feat"><h3>🟣 you ⊃ Hub</h3>`+localOnly.map(id=>`<div class="item"><span class="pill local">${id}</span>${loc[id]}</div>`).join('')+`</div>`;
+  document.getElementById('featBox').innerHTML = html;
+}
+function contribDiffFiles(){ return results.filter(r=>!r.same && !r.missing).map(r=>r.path); }
+function renderContribBtn(){
+  const holder=document.getElementById('contribHolder');
+  if(!holder) return;
+  if(syncMode!=='cloud'){ holder.innerHTML=''; return; }
+  const df=contribDiffFiles(); const hf=localOnlyFeats.length>0;
+  if(!df.length && !hf){ holder.innerHTML=''; return; }
+  holder.innerHTML = `<button class="btn" style="background:var(--purple)" onclick="contribute()">${t('contrib_btn')}</button>`+
+    `<span style="color:var(--dim);font-size:12px">${fmt(t('contrib_meta'),{n:df.length})}`+
+    (hf?fmt(t('contrib_meta_feat'),{n:localOnlyFeats.length, ids:localOnlyFeats.join(', ')}):'')+`</span>`;
+}
+async function contribute(){
+  if(!dirTarget){ alert(t('sm_pick_mine')); return; }
+  const c=hubCfg();
+  if(!c.owner || !c.repo){ alert(t('a_hub_need')); return; }
+  const df=contribDiffFiles();
+  if(!df.length && !localOnlyFeats.length){ return; }
+  const files=[];
+  for(const p of df){ const txt=await readLocalText(dirTarget,p); if(txt!=null) files.push({path:p, content:txt}); }
+  if(!files.length){ return; }
+  const project = await readProjectName(dirTarget);
+  if(!confirm(`Hub: ${c.owner}/${c.repo}@${c.branch}\nfeatures: ${localOnlyFeats.join(', ')||'-'}\nfiles: ${files.map(f=>f.path).join(', ')}`)) return;
+  if(!c.contribUrl){
+    const blob = files.map(f=>`===== ${f.path} =====\n${f.content}`).join('\n\n');
+    const url = URL.createObjectURL(new Blob([blob],{type:'text/plain'}));
+    const a=document.createElement('a'); a.href=url; a.download=`contrib-${project.replace(/[^a-zA-Z0-9]+/g,'-')}-${Date.now()}.txt`;
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),2000);
+    syncLog('📦 未配置 contribUrl —— 已下载手动打包文件，发给 Hub 维护者手动开 PR。');
+    return;
+  }
+  syncLog('📤 发起 PR…');
+  try{
+    const res = await fetch(c.contribUrl, {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({hub:{owner:c.owner,repo:c.repo,branch:c.branch}, files, featureIds:localOnlyFeats, project, author:''})});
+    let data={}; try{ data=await res.json(); }catch{}
+    if(!res.ok){ syncLog(`❌ ${data.error||res.status}`); return; }
+    syncLog('✅ PR 已发起！');
+    const el=document.getElementById('syncLog');
+    el.insertAdjacentHTML('beforeend', `   <a href="${data.url}" target="_blank">${data.url}</a>\n`); el.scrollTop=el.scrollHeight;
+  }catch(e){ syncLog(`❌ ${e.message}`); }
+}
+async function scanLocal(){
+  const tb=document.getElementById('rows'); tb.innerHTML=''; results=[];
+  document.getElementById('syncTable').style.display='block';
+  document.getElementById('featBox').innerHTML=''; document.getElementById('contribHolder').innerHTML='';
+  localOnlyFeats=[];
+  const lock = await checkLock(dirB);
+  document.getElementById('lockWarn').innerHTML = lock ? `<div class="warn">⚠ ${lock.user} · ${lock.started}</div>` : '';
+  let diffs=0;
+  for(const p of CORE_FILES){
+    const ha=await localHash(dirA,p), hb=await localHash(dirB,p);
+    const same=ha&&hb&&ha===hb, missing=!ha;
+    const status=missing?'—':same?'✓':(hb?'●':'+');
+    const cls=missing?'st-missing':same?'st-same':'st-diff';
+    if(!same&&!missing) diffs++;
+    results.push({path:p, hSrc:ha, hLoc:hb, same, missing});
+    tb.insertAdjacentHTML('beforeend', `<tr>
+      <td><input type="checkbox" data-p="${p}" ${(!same&&!missing)?'checked':''} ${(same||missing)?'disabled':''}></td>
+      <td>${p}</td><td class="mono">${ha||'—'}</td><td class="mono">${hb||'—'}</td>
+      <td class="${cls}">${status}</td></tr>`);
+  }
+  for(const p of PROTECTED)
+    tb.insertAdjacentHTML('beforeend', `<tr><td></td><td>${p}</td><td class="mono">—</td><td class="mono">—</td><td class="st-protected">🔒</td></tr>`);
+  document.getElementById('summary').textContent = diffs ? `${diffs} core` : '✓';
+  document.getElementById('syncBtn').disabled = !diffs || !!lock;
+}
+async function doSync(){
+  const picked = Array.from(document.querySelectorAll('#rows input:checked')).map(c=>c.dataset.p);
+  if(!picked.length) return;
+  const target = syncMode==='cloud' ? dirTarget : dirB;
+  if(!confirm(`${picked.length} core → ${target.name}?`)) return;
+  document.getElementById('syncBtn').disabled=true;
+  try{
+    const w = await (await target.getFileHandle('EDITING.lock',{create:true})).createWritable();
+    await w.write(JSON.stringify({user:'project-sync', started:new Date().toISOString().slice(0,19), note:(syncMode==='cloud'?'hub pull: ':'core sync: ')+picked.join(', ')}));
+    await w.close(); syncLog('🔒 lock');
+  }catch(e){ syncLog('⚠ lock: '+e.message); }
+  let ok=0;
+  for(const p of picked){
+    try{
+      let buf, srcHash;
+      if(syncMode==='cloud'){
+        const hub = hubCache[p] || await fetchHub(p);
+        if(!hub){ syncLog(`❌ ${p} no Hub`); continue; }
+        buf=hub.buf; srcHash=await hashBuf(hub.buf);
+      } else {
+        buf = await (await (await getHandle(dirA,p)).getFile()).arrayBuffer();
+        srcHash = await hashBuf(buf);
+      }
+      const w = await (await getHandle(target,p,true)).createWritable();
+      await w.write(buf); await w.close();
+      const after = await localHash(target,p);
+      if(after===srcHash){ ok++; syncLog(`✅ ${p} (${after})`); } else syncLog(`❌ ${p} hash mismatch`);
+    }catch(e){ syncLog(`❌ ${p}: ${e.message}`); }
+  }
+  try{ await target.removeEntry('EDITING.lock'); syncLog('🔓 unlock'); }catch{}
+  syncLog(`—— ${ok}/${picked.length}`);
+  scan();
+}
+
+/* ================= NEW PROJECT TAB ================= */
+let cloudMode=true, srcDir=null, dstDir=null, srcCfg=null, units=[];
+const META = ['SYNC.md','FEATURES.md','project-sync.html','SETUP.md','HUB-SETUP.md',
+  'firebase-database-rules.json','vercel.json'];
+function wizLog(s){ const el=document.getElementById('wizLog'); el.textContent+=s+'\n'; el.scrollTop=el.scrollHeight; }
+function setSrcMode(m){
+  cloudMode=(m==='cloud');
+  document.getElementById('tmCloud').classList.toggle('active', cloudMode);
+  document.getElementById('tmLocal').classList.toggle('active', !cloudMode);
+  document.getElementById('tmCloudBox').style.display = cloudMode?'':'none';
+  document.getElementById('tmLocalBox').style.display = cloudMode?'none':'';
+  srcCfg=null; document.getElementById('w1').classList.remove('done'); ready();
+}
+function parseCfg(txt){
+  return { name:(txt.match(/name:\s*'([^']+)'/)||[])[1], code:(txt.match(/code:\s*'([^']+)'/)||[])[1],
+           storageKey:(txt.match(/storageKey:\s*'([^']+)'/)||[])[1] };
+}
+async function readSrcBuf(path){
+  if(cloudMode){
+    const r = await fetch(rawUrl(path), {cache:'no-cache'});
+    if(!r.ok) throw new Error('Hub 404: '+path);
+    return await r.arrayBuffer();
+  }
+  return await (await (await getHandle(srcDir,path)).getFile()).arrayBuffer();
+}
+async function readSrcText(path){ return new TextDecoder().decode(await readSrcBuf(path)); }
+async function verifyHub(){
+  const c=hubCfg(); const el=document.getElementById('hubStatus'); el.style.display='block'; el.classList.remove('ok');
+  if(!c.owner||!c.repo){ el.textContent=t('a_hub_need'); return; }
+  el.textContent=t('hub_verifying');
+  try{
+    srcCfg = parseCfg(await readSrcText('project-config.js'));
+    el.classList.add('ok'); el.textContent = `${t('hub_ok')}${c.owner}/${c.repo}@${c.branch}${srcCfg.name?`（${srcCfg.name}）`:''}`;
+    document.getElementById('w1').classList.add('done'); ready();
+  }catch(e){ srcCfg=null; el.textContent=t('hub_fail')+e.message; document.getElementById('w1').classList.remove('done'); ready(); }
+}
+async function pickSrc(){
+  try{
+    srcDir = await window.showDirectoryPicker({mode:'read'});
+    srcCfg = parseCfg(await (await (await srcDir.getFileHandle('project-config.js')).getFile()).text());
+    const el=document.getElementById('pickSrc'); el.classList.add('ok');
+    el.textContent = `${t('a_tpl')}${srcDir.name}（${srcCfg.name}）`;
+    document.getElementById('w1').classList.add('done'); ready();
+  }catch(e){ if(srcDir) alert(t('a_src_bad')); }
+}
+async function pickDst(){
+  try{
+    dstDir = await window.showDirectoryPicker({mode:'readwrite'});
+    let n=0; for await(const _ of dstDir.values()) n++;
+    const el=document.getElementById('pickDst');
+    if(n>0){ el.textContent=t('a_dst_full'); el.classList.remove('ok'); dstDir=null; return; }
+    el.classList.add('ok'); el.textContent=t('a_dst_ok')+dstDir.name; ready();
+  }catch(e){}
+}
+function addFloor(){
+  const list=document.getElementById('floorList');
+  const idx=list.querySelectorAll('.floor-row').length;
+  const isGF = idx===0;
+  const def = isGF ? t('floor_gf') : (t('floor_new')+(idx+1));
+  const row=document.createElement('div'); row.className='floor-row';
+  row.innerHTML =
+    `<div style="flex:1"><label>${t('floor_name')}</label><input type="text" class="floor-name" value="${def.replace(/"/g,'&quot;')}"></div>`+
+    `<div style="flex:1"><label>${t('floor_img')}</label><input type="file" class="floor-file" accept="image/*"></div>`+
+    (isGF ? '' : `<button class="btn ghost floor-del" onclick="this.closest('.floor-row').remove()">✕</button>`);
+  list.appendChild(row);
+}
+function slug(code){ return (code||'prj').toLowerCase().replace(/[^a-z0-9]/g,''); }
+function currentCat(){
+  const v=document.getElementById('catSel').value;
+  return v==='__custom' ? (document.getElementById('catInput').value.trim()||'Other') : v;
+}
+function parseTSV(cat){
+  const rows = document.getElementById('tsv').value.trim().split(/\r?\n/).map(r=>r.split('\t').map(c=>c.trim()));
+  const out=[];
+  for(const r of rows){
+    if(r.length<1 || !r[0]) continue;
+    if(/^(id|mark|编号|unit|type|类别|번호)/i.test(r[0])) continue;
+    const [id,desc,zone,level,lites,doors,sf,louver]=r;
+    const L=parseInt(lites)||0, D=parseInt(doors)||0, S=parseFloat(sf)||0;
+    const parts=[desc||cat];
+    if(L) parts.push(`${L} Vision Lites${D?` +${D} Door${D>1?'s':''}`:''}`);
+    else if(D) parts.push(`${D} Door${D>1?'s':''}`);
+    if(S) parts.push(`${S} sf`);
+    const lv = louver ? (/^y/i.test(louver)?'yes':'no') : 'na';
+    out.push({key:id,id,type:cat,zone:zone||'—',level:level||'GF',status:'pending',date:'',
+              louver:lv,facecap:'na',note:parts.join(' · '),_L:L,_D:D,_S:S});
+  }
+  return out;
+}
+function addBatch(){
+  const batch=parseTSV(currentCat());
+  if(!batch.length){ alert(t('a_noparse')); return; }
+  const seen=new Set(units.map(u=>u.id));
+  const dup=batch.filter(b=>seen.has(b.id));
+  units=units.concat(batch.filter(b=>!seen.has(b.id)));
+  document.getElementById('tsv').value=''; preview(dup);
+}
+function clearAll(){ units=[]; preview(); }
+function preview(dup){
+  const tl=units.reduce((a,u)=>a+(u._L||0),0), td=units.reduce((a,u)=>a+(u._D||0),0), ts=units.reduce((a,u)=>a+(u._S||0),0);
+  const cats={}; units.forEach(u=>cats[u.type]=(cats[u.type]||0)+1);
+  const doorN=units.filter(u=>/door/i.test(u.type)).length;
+  const lvOpt=v=>['yes','no','na'].map(o=>`<option value="${o}"${v===o?' selected':''}>${o}</option>`).join('');
+  document.getElementById('previewBox').innerHTML = units.length
+    ? ((dup&&dup.length)?`<div class="hint" style="color:var(--red)">⚠ ${dup.length} ${t('dup')}${dup.map(d=>d.id).join(', ')}</div>`:'')
+      + `<table><tr><th>${t('th_id')}</th><th>${t('th_cat')}</th><th>${t('th_zone')}</th><th>${t('th_level')}</th><th>${t('th_louver')}</th><th>${t('th_note')}</th><th></th></tr>`
+      + units.map((u,i)=>`<tr><td>${u.id}</td><td>${u.type}</td><td>${u.zone}</td><td>${u.level}</td>
+          <td><select onchange="units[${i}].louver=this.value">${lvOpt(u.louver)}</select></td><td>${u.note}</td>
+          <td><a href="#" onclick="units.splice(${i},1);preview();return false" style="color:var(--red)">×</a></td></tr>`).join('')
+      + `</table><div class="hint">${units.length} <b>${t('sum_units')}</b>（${Object.entries(cats).map(([k,v])=>k+' × '+v).join(' · ')}）
+         · ${tl} vision lites · ${(td||doorN)?`${td||doorN} door`:''} · ${ts.toFixed(1)} sf —— <b>${t('sum_check')}</b></div>`
+    : `<div class="hint">${t('empty')}</div>`;
+  document.getElementById('w3').classList.toggle('done', units.length>0); ready();
+}
+function ready(){
+  const srcOk = cloudMode ? !!srcCfg : !!srcDir;
+  const ok = srcOk && dstDir && units.length>0 &&
+             document.getElementById('pName').value.trim() && document.getElementById('pCode').value.trim();
+  document.getElementById('goBtn').disabled = !ok;
+}
+['pName','pCode','pGC'].forEach(id=>document.getElementById(id).addEventListener('input',ready));
+async function writeFile(path,text){ const w=await (await getHandle(dstDir,path,true)).createWritable(); await w.write(text); await w.close(); wizLog('📝 '+path); }
+async function writeBin(path,buf){ const w=await (await getHandle(dstDir,path,true)).createWritable(); await w.write(buf); await w.close(); wizLog('🖼 '+path); }
+async function copyFile(path){ try{
+  const buf=await readSrcBuf(path);
+  const w=await (await getHandle(dstDir,path,true)).createWritable(); await w.write(buf); await w.close(); wizLog('✅ '+path); return true;
+}catch(e){ wizLog('⚠ skip '+path+'（'+e.message+'）'); return false; } }
+function esc(s){ return String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
+function extOf(f){ return (f.name.match(/\.[a-z0-9]+$/i)||['.png'])[0].toLowerCase(); }
+
+async function generate(){
+  document.getElementById('goBtn').disabled=true;
+  const name=document.getElementById('pName').value.trim();
+  const code=document.getElementById('pCode').value.trim().toUpperCase();
+  const gc=document.getElementById('pGC').value.trim()||'GC';
+  const sl=slug(code);
+  const rows=[...document.querySelectorAll('#floorList .floor-row')];
+  const floors=rows.map((row,i)=>{
+    const nm=row.querySelector('.floor-name').value.trim() || (i===0?'Ground Floor':('Level '+(i+1)));
+    const key=i===0?'GF':('L'+(i+1));
+    const file=row.querySelector('.floor-file').files[0]||null;
+    const img=file?('plan-'+key.toLowerCase()+extOf(file)):null;
+    return {key,name:nm,file,img};
+  });
+  const gfFloor=floors[0];
+  try{
+    wizLog('—— generate '+name+' ——');
+    for(const f of CORE_FILES) await copyFile(f);
+    for(const f of META) await copyFile(f);
+    for(const fl of floors){ if(fl.file) await writeBin(fl.img, await fl.file.arrayBuffer()); }
+    const floorsJs = '[\n' + floors.map(fl=>{ const n=esc(fl.name);
+      return `    { key: '${esc(fl.key)}', name: { en: '${n}', zh: '${n}', ko: '${n}' }${fl.img?`, img: '${esc(fl.img)}'`:''} }`;
+    }).join(',\n') + '\n  ]';
+    const seed = JSON.stringify(units.map(({_L,_D,_S,...u})=>u),null,2).replace(/"([a-zA-Z]+)":/g,'$1:').replace(/"/g,"'");
+    await writeFile('project-config.js',
+`/* PROJECT CONFIG — ${name}
+   项目专属数据都在这里；core 文件跨项目同步。规则见 SYNC.md。 */
+window.PROJECT = {
+  name: '${esc(name)}',
+  code: '${esc(code)}',
+  storageKey:  '${sl}_install_v1',
+  baselineKey: '${sl}_install_v1_baseline',
+  langKey:     '${sl}_lang',
+  fileSlug:    '${sl}',
+  doorPatterns: ['^SD'],
+  requirePlacedMarkers: true,
+  floors: ${floorsJs},
+  i18n: {
+    en: { header_sub: "${esc(gc)} · Ground Floor · Storefront Install & Glass Tracking", img_alt_gf: "${esc(name)} — Ground Floor Plan" },
+    zh: { header_sub: "${esc(gc)} · 一层 · 店面安装与玻璃追踪", img_alt_gf: "${esc(name)} — 一层平面图" },
+    ko: { header_sub: "${esc(gc)} · 지상층 · 설치 추적", img_alt_gf: "${esc(name)} — 지상층 평면도" }
+  },
+  seedUnits: ${seed},
+  seedLog: [],
+  defaultPositions: {}
+};
+`);
+    await writeFile('state.json', JSON.stringify({units:units.map(({_L,_D,_S,...u})=>u),log:[],positions:{},updatedAt:''},null,1));
+    await writeFile('elevations.js','/* Elevation geometry — generate per project from shop drawings. */\nwindow.ELEVATIONS = {};\n');
+    await writeFile('firebase-config.js',
+`/* Firebase config for ${esc(name)} — create a NEW Firebase project (never reuse another tracker's).
+   Until then the app runs in LOCAL mode. See SETUP.md. */
+window.FIREBASE_CONFIG = {
+  apiKey: "PASTE_YOUR_API_KEY",
+  authDomain: "YOUR_PROJECT.firebaseapp.com",
+  databaseURL: "https://YOUR_PROJECT-default-rtdb.firebaseio.com",
+  projectId: "YOUR_PROJECT",
+  storageBucket: "YOUR_PROJECT.firebasestorage.app",
+  messagingSenderId: "PASTE_SENDER_ID",
+  appId: "PASTE_APP_ID"
+};
+`);
+    await writeFile('package.json', JSON.stringify({name:sl+'-tracker',version:'1.0.0',private:true,type:'module',
+      description:name+' install tracker — static site + /api serverless functions'},null,2));
+    let idx = await readSrcText('index.html');
+    if(srcCfg.name) idx = idx.split(srcCfg.name).join(name);
+    if(gfFloor && gfFloor.file){
+      const before=idx;
+      idx = idx.replace(/(<img[^>]*id="planImg"[^>]*src=")[^"]+(")/, '$1'+gfFloor.img+'$2');
+      if(idx===before) idx = idx.replace(/(<img[^>]*src=")[^"]+("[^>]*id="planImg")/, '$1'+gfFloor.img+'$2');
+      wizLog(idx===before?'⚠ planImg not wired':'🔗 planImg → '+gfFloor.img);
+    } else {
+      const m = idx.match(/<img[^>]*id="planImg"[^>]*src="([^"]+)"/) || idx.match(/src="([^"]+)"[^>]*id="planImg"/);
+      if(m) await copyFile(m[1]);
+    }
+    await writeFile('index.html', idx);
+    try{
+      let rec = await readSrcText('recover.html');
+      if(srcCfg.storageKey) rec = rec.split(srcCfg.storageKey).join(sl+'_install_v1');
+      if(srcCfg.name) rec = rec.split(srcCfg.name).join(name);
+      await writeFile('recover.html', rec);
+    }catch(e){ wizLog('⚠ recover.html skipped'); }
+    await writeFile('CLAUDE.md',
+`# ${name} Tracker — Claude 会话交接文件
+
+由 Project Sync 向导从「${srcCfg.name||'模板'}」生成（${new Date().toISOString().slice(0,10)}）。
+架构与 AC3/CP2 相同：core/config 分离。改任何文件前先读 SYNC.md（core 同步 + 编辑锁）。
+
+- 项目专属：project-config.js（SEED / storageKey ${sl}_install_v1 / floors 楼层）、state.json、firebase-config.js、index.html、平面图
+- 楼层：project-config.js 的 floors 数组定义看板楼层标签与底图；单元靠 level 字段归属楼层
+- 待办：① Firebase 未配置（SETUP.md，仅云端需要）② scope 卡片区还是模板数量，对 Claude 说"按新 takeoff 重建"③ 平面图占位需替换
+`);
+    await writeFile('README.md',
+`# ${name} — Installation Progress Monitor
+
+Generated from ${srcCfg.name||'template'} by Project Sync. ${units.length} units, ${floors.length} floor(s).
+Open index.html locally (LOCAL mode) · cloud setup: SETUP.md · sync rules: SYNC.md
+`);
+    wizLog('—— done ✓ '+units.length+' units, '+floors.length+' floor(s).');
+    document.getElementById('w5').classList.add('done');
+    document.getElementById('w6').style.display='block';
+    document.getElementById('w6').scrollIntoView({behavior:'smooth'});
+  }catch(e){ wizLog('❌ '+e.message); document.getElementById('goBtn').disabled=false; }
+}
+
+/* ---------------- init ---------------- */
+(function init(){
+  const h=loadHub();
+  if(h.link) document.getElementById('hubLink').value=h.link;
+  else if(h.owner && h.repo) document.getElementById('hubLink').value=`https://github.com/${h.owner}/${h.repo}`+(h.branch&&h.branch!=='main'?`/tree/${h.branch}`:'');
+  if(h.contribUrl) document.getElementById('hubContrib').value=h.contribUrl;
+  addFloor();
+  setSyncMode('cloud');
+  setSrcMode('cloud');
+  showTab('sync');
+  setLang(lang);
+})();
+</script>
+</body>
+</html>
