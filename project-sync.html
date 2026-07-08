@@ -205,6 +205,7 @@
   <div class="step" id="w6" style="display:none">
     <h2><span class="n">✓</span><span data-i18n="w6_h">接下来</span></h2>
     <div class="note" data-i18n-html="w6_note">✅ 只想本地单机看：<b>双击新文件夹里的 index.html 就能用</b>，下面第 2–6 步全部跳过。<br>下面这些只有需要<b>多人云端协作</b>时才做，约 25 分钟一次性开通。</div>
+    <div class="hint" style="margin:0 0 10px"><a href="deploy-guide.pdf" target="_blank" data-i18n="w6_guide">📖 图文部署指南（Firebase + Vercel）</a></div>
     <ol class="checklist">
       <li data-i18n-html="w6_1">双击新文件夹里的 <code>index.html</code> —— 应该能看到全部单元（本地模式横幅是正常的）</li>
       <li data-i18n-html="w6_2">照 <code>SETUP.md</code> 建一个<b>新的</b> Firebase 项目<span class="cloud-tag">仅云端</span></li>
@@ -250,7 +251,7 @@ const T = {
     floor_name:'楼层名称', floor_img:'底图 (PNG/JPG/SVG)', floor_gf:'Ground Floor', floor_new:'Level ',
     w5_h:'选目标文件夹并生成', w5_hint:'先在电脑上新建一个<b>空文件夹</b>（比如 "AC4 tracker"），然后选它。',
     w5_pick:'📁 点这里选择新建的空文件夹', w5_go:'🚀 生成新 tracker',
-    w6_h:'接下来', w6_note:'✅ 只想本地单机看：<b>双击新文件夹里的 index.html 就能用</b>，下面第 2–6 步全部跳过。<br>下面这些只有需要<b>多人云端协作</b>时才做，约 25 分钟一次性开通。',
+    w6_h:'接下来', w6_guide:'📖 图文部署指南（Firebase + Vercel）', w6_note:'✅ 只想本地单机看：<b>双击新文件夹里的 index.html 就能用</b>，下面第 2–6 步全部跳过。<br>下面这些只有需要<b>多人云端协作</b>时才做，约 25 分钟一次性开通。',
     w6_1:'双击新文件夹里的 <code>index.html</code> —— 应该能看到全部单元（本地模式横幅是正常的）',
     w6_2:'照 <code>SETUP.md</code> 建一个<b>新的</b> Firebase 项目<span class="cloud-tag">仅云端</span>',
     w6_3:'新建 GitHub 仓库并推送，接 Vercel；配 <code>FIREBASE_SERVICE_ACCOUNT</code>+<code>FIREBASE_DATABASE_URL</code>、<code>ANTHROPIC_API_KEY</code><span class="cloud-tag">仅云端</span>',
@@ -293,7 +294,7 @@ const T = {
     floor_name:'Floor name', floor_img:'Plan image (PNG/JPG/SVG)', floor_gf:'Ground Floor', floor_new:'Level ',
     w5_h:'Choose the target folder and generate', w5_hint:'First create an <b>empty folder</b> (e.g. "AC4 tracker"), then select it.',
     w5_pick:'📁 Click to choose the new empty folder', w5_go:'🚀 Generate new tracker',
-    w6_h:'Next steps', w6_note:'✅ For local single-machine use: <b>just double-click index.html</b> — skip steps 2–6.<br>The steps below are only for <b>multi-user cloud collaboration</b>, ~25 min one-time.',
+    w6_h:'Next steps', w6_guide:'📖 Illustrated deploy guide (Firebase + Vercel)', w6_note:'✅ For local single-machine use: <b>just double-click index.html</b> — skip steps 2–6.<br>The steps below are only for <b>multi-user cloud collaboration</b>, ~25 min one-time.',
     w6_1:'Double-click <code>index.html</code> — you should see all units (local-mode banner is normal)',
     w6_2:'Follow <code>SETUP.md</code> to create a <b>new</b> Firebase project<span class="cloud-tag">Cloud only</span>',
     w6_3:'Create a GitHub repo + push, connect Vercel; set <code>FIREBASE_SERVICE_ACCOUNT</code>+<code>FIREBASE_DATABASE_URL</code>, <code>ANTHROPIC_API_KEY</code><span class="cloud-tag">Cloud only</span>',
@@ -336,7 +337,7 @@ const T = {
     floor_name:'층 이름', floor_img:'평면도 (PNG/JPG/SVG)', floor_gf:'Ground Floor', floor_new:'Level ',
     w5_h:'대상 폴더 선택 후 생성', w5_hint:'먼저 <b>빈 폴더</b>를 만드세요 (예: "AC4 tracker"), 그다음 선택.',
     w5_pick:'📁 새 빈 폴더 선택', w5_go:'🚀 새 tracker 생성',
-    w6_h:'다음 단계', w6_note:'✅ 로컬 단독 사용: <b>index.html 더블클릭이면 끝</b> — 2–6단계 건너뛰기.<br>아래는 <b>다중 사용자 클라우드 협업</b>에만 필요, 약 25분.',
+    w6_h:'다음 단계', w6_guide:'📖 그림 배포 가이드 (Firebase + Vercel)', w6_note:'✅ 로컬 단독 사용: <b>index.html 더블클릭이면 끝</b> — 2–6단계 건너뛰기.<br>아래는 <b>다중 사용자 클라우드 협업</b>에만 필요, 약 25분.',
     w6_1:'<code>index.html</code> 더블클릭 — 모든 유닛 표시 (로컬 모드 배너 정상)',
     w6_2:'<code>SETUP.md</code>대로 <b>새</b> Firebase 프로젝트 생성<span class="cloud-tag">클라우드 전용</span>',
     w6_3:'GitHub 저장소 생성·푸시, Vercel 연결; <code>FIREBASE_SERVICE_ACCOUNT</code>+<code>FIREBASE_DATABASE_URL</code>, <code>ANTHROPIC_API_KEY</code> 설정<span class="cloud-tag">클라우드 전용</span>',
@@ -468,7 +469,7 @@ const CORE_FILES = ['app.js','app-log.js','cloud-sync.js','chat.html','api/parse
   '.github/workflows/backup.yml','.github/scripts/backup-state.js'];
 const PROTECTED = ['project-config.js','firebase-config.js','state.json','elevations.js','index.html'];
 // Shared tooling/docs — synced like core so the tool distributes itself.
-const TOOLING = ['project-sync.html','SYNC.md','FEATURES.md','HUB-SETUP.md'];
+const TOOLING = ['project-sync.html','SYNC.md','FEATURES.md','HUB-SETUP.md','deploy-guide.pdf'];
 // Superseded files: if present locally, offer one-click deletion.
 const STALE = ['sync.html','new-project.html'];
 
@@ -676,7 +677,7 @@ async function doSync(){
 
 /* ================= NEW PROJECT TAB ================= */
 let cloudMode=true, srcDir=null, dstDir=null, srcCfg=null, units=[];
-const META = ['SYNC.md','FEATURES.md','project-sync.html','SETUP.md','HUB-SETUP.md',
+const META = ['SYNC.md','FEATURES.md','project-sync.html','SETUP.md','HUB-SETUP.md','deploy-guide.pdf',
   'firebase-database-rules.json','vercel.json'];
 function wizLog(s){ const el=document.getElementById('wizLog'); el.textContent+=s+'\n'; el.scrollTop=el.scrollHeight; }
 function setSrcMode(m){
