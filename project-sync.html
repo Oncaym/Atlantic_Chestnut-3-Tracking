@@ -89,9 +89,9 @@
   <h2 data-i18n="hub_h">☁ Hub 仓库（粘贴 GitHub 链接即可）</h2>
   <div class="row">
     <div style="flex:2"><label data-i18n="hub_link">GitHub 仓库链接</label>
-      <input type="text" id="hubLink" placeholder="https://github.com/leosun/tracker-hub" oninput="onHubLink()"></div>
+      <input type="text" id="hubLink" value="https://github.com/Oncaym/Atlantic_Chestnut_3-Tracking" placeholder="https://github.com/leosun/tracker-hub" oninput="onHubLink()"></div>
     <div style="flex:1.4"><label data-i18n="hub_contrib">贡献端点 URL（选填，用于自动发 PR）</label>
-      <input type="text" id="hubContrib" placeholder="https://your-hub.vercel.app/api/contribute"></div>
+      <input type="text" id="hubContrib" value="https://atlantic-chestnut-3-tracking.vercel.app/api/contribute" placeholder="https://your-hub.vercel.app/api/contribute"></div>
     <button class="btn ghost" onclick="saveHub()" data-i18n="hub_save">💾 记住</button>
   </div>
   <div class="parsed" id="hubParsed"></div>
