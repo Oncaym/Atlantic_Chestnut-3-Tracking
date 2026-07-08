@@ -491,6 +491,7 @@ function applyLang(lang) {
   // Re-render dynamic parts that depend on language — only after `state` is defined.
   // The initial call from _initLang() happens before `state` exists (let TDZ), so we
   // skip render() then; the boot `render()` at the bottom of the script handles it.
+  { const _mm=document.getElementById('modulesModal'); if(_mm) _mm.remove(); }
   if (_appReady && typeof render === 'function') render();
 }
 function _initLang() {
@@ -3171,13 +3172,19 @@ function _armPhotoMigration() {
    Off = the entry point is hidden. Data is never deleted.
    ====================================================== */
 const FEATURE_MODULES = [
-  { k:'themeToggle',   label:'☀️ Day / Night 切换按钮',            sel:['#themeToggle'] },
-  { k:'roTab',         label:'📐 Field Verify · R.O. 实测 tab',    sel:['#tab-ro'] },
-  { k:'logFilter',     label:'🔍 日志检索框（证据调取）',           sel:['#logFilter','#logFilterCount'] },
-  { k:'chatLink',      label:'💬 Chat 自然语言更新入口',            sel:['a[href="/chat"]'] },
-  { k:'warehouseLink', label:'📦 Warehouse 仓库页入口',             sel:['a[href="warehouse.html"]'] },
-  { k:'drawingsBtn',   label:'📁 Drawings 图纸按钮',                sel:['button[onclick="openDrawings()"]'] },
+  { k:'themeToggle',   emoji:'☀️', label:{en:'Day / Night toggle',zh:'Day / Night 切换按钮',ko:'주간/야간 전환'},            sel:['#themeToggle'] },
+  { k:'roTab',         emoji:'📐', label:{en:'Field Verify · R.O. tab',zh:'Field Verify · R.O. 实测 tab',ko:'Field Verify · R.O. 실측 tab'},    sel:['#tab-ro'] },
+  { k:'logFilter',     emoji:'🔍', label:{en:'Daily-log search (evidence)',zh:'日志检索框（证据调取）',ko:'일지 검색(증거 조회)'},           sel:['#logFilter','#logFilterCount'] },
+  { k:'chatLink',      emoji:'💬', label:{en:'Chat NL updater',zh:'Chat 自然语言更新入口',ko:'Chat 자연어 업데이트 입구'},            sel:['a[href="/chat"]'] },
+  { k:'warehouseLink', emoji:'📦', label:{en:'Warehouse page',zh:'Warehouse 仓库页入口',ko:'Warehouse 창고 페이지 입구'},             sel:['a[href="warehouse.html"]'] },
+  { k:'drawingsBtn',   emoji:'📁', label:{en:'Drawings button',zh:'Drawings 图纸按钮',ko:'Drawings 도면 버튼'},                sel:['button[onclick="openDrawings()"]'] },
 ];
+function moduleLabel(m){ const L=m.label; return (m.emoji?m.emoji+' ':'')+((L&&(L[currentLang]||L.en))||m.k); }
+function _modT(){
+  if(currentLang==='zh') return {title:'⚙ Modules · 功能模块', desc:'对整个团队生效（保存后云端同步，Edit History 可查）。关闭只是隐藏入口，数据不会删除。', cancel:'取消', save:'保存'};
+  if(currentLang==='ko') return {title:'⚙ Modules · 기능 모듈', desc:'팀 전체에 적용(저장 시 클라우드 동기화, Edit History에 표시). 끄면 입구만 숨기며 데이터는 삭제되지 않습니다.', cancel:'취소', save:'저장'};
+  return {title:'⚙ Modules', desc:'Applies to the whole team (cloud-synced on save, shows in Edit History). Off just hides the entry — data is never deleted.', cancel:'Cancel', save:'Save'};
+}
 function featureOn(k){ const f=(typeof state!=='undefined' && state && state.features)||{}; return f[k]!==false; }
 function applyFeatures(){
   if(typeof state==='undefined' || !state) return;
@@ -3190,17 +3197,17 @@ function openModules(){
   let ov=document.getElementById('modulesModal');
   if(!ov){
     ov=document.createElement('div'); ov.id='modulesModal'; ov.className='modal-overlay';
-    ov.innerHTML='<div class="modal" style="max-width:430px"><h3>⚙ Modules · 功能模块</h3>'
-      +'<div style="font-size:12px;color:var(--text-dim);margin-bottom:10px">对整个团队生效（保存后云端同步，Edit History 可查）。关闭只是隐藏入口，数据不会删除。</div>'
+    ov.innerHTML='<div class="modal" style="max-width:430px"><h3>'+_modT().title+'</h3>'
+      +'<div style="font-size:12px;color:var(--text-dim);margin-bottom:10px">'+_modT().desc+'</div>'
       +'<div id="modulesList"></div><div class="modal-actions">'
-      +'<button class="btn" type="button" onclick="closeModules()">Cancel</button>'
-      +'<button class="btn btn-primary" type="button" onclick="saveModules()">Save</button></div></div>';
+      +'<button class="btn" type="button" onclick="closeModules()">'+_modT().cancel+'</button>'
+      +'<button class="btn btn-primary" type="button" onclick="saveModules()">'+_modT().save+'</button></div></div>';
     document.body.appendChild(ov);
     ov.addEventListener('click',e=>{ if(e.target===ov) ov.classList.remove('show'); });
   }
   ov.querySelector('#modulesList').innerHTML = FEATURE_MODULES.map(m=>
     '<label style="display:flex;gap:10px;align-items:center;padding:7px 2px;cursor:pointer">'
-    +'<input type="checkbox" data-k="'+m.k+'"'+(featureOn(m.k)?' checked':'')+'> <span>'+m.label+'</span></label>').join('');
+    +'<input type="checkbox" data-k="'+m.k+'"'+(featureOn(m.k)?' checked':'')+'> <span>'+moduleLabel(m)+'</span></label>').join('');
   ov.classList.add('show');
 }
 function closeModules(){ const ov=document.getElementById('modulesModal'); if(ov)ov.classList.remove('show'); }
