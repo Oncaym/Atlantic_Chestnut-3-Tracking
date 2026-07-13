@@ -73,9 +73,11 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-storage-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 <script src="firebase-config.js"></script>
 <script src="project-config.js"></script>
 <script src="cloud-sync.js"></script>
+<script src="elev-cloud.js?v=20260710"></script>
 
 
 
@@ -1421,6 +1423,7 @@ document.addEventListener('DOMContentLoaded', applyThemeUI);
       <a class="btn" href="/chat" title="Natural-language chat updater">💬 Chat</a>
       <a class="btn" href="warehouse.html" title="Warehouse"><span data-i18n="btn_warehouse">📦 Warehouse</span></a>
       <button class="btn" type="button" onclick="openDrawings()" title="Project drawings"><span data-i18n="btn_drawings">📐 Drawings</span></button>
+      <a class="btn" href="takeoff/index.html" title="打开内嵌 Takeoff Tool（在里面 Import DXF）/ Open the embedded takeoff tool (import DXF there)">🛠 Takeoff Tool</a>
       <button class="btn btn-primary" onclick="openAddLog()" data-om-id="17a02737:21"><span data-i18n="btn_add_log" data-om-id="17a02737:22">+ Add Daily Log</span></button>
       <button class="btn btn-danger" onclick="resetData()" data-om-id="17a02737:23"><span data-i18n="btn_reset" data-om-id="17a02737:24">↻ Reset</span></button>
     </div>
@@ -2836,6 +2839,8 @@ document.addEventListener('DOMContentLoaded', applyThemeUI);
     <!-- Tab bar -->
     <div class="modal-tabs">
       <div class="modal-tab active" id="tab-elev" onclick="switchModalTab('elev')">Elevation</div>
+      <div class="modal-tab" id="tab-framing" onclick="switchModalTab('framing')">Details</div>
+      <div class="modal-tab" id="tab-glass" onclick="switchModalTab('glass')">Glass</div>
       <div class="modal-tab" id="tab-ro" onclick="switchModalTab('ro')">Field Verify · R.O.</div>
     </div>
 
@@ -3119,9 +3124,9 @@ document.addEventListener('DOMContentLoaded', applyThemeUI);
 <div id="toast" class="toast">Saved ✓</div>
 
 <script type="application/json" id="__embedded_state"></script>
-<script src="app-log.js"></script>
-<script src="elevations.js"></script>
-<script src="app.js"></script>
+<script src="app-log.js?v=20260710"></script>
+<script src="elevations.js?v=20260710"></script>
+<script src="app.js?v=20260710"></script>
 <!-- boot handled inside app.js (core) -->
 </body>
 </html>

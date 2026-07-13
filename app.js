@@ -1565,12 +1565,16 @@ document.getElementById('planImg').addEventListener('click', e => {
       {
         // Generate a unique key — if id exists already, append __N suffix
         const trimmedId = id.trim().toUpperCase();
+        // Firebase RTDB path keys can't contain . # $ / [ ] — a dot (e.g. "SF04.1") would make
+        // the whole cloud set() fail silently and the new unit vanish on refresh. Sanitize the
+        // KEY only; the display id keeps whatever the user typed.
+        const safeId = trimmedId.replace(/[.#$/\[\]]/g, '-');
         const existingKeys = state.units.filter(u => u.id === trimmedId).map(u => u.key);
-        let newKey = trimmedId;
+        let newKey = safeId;
         if (existingKeys.length > 0) {
           let n = existingKeys.length + 1;
-          newKey = trimmedId + '__' + n;
-          while (state.units.some(u => u.key === newKey)) { n++; newKey = trimmedId + '__' + n; }
+          newKey = safeId + '__' + n;
+          while (state.units.some(u => u.key === newKey)) { n++; newKey = safeId + '__' + n; }
         }
         state.units.push({ key: newKey, id: trimmedId, type:'Storefront', zone:'—', level:currentLevel, status:'pending', date:'', louver:'no', facecap:'na', note:'' });
         state.positions[newKey] = { x, y };
