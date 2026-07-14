@@ -12,7 +12,8 @@
 // 前提：Firebase Console → atlantic-chestnut-3 → Firestore Database → 创建数据库,
 // 并发布 firestore.rules（见 FIRESTORE-SETUP.md）。
 (async () => {
-  const firebaseConfig = {
+  // CENTRAL_CONFIG = company-wide shared parts library (Firestore `systems`). SAME for EVERY project — do not change per project.
+  const CENTRAL_CONFIG = {
     apiKey: "AIzaSyDzQiJFbU2hEjaFP39T4v0n6Y6M6DYU0j8",
     authDomain: "atlantic-chestnut-3.firebaseapp.com",
     projectId: "atlantic-chestnut-3",
@@ -21,15 +22,23 @@
     appId: "1:809348858581:web:d7d8a18efd7e3947b7185c",
     measurementId: "G-5MMLPWBB2R"
   };
+  // PROJECT_CONFIG = THIS project's own Firebase (Firestore `elevGeo` elevations live here, same project as its tracker RTDB).
+  // Atlantic-Chestnut 3 IS the central project, so they're identical. For ANY OTHER project, replace PROJECT_CONFIG with
+  // that project's own Firebase config (the same one its tracker uses) so elevGeo never collides across projects.
+  const PROJECT_CONFIG = CENTRAL_CONFIG;
   try {
     const { initializeApp } = await import("https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js");
     const {
       getFirestore, doc, getDoc, setDoc, onSnapshot,
       collection, getDocs, serverTimestamp
     } = await import("https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js");
-    const app = initializeApp(firebaseConfig);
-    const db = getFirestore(app);
-    window.__fb = { db, doc, getDoc, setDoc, onSnapshot, collection, getDocs, serverTimestamp };
+    const app = initializeApp(CENTRAL_CONFIG);
+    const db = getFirestore(app);                       // systems (shared parts library)
+    let elevDb = db;                                    // elevGeo (this project's elevations)
+    if (PROJECT_CONFIG.projectId !== CENTRAL_CONFIG.projectId) {
+      elevDb = getFirestore(initializeApp(PROJECT_CONFIG, "project"));
+    }
+    window.__fb = { db, elevDb, doc, getDoc, setDoc, onSnapshot, collection, getDocs, serverTimestamp };
     window.dispatchEvent(new Event("fb-ready"));
   } catch (e) {
     console.error("[firebase] init failed:", e);

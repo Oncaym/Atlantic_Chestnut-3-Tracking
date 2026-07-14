@@ -1310,7 +1310,7 @@ async function exportElevationsToTracker() {
     const fb = window.__fb;
     say('Pushing…');
     for (const e of ELEV_EXPORTS.values()) {
-      await fb.setDoc(fb.doc(fb.db, 'elevGeo', String(e.key)),
+      await fb.setDoc(fb.doc(fb.elevDb || fb.db, 'elevGeo', String(e.key)),
         Object.assign({}, e.data, { updatedAt: fb.serverTimestamp() }), { merge: true });
     }
     const marks = [...ELEV_EXPORTS.keys()].join(', ');
