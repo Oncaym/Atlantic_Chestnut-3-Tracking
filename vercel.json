@@ -1,5 +1,8 @@
 {
   "cleanUrls": true,
+  "redirects": [
+    { "source": "/takeoff", "destination": "/takeoff/", "permanent": false }
+  ],
   "headers": [
     {
       "source": "/(.*)",
