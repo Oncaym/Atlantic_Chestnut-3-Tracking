@@ -89,7 +89,7 @@
   <h2 data-i18n="hub_h">☁ Hub 仓库（粘贴 GitHub 链接即可）</h2>
   <div class="row">
     <div style="flex:2"><label data-i18n="hub_link">GitHub 仓库链接</label>
-      <input type="text" id="hubLink" value="https://github.com/Oncaym/Atlantic_Chestnut_3-Tracking" placeholder="https://github.com/leosun/tracker-hub" oninput="onHubLink()"></div>
+      <input type="text" id="hubLink" value="https://github.com/Oncaym/Atlantic_Chestnut-3-Tracking" placeholder="https://github.com/leosun/tracker-hub" oninput="onHubLink()"></div>
     <div style="flex:1.4"><label data-i18n="hub_contrib">贡献端点 URL（选填，用于自动发 PR）</label>
       <input type="text" id="hubContrib" value="https://atlantic-chestnut-3-tracking.vercel.app/api/contribute" placeholder="https://your-hub.vercel.app/api/contribute"></div>
     <button class="btn ghost" onclick="saveHub()" data-i18n="hub_save">💾 记住</button>
@@ -212,6 +212,7 @@
       <li data-i18n-html="w6_3">新建 GitHub 仓库并推送，接 Vercel；配 <code>FIREBASE_SERVICE_ACCOUNT</code>+<code>FIREBASE_DATABASE_URL</code>、<code>ANTHROPIC_API_KEY</code><span class="cloud-tag">仅云端</span></li>
       <li data-i18n-html="w6_4">把真实平面图换掉占位图（文件名不变），用 Place mode 摆标记</li>
       <li data-i18n-html="w6_5">对 Claude 说：<code>按新 takeoff 重建 index.html 的 scope 卡片区</code></li>
+      <li data-i18n-html="w6_6">把 <code>takeoff/firebase-init.js</code> 里的 <code>PROJECT_CONFIG</code> 改成本项目自己的 Firebase(存 elevGeo 立面几何);<code>CENTRAL_CONFIG</code> 不要动(全公司共享零件库)。</li>
       <li data-i18n-html="w6_6">Firebase Console 给每个 PM 建登录账号<span class="cloud-tag">仅云端</span></li>
     </ol>
   </div>
@@ -257,6 +258,7 @@ const T = {
     w6_3:'新建 GitHub 仓库并推送，接 Vercel；配 <code>FIREBASE_SERVICE_ACCOUNT</code>+<code>FIREBASE_DATABASE_URL</code>、<code>ANTHROPIC_API_KEY</code><span class="cloud-tag">仅云端</span>',
     w6_4:'把真实平面图换掉占位图（文件名不变），用 Place mode 摆标记',
     w6_5:'对 Claude 说：<code>按新 takeoff 重建 index.html 的 scope 卡片区</code>',
+    w6_6:'把 <code>takeoff/firebase-init.js</code> 里的 <code>PROJECT_CONFIG</code> 改成本项目自己的 Firebase(存 elevGeo 立面几何);<code>CENTRAL_CONFIG</code> 不要动(全公司共享零件库)。',
     w6_6:'Firebase Console 给每个 PM 建登录账号<span class="cloud-tag">仅云端</span>',
     th_id:'编号', th_cat:'类别', th_zone:'区域', th_level:'楼层', th_louver:'Louver', th_note:'Note',
     sum_units:'个单元', sum_check:'请和 takeoff 的合计行核对！', empty:'名单为空。选好类别，粘贴编号，点"添加这一批"。',
@@ -300,6 +302,7 @@ const T = {
     w6_3:'Create a GitHub repo + push, connect Vercel; set <code>FIREBASE_SERVICE_ACCOUNT</code>+<code>FIREBASE_DATABASE_URL</code>, <code>ANTHROPIC_API_KEY</code><span class="cloud-tag">Cloud only</span>',
     w6_4:'Replace the placeholder plan (same filename), place markers with Place mode',
     w6_5:'Tell Claude: <code>rebuild the scope card section of index.html from the new takeoff</code>',
+    w6_6:'In <code>takeoff/firebase-init.js</code>, set <code>PROJECT_CONFIG</code> to THIS project\'s own Firebase (stores elevGeo elevations); leave <code>CENTRAL_CONFIG</code> unchanged (company-wide shared parts library).',
     w6_6:'Create a login for each PM in the Firebase Console<span class="cloud-tag">Cloud only</span>',
     th_id:'ID', th_cat:'Category', th_zone:'Zone', th_level:'Level', th_louver:'Louver', th_note:'Note',
     sum_units:'units', sum_check:'Cross-check against the takeoff total!', empty:'List is empty. Pick a category, paste IDs, click "Add this batch".',
@@ -343,6 +346,7 @@ const T = {
     w6_3:'GitHub 저장소 생성·푸시, Vercel 연결; <code>FIREBASE_SERVICE_ACCOUNT</code>+<code>FIREBASE_DATABASE_URL</code>, <code>ANTHROPIC_API_KEY</code> 설정<span class="cloud-tag">클라우드 전용</span>',
     w6_4:'자리표시자 평면도를 실제 이미지로 교체 (같은 파일명), Place mode로 마커 배치',
     w6_5:'Claude에게: <code>새 takeoff로 index.html scope 카드 재구성</code>',
+    w6_6:'<code>takeoff/firebase-init.js</code>에서 <code>PROJECT_CONFIG</code>를 이 프로젝트의 Firebase로 설정(elevGeo 저장); <code>CENTRAL_CONFIG</code>는 그대로(전사 공유 부품 라이브러리).',
     w6_6:'Firebase Console에서 각 PM 로그인 생성<span class="cloud-tag">클라우드 전용</span>',
     th_id:'번호', th_cat:'카테고리', th_zone:'구역', th_level:'층', th_louver:'Louver', th_note:'Note',
     sum_units:'유닛', sum_check:'takeoff 합계와 대조하세요!', empty:'목록이 비었습니다. 카테고리 선택, 번호 붙여넣기, "이 배치 추가".',
@@ -466,8 +470,12 @@ function parseFeatures(md){
   return map;
 }
 const CORE_FILES = ['app.js','app-log.js','cloud-sync.js','chat.html','api/parse.js',
-  '.github/workflows/backup.yml','.github/scripts/backup-state.js'];
-const PROTECTED = ['project-config.js','firebase-config.js','state.json','elevations.js','index.html'];
+  '.github/workflows/backup.yml','.github/scripts/backup-state.js',
+  // takeoff tool — shared core (auto-syncs to every project). Parts library (systems.js) is company-wide shared.
+  'takeoff/app.js','takeoff/systems.js','takeoff/cloud-sync.js','takeoff/tracker-bridge.js','takeoff/role-sections.js','takeoff/colors_and_type.css','takeoff/styles.css'];
+// PROTECTED = per-project, never overwritten by Pull. takeoff/firebase-init.js holds this project's PROJECT_CONFIG (elevGeo Firebase);
+// takeoff/index.html holds the project title. Both are seeded once at New Project (see generate()).
+const PROTECTED = ['project-config.js','firebase-config.js','state.json','elevations.js','index.html','takeoff/firebase-init.js','takeoff/index.html'];
 // Shared tooling/docs — synced like core so the tool distributes itself.
 const TOOLING = ['project-sync.html','SYNC.md','FEATURES.md','HUB-SETUP.md','deploy-guide.pdf','tools/dxf2elevations.py','warehouse.html'];
 // Superseded files: if present locally, offer one-click deletion.
@@ -881,6 +889,10 @@ window.FIREBASE_CONFIG = {
       if(m) await copyFile(m[1]);
     }
     await writeFile('index.html', idx);
+    // takeoff tool project-specific files (PROTECTED — Pull never overwrites; seeded once here).
+    // firebase-init.js: PM must edit PROJECT_CONFIG to this project's Firebase (systems stays on the shared CENTRAL_CONFIG).
+    await copyFile('takeoff/firebase-init.js');
+    try{ let tk = await readSrcText('takeoff/index.html'); tk = tk.replace(/<title>[\s\S]*?<\/title>/, '<title>'+name.replace(/[<>]/g,'')+' — Takeoff Tool</title>'); await writeFile('takeoff/index.html', tk); }catch(e){ await copyFile('takeoff/index.html'); }
     try{
       let rec = await readSrcText('recover.html');
       if(srcCfg.storageKey) rec = rec.split(srcCfg.storageKey).join(sl+'_install_v1');
