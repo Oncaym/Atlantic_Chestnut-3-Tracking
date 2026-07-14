@@ -175,11 +175,7 @@ function renderParts() {
     return;
   }
   const systems = SYSTEMS_LIST();
-  if (!_partsExpandInit) {
-    _partsExpandInit = true;
-    const inUse = new Set((state.openings || []).map(o => o.system).filter(Boolean));
-    for (const s of systems) if (!inUse.size || inUse.has(s)) partsExpanded.add(s);
-  }
+  _partsExpandInit = true;   // #2: default all system groups collapsed (no auto-expand)
   const bySys = {};
   for (const p of state.parts) (bySys[p.system] = bySys[p.system] || []).push(p);
   const order = systems.concat(Object.keys(bySys).filter(s => !systems.includes(s)));
@@ -299,6 +295,35 @@ function srcKey(s) { return [s.x, s.y, s.w, s.h].map(n => Math.round((n || 0) * 
 // 手动修改识别: 点立面图色块/底部 chip 选中某根料 → 内联编辑器(位置/长度/数量/删除); "+ Add cut" 新增。
 let viewerOpeningId = null;
 let viewerEditIdx = null;
+// #5: floating tooltip showing a role's section drawing (from role-sections.js) on hover.
+function _ensureRoleTip() {
+  let t = document.getElementById('role-tip');
+  if (!t) {
+    t = document.createElement('div');
+    t.id = 'role-tip';
+    t.style.cssText = 'position:fixed;z-index:9999;pointer-events:none;background:#fff;border:1px solid #ccc;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.18);padding:8px 10px;display:none;max-width:230px;font:12px var(--af-font-sans,system-ui);';
+    document.body.appendChild(t);
+  }
+  return t;
+}
+function showRoleTip(e, cut, system) {
+  if (!cut) return;
+  const pos = cutDisplayPosition(cut, system);
+  const sec = (window.ROLE_SECTIONS || {})[pos];
+  const t = _ensureRoleTip();
+  t.innerHTML = `<div style="font-weight:600;margin-bottom:4px;">${escHtml(pos)}</div>` +
+    (sec ? `<div style="width:128px;height:92px;display:flex;align-items:center;justify-content:center;">${sec}</div>` : `<div style="color:#999;">no section drawing</div>`);
+  t.style.display = 'block';
+  moveRoleTip(e);
+}
+function moveRoleTip(e) {
+  const t = document.getElementById('role-tip');
+  if (!t || t.style.display === 'none') return;
+  t.style.left = (e.clientX + 14) + 'px';
+  t.style.top = (e.clientY + 14) + 'px';
+}
+function hideRoleTip() { const t = document.getElementById('role-tip'); if (t) t.style.display = 'none'; }
+
 function renderViewer(openingId) {
   const o = state.openings.find(x => x.id === openingId);
   const sec = document.getElementById('viewer-section');
@@ -338,6 +363,9 @@ function renderViewer(openingId) {
       return `<rect data-cut="${idx}" x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${Math.max(s.w, minVis).toFixed(2)}" height="${Math.max(hh, minVis).toFixed(2)}" fill="${col}" fill-opacity="0.85" stroke="${sel ? '#ff2d2d' : '#222'}" stroke-width="${(Math.max(W, H) * (sel ? 0.006 : 0.0015)).toFixed(3)}" style="cursor:pointer;"><title>${escHtml(dp)} — ${formatNumber(c.length)}"${s.layer ? ' · ' + escHtml(s.layer) : ''}  (click to edit)</title></rect>`;
     }).join('');
     box.innerHTML = `<svg viewBox="${(-pad).toFixed(2)} ${(-pad).toFixed(2)} ${(W + 2 * pad).toFixed(2)} ${(H + 2 * pad).toFixed(2)}" style="width:100%;max-height:520px;display:block;">${rects}</svg>`;
+    box.onmouseover = e => { const r = e.target.closest && e.target.closest('rect[data-cut]'); if (r) showRoleTip(e, cuts[+r.getAttribute('data-cut')], o.system); };   // #5: role section on hover
+    box.onmousemove = moveRoleTip;
+    box.onmouseout = e => { if (e.target.closest && e.target.closest('rect[data-cut]')) hideRoleTip(); };
   } else {
     box.innerHTML = `<div style="padding:18px;color:#888;font-size:13px;">No source geometry. Edit with the chips below, or click "+ Add cut" to add a piece.</div>`;
   }
@@ -889,6 +917,8 @@ function renderReport() {
         </tr>`;
       // 组成可改: 列出该角色下的 part(垃圾桶=移出该角色), 末行下拉=把现有 part 加入该角色
       if (open) {
+        const _sec = (window.ROLE_SECTIONS || {})[pos];   // #5: show role section drawing when expanded
+        if (_sec) html += `<tr class="role-part"><td colspan="4" style="padding:6px 26px;"><div style="display:flex;align-items:center;gap:12px;"><div style="min-width:128px;height:82px;display:flex;align-items:center;flex:0 0 auto;">${_sec}</div><span style="color:var(--af-fg-3,#888);font-size:11px;">Section · ${escHtml(pos)}</span></div></td></tr>`;
         for (const p of assigned) {
           html += `
             <tr class="role-part">
@@ -1235,6 +1265,7 @@ function buildElevExport(mark, c, pool, louverBand, doorRegions, structuralPolys
   }
   base += '</g>';
   const els = []; let n = 0;
+  const louverBays = new Set();   // #louver-fix: bays that already got a louver cell from the grid
   const add = (x1, y1, x2, y2, t0) => els.push({ id: mark + '-' + (++n), x: X(x1), y: Y(y2), w: W(x2 - x1), h: W(y2 - y1), t0 });
   const H = pool.filter(p => p.width > p.height && p.height >= 1);
   const V = pool.filter(p => p.height > p.width && p.width >= 1);
@@ -1259,9 +1290,12 @@ function buildElevExport(mark, c, pool, louverBand, doorRegions, structuralPolys
       if (inZone) continue;
       const inStrip = (panelStrips || []).some(sp => cy >= sp.minY - 2 && cy <= sp.maxY + 2 &&
         Math.min(xR, sp.maxX) - Math.max(xL, sp.minX) > (xR - xL) * 0.5);
-      add(xL, y1, xR, y2, inStrip ? 'panel' : (isLv ? 'louver' : 'glass'));
+      const _t0 = inStrip ? 'panel' : (isLv ? 'louver' : 'glass'); if (_t0 === 'louver') louverBays.add(i); add(xL, y1, xR, y2, _t0);
     }
   }
+  // #louver-fix: louver band whose top/bottom sit on the louver's own frame (AF-PANEL, excluded from the pool)
+  // never forms a grid cell → emit an explicit louver element per bay across the band (bays already covered above are skipped).
+  if (louverBand) { for (let i = 0; i + 1 < vxs.length; i++) { const xL = vxs[i], xR = vxs[i + 1], cx = (xL + xR) / 2; if (cx < louverBand.minX - 10 || cx > louverBand.maxX + 10) continue; if (louverBays.has(i)) continue; if (inDoor(xL, xR, louverBand.minY, louverBand.maxY)) continue; add(xL, louverBand.minY, xR, louverBand.maxY, 'louver'); } }
   for (const d of doorRegions) add(d.minX, bb.minY, d.maxX, d.headY, 'door');
   for (const p of boards) add(p.minX, p.minY, p.maxX, p.maxY, 'panel');
   return { key: mark, data: { viewBox: `0 0 ${+(bb.width * s).toFixed(1)} 400`, name: mark, base, elements: els } };
@@ -1473,7 +1507,7 @@ function parseRawDxfOpenings(text) {
     }
     // Louver-area members → (X)/(Lv) variants (still counted; only the part role changes).
     if (louverBand) {
-      const XMAP = { 'Head': 'Head (X)', 'Sill': 'Sill (X)', 'Horizontal': 'Horizontal (X)', 'Jamb': 'Jamb (X)', 'Vertical': 'Vertical (Lv)', 'Vertical (wide)': 'Vertical (wide X)', 'Door Jamb': 'Vertical (Lv)' };
+      const XMAP = { 'Head': 'Head (X)', 'Sill': 'Sill (X)', 'Horizontal': 'Horizontal (X)', 'Jamb': 'Jamb (X)', 'Vertical': 'Vertical (X)', 'Vertical (wide)': 'Vertical (wide X)', 'Door Jamb': 'Vertical (X)' };
       for (const cut of cuts) {
         if (!cut.src || !XMAP[cut.position]) continue;
         const cx = cut.src.x + cut.src.w / 2;

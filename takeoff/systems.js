@@ -150,11 +150,11 @@
         { partNumber: 'BE9-3904', description: 'Head/Sill (Open Back)',      roles: ['Head', 'Sill', 'Head (X)', 'Sill (X)', 'Sill (normal)'] },
         { partNumber: 'E9-3162',  description: 'Flush Filler',               roles: ['Head', 'Sill', 'Head (X)', 'Sill (X)', 'Sill (normal)'] },
         { partNumber: 'AS-3907',  description: 'Permimeter Pressure Plate',  roles: ['Head (X)', 'Sill (X)', 'Jamb (X)', 'Jamb', 'Door Jamb', 'Sill (normal)'] },
-        { partNumber: 'E9-1206',  description: 'Face Cover',                 roles: ['Head', 'Head (X)', 'Sill (X)', 'Sill (normal)', 'Horizontal', 'Horizontal (X)', 'Jamb', 'Jamb (X)', 'Door Jamb', 'Vertical', 'Vertical (Lv)', 'Vertical (X)'] },
+        { partNumber: 'E9-1206',  description: 'Face Cover',                 roles: ['Head', 'Head (X)', 'Sill (X)', 'Sill (normal)', 'Horizontal', 'Horizontal (X)', 'Jamb', 'Jamb (X)', 'Door Jamb', 'Vertical', 'Vertical (X)'] },
         { partNumber: 'A',        description: 'Pressure Plate',             roles: ['Head', 'Head (X)', 'Horizontal (X)'] },
-        { partNumber: 'A',        description: 'Pocket Filler',              roles: ['Sill (X)', 'Jamb (X)', 'Vertical (Lv)', 'Vertical (X)', 'Vertical (wide X)'] }, // Vertical (Lv)/(X)/(wide X): ×2 per mullion(占位, 换真号时按 ×2 处理)
-        { partNumber: 'AS-3906',  description: 'Pressure Plate',             roles: ['Head', 'Horizontal', 'Horizontal (X)', 'Vertical', 'Vertical (Lv)', 'Vertical (X)'] },
-        { partNumber: 'BE9-3910', description: 'Horizontal/Vertical',        roles: ['Horizontal', 'Horizontal (X)', 'Jamb', 'Jamb (X)', 'Door Jamb', 'Vertical', 'Vertical (Lv)', 'Vertical (X)'] },
+        { partNumber: 'A',        description: 'Pocket Filler',              roles: ['Sill (X)', 'Jamb (X)', 'Vertical (X)', 'Vertical (wide X)'] }, // Vertical (Lv)/(X)/(wide X): ×2 per mullion(占位, 换真号时按 ×2 处理)
+        { partNumber: 'AS-3906',  description: 'Pressure Plate',             roles: ['Head', 'Horizontal', 'Horizontal (X)', 'Vertical', 'Vertical (X)'] },
+        { partNumber: 'BE9-3910', description: 'Horizontal/Vertical',        roles: ['Horizontal', 'Horizontal (X)', 'Jamb', 'Jamb (X)', 'Door Jamb', 'Vertical', 'Vertical (X)'] },
         { partNumber: 'E1-3603',  description: 'Setting Block Chair',        roles: ['Horizontal', 'Horizontal (X)', 'Sill', 'Sill (normal)'] },
         { partNumber: 'E2-0513',  description: 'Setting Block',              roles: ['Horizontal', 'Horizontal (X)', 'Sill', 'Sill (normal)'] },
         { partNumber: 'B',        description: 'Permimeter Pressure Plate',  roles: ['Sill'] },
