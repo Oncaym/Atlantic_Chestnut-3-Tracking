@@ -22,7 +22,8 @@ function POSITIONS_LIST() {
 // Back-compat aliases (Proxy so existing SYSTEMS.map / SYSTEMS.indexOf still work)
 const SYSTEMS = new Proxy([], { get(_,k){ const a=SYSTEMS_LIST(); return typeof a[k]==='function'?a[k].bind(a):a[k]; } });
 const POSITIONS = new Proxy([], { get(_,k){ const a=POSITIONS_LIST(); return typeof a[k]==='function'?a[k].bind(a):a[k]; } });
-const WASTE_FACTOR = 1.20;
+function wasteFactor(){ const p = (typeof state !== 'undefined' && state && state.wastePct != null) ? +state.wastePct : 20; return 1 + ((isFinite(p) ? p : 20) / 100); }   // #1: user-selectable waste %
+function wastePctVal(){ return (typeof state !== 'undefined' && state && state.wastePct != null && isFinite(+state.wastePct)) ? +state.wastePct : 20; }
 const STOCK_INCHES = 288; // 24 ft
 
 // DXF layer-name config (can be overridden via setLayerConfig({alum:'...',...}))
@@ -295,6 +296,8 @@ function srcKey(s) { return [s.x, s.y, s.w, s.h].map(n => Math.round((n || 0) * 
 // 手动修改识别: 点立面图色块/底部 chip 选中某根料 → 内联编辑器(位置/长度/数量/删除); "+ Add cut" 新增。
 let viewerOpeningId = null;
 let viewerEditIdx = null;
+let _viewerGeom = null;      // #2: {minX,maxY} to map a click back to src coords
+let viewerSplitSrc = null;   // #2: src-coord point where the user last clicked (for precise split)
 // #5: floating tooltip showing a role's section drawing (from role-sections.js) on hover.
 function _ensureRoleTip() {
   let t = document.getElementById('role-tip');
@@ -345,6 +348,7 @@ function renderViewer(openingId) {
     const maxX = Math.max(...srcs.map(c => c.src.x + c.src.w));
     const minY = Math.min(...srcs.map(c => c.src.y));
     const maxY = Math.max(...srcs.map(c => c.src.y + c.src.h));
+    _viewerGeom = { minX, maxY };   // #2
     const W = maxX - minX, H = maxY - minY, pad = Math.max(W, H) * 0.04 + 2;
     const minVis = Math.max(W, H) * 0.005;
     const ordered = [...srcs].sort((a, b) => (b.src.w * b.src.h) - (a.src.w * a.src.h));
@@ -394,6 +398,8 @@ function renderViewer(openingId) {
         <label>Position <select id="vc-pos" class="tk-cell-select">${POSITIONS.map(p => `<option value="${escAttr(p)}" ${p === c.position ? 'selected' : ''}>${p}</option>`).join('')}</select></label>
         <label>Length <input id="vc-len" class="tk-cell-input num" type="number" step="0.125" value="${c.length}" style="width:84px;" />″</label>
         <label>Count <input id="vc-cnt" class="tk-cell-input num" type="number" min="1" step="1" value="${c.count || 1}" style="width:60px;" /></label>
+        ${c.src ? `<button class="tk-btn tk-btn--ghost tk-btn--sm" id="vc-split" title="Split this piece in two at the point you clicked">✂ Split here</button>
+        <button class="tk-btn tk-btn--ghost tk-btn--sm" id="vc-merge" title="Merge with the adjacent in-line piece of the same role">⧉ Merge</button>` : ''}
         <button class="tk-btn tk-btn--ghost tk-btn--sm" id="vc-del">Delete piece</button>
         <button class="tk-btn tk-btn--ghost tk-btn--sm" id="vc-done">Done</button>
       </div>`;
@@ -431,10 +437,42 @@ document.addEventListener('click', e => {
     if (o && state.roleEdits) { delete state.roleEdits[o.mark]; save(); renderViewer(viewerOpeningId); }
     return;
   }
+  if (e.target.closest('#vc-split') && viewerOpeningId != null && viewerEditIdx != null) {   // #2: split at clicked point
+    const o = state.openings.find(x => x.id === viewerOpeningId); const c = o && o.cuts && o.cuts[viewerEditIdx];
+    if (c && c.src) {
+      const s = c.src, R = dxfRound, vertical = s.h >= s.w; let a, b;
+      if (vertical) { const yc = Math.min(Math.max((viewerSplitSrc ? viewerSplitSrc.y : s.y + s.h / 2), s.y + 0.5), s.y + s.h - 0.5);
+        b = { ...c, length: R(yc - s.y), count: c.count || 1, src: { ...s, y: s.y, h: R(yc - s.y) } };
+        a = { ...c, length: R(s.y + s.h - yc), count: c.count || 1, src: { ...s, y: yc, h: R(s.y + s.h - yc) } }; }
+      else { const xc = Math.min(Math.max((viewerSplitSrc ? viewerSplitSrc.x : s.x + s.w / 2), s.x + 0.5), s.x + s.w - 0.5);
+        a = { ...c, length: R(xc - s.x), count: c.count || 1, src: { ...s, x: s.x, w: R(xc - s.x) } };
+        b = { ...c, length: R(s.x + s.w - xc), count: c.count || 1, src: { ...s, x: xc, w: R(s.x + s.w - xc) } }; }
+      o.cuts.splice(viewerEditIdx, 1, a, b); viewerEditIdx = null; viewerSplitSrc = null; refreshAfterCutEdit();
+    }
+    return;
+  }
+  if (e.target.closest('#vc-merge') && viewerOpeningId != null && viewerEditIdx != null) {   // #2: merge with adjacent in-line piece
+    const o = state.openings.find(x => x.id === viewerOpeningId); const c = o && o.cuts && o.cuts[viewerEditIdx];
+    if (c && c.src) {
+      const s = c.src, vertical = s.h >= s.w, tol = 1.2, gap = 10, R = dxfRound;
+      const j = o.cuts.findIndex((k, ix) => ix !== viewerEditIdx && k.src && k.position === c.position && (vertical
+        ? (Math.abs(k.src.x - s.x) < tol && (Math.abs((k.src.y + k.src.h) - s.y) < gap || Math.abs((s.y + s.h) - k.src.y) < gap))
+        : (Math.abs(k.src.y - s.y) < tol && (Math.abs((k.src.x + k.src.w) - s.x) < gap || Math.abs((s.x + s.w) - k.src.x) < gap))));
+      if (j < 0) { alert('No adjacent in-line piece of the same role to merge.'); return; }
+      const k = o.cuts[j];
+      if (vertical) { const y0 = Math.min(s.y, k.src.y), y1 = Math.max(s.y + s.h, k.src.y + k.src.h); c.src = { ...s, y: y0, h: R(y1 - y0) }; c.length = R(y1 - y0); }
+      else { const x0 = Math.min(s.x, k.src.x), x1 = Math.max(s.x + s.w, k.src.x + k.src.w); c.src = { ...s, x: x0, w: R(x1 - x0) }; c.length = R(x1 - x0); }
+      o.cuts.splice(j, 1); if (j < viewerEditIdx) viewerEditIdx--; refreshAfterCutEdit();
+    }
+    return;
+  }
   // 选中某根料(立面图色块 或 底部 chip)
   const cutEl = e.target.closest('[data-cut]');
   if (cutEl && (cutEl.closest('#viewer-box') || cutEl.closest('#viewer-edit')) && viewerOpeningId != null) {
     viewerEditIdx = parseInt(cutEl.getAttribute('data-cut'), 10);
+    viewerSplitSrc = null;   // #2: capture the clicked point (in src coords) for a precise split
+    const svg = cutEl.ownerSVGElement;
+    if (svg && _viewerGeom && svg.getScreenCTM) { try { const pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY; const p = pt.matrixTransform(svg.getScreenCTM().inverse()); viewerSplitSrc = { x: p.x + _viewerGeom.minX, y: _viewerGeom.maxY - p.y }; } catch (_) {} }
     renderViewer(viewerOpeningId);
     return;
   }
@@ -729,8 +767,9 @@ function buildReport() {
           });
         }
         const b = buckets.get(key);
-        b.totalInches += totalLen;
-        for (let i = 0; i < nPieces; i++) b.pieces.push(c.length);
+        const q = (match.roleQty && +match.roleQty[c.position] > 0) ? +match.roleQty[c.position] : 1;   // #4: per-role part quantity
+        b.totalInches += totalLen * q;
+        for (let i = 0; i < nPieces * q; i++) b.pieces.push(c.length);
         b.rolesUsed.add(c.position);
       }
     }
@@ -748,7 +787,8 @@ function buildReport() {
           });
         }
         const b = buckets.get(key);
-        const n = o.qty || 1;
+        const q = (match.roleQty && +match.roleQty[role] > 0) ? +match.roleQty[role] : 1;   // #4: per-role part quantity
+        const n = (o.qty || 1) * q;
         for (const rl of runs) { b.totalInches += rl * n; for (let i = 0; i < n; i++) b.pieces.push(rl); }
         b.rolesUsed.add(role + ' (run)');
       }
@@ -758,7 +798,7 @@ function buildReport() {
   const rows = [...buckets.values()].map(b => {
     const stock = b.stockInches || STOCK_INCHES;
     const { sticks, over } = packFFD(b.pieces, stock);     // 余量前: 真实摆料
-    const stocksWaste = sticks > 0 ? Math.ceil(sticks * WASTE_FACTOR) : 0; // 余量后: ceil(A×1.2)
+    const stocksWaste = sticks > 0 ? Math.ceil(sticks * wasteFactor()) : 0; // 余量后: ceil(A × waste factor)
     return {
       ...b,
       rolesUsed: [...b.rolesUsed],
@@ -836,6 +876,14 @@ document.addEventListener('click', e => {
 });
 // 角色下"加入 part"(下拉)
 document.addEventListener('change', e => {
+  if (e.target && e.target.id === 'waste-pct') { state.wastePct = Math.max(0, parseFloat(e.target.value) || 0); save(); renderReport(); renderMeta(); return; }   // #1
+  const rq = e.target.closest && e.target.closest('[data-roleqty]');   // #4: per-role part qty
+  if (rq) {
+    const sp = rq.getAttribute('data-roleqty').split('|'); const pos = sp.pop(), pid = sp.join('|');
+    const p = state.parts.find(x => x.id === pid);
+    if (p) { p.roleQty = p.roleQty || {}; const v = Math.max(1, parseInt(rq.value) || 1); if (v === 1) delete p.roleQty[pos]; else p.roleQty[pos] = v; save(); renderReport(); renderMeta(); renderParts(); }
+    return;
+  }
   const sel = e.target.closest && e.target.closest('[data-addrole]');
   if (!sel || !sel.value) return;
   const sp = sel.getAttribute('data-addrole').split('|');
@@ -925,6 +973,7 @@ function renderReport() {
               <td style="padding-left:26px;">
                 <span class="pn">${escHtml(p.partNumber)}</span>
                 <span class="desc">${escHtml(p.description || '—')}</span>
+                <label style="margin-left:6px;font-size:11px;color:var(--af-fg-3,#888);">×<input class="tk-cell-input num" data-roleqty="${escAttr(p.id + '|' + pos)}" type="number" min="1" step="1" value="${(p.roleQty && p.roleQty[pos]) || 1}" style="width:44px;" title="Qty of this part per piece in this role (use instead of adding the part twice)" /></label>
                 <button class="tk-rowdel-btn" data-rmrole="${escAttr(p.id + '|' + pos)}" title="Remove this part from ${escAttr(pos)}" style="margin-left:6px;">${ico('trash')}</button>
               </td>
               <td class="num"></td><td class="num"></td><td class="num"></td>
@@ -951,7 +1000,7 @@ function renderReport() {
 
   // 按-part 订料清单: 每个 part 一行, 根数 = 该 part 所有角色叠加(只出现一次)
   html += `
-    <div style="padding:14px 16px 6px; font:600 11px var(--af-font-sans,system-ui); letter-spacing:.12em; text-transform:uppercase; color:var(--af-fg-3,#888);">By Part — order list (stick count = sum across all roles)</div>
+    <div style="padding:14px 16px 6px; display:flex; align-items:center; justify-content:space-between; font:600 11px var(--af-font-sans,system-ui); letter-spacing:.12em; text-transform:uppercase; color:var(--af-fg-3,#888);"><span>By Part — order list (stick count = sum across all roles)</span><label style="text-transform:none; letter-spacing:0; font-weight:400;">Waste&nbsp;<input id="waste-pct" type="number" min="0" step="5" value="${wastePctVal()}" style="width:52px;" title="Waste allowance % added on top of the FFD stock count" />%</label></div>
     <div class="tk-table-wrap">
       <table class="tk-report-table">
         <thead>
@@ -959,7 +1008,7 @@ function renderReport() {
             <th>Part #</th>
             <th class="num">Cut Length</th>
             <th class="num">24′ Stocks</th>
-            <th class="num">+ 20%</th>
+            <th class="num">+ ${wastePctVal()}%</th>
           </tr>
         </thead>
         <tbody>`;
@@ -2186,7 +2235,7 @@ F-4   450   36 x 84    qty: 6`;
 function exportCsv() {
   const { rows, unresolved } = buildReport();
   const lines = [];
-  lines.push(['System','Part Number','Description','Roles','Total Cut Length (in)','Stocks (FFD, pcs)','Stocks +20% (pcs)','Oversize (pcs)','Oversize Lengths (in)']
+  lines.push(['System','Part Number','Description','Roles','Total Cut Length (in)','Stocks (FFD, pcs)','Stocks +'+wastePctVal()+'% (pcs)','Oversize (pcs)','Oversize Lengths (in)']
     .map(csvEsc).join(','));
   for (const r of rows) {
     lines.push([
@@ -2203,19 +2252,20 @@ function exportCsv() {
       lines.push([u.system, u.position, u.totalInches.toFixed(2)].map(csvEsc).join(','));
     }
   }
-  const accRows = computeAccessories();
+  const ascii = s => String(s ?? '').replace(/×/g, 'x').replace(/÷/g, '/').replace(/[″"]/g, 'in').replace(/°/g, 'deg');
+  const accRows = computeAccessories().filter(r => r.qty > 0);   // #3: export only accessories actually used (qty > 0)
   if (accRows.length) {
     lines.push('');
     lines.push('ACCESSORIES');
     lines.push(['Part Number','Description','Rule','Positions','Param','Min','Qty','Unit','Basis'].map(csvEsc).join(','));
     for (const { acc: a, qty, basis } of accRows) {
       lines.push([
-        a.partNumber || '', a.description || '', (ACC_RULES[a.rule] || {}).label || a.rule,
-        (a.positions || []).join(' / ') || '(all)', a.param, a.min || 0, qty, a.unit || 'ea', basis
+        a.partNumber || '', a.description || '', ascii((ACC_RULES[a.rule] || {}).label || a.rule),
+        (a.positions || []).join(' / ') || '(all)', a.param, a.min || 0, qty, a.unit || 'ea', ascii(basis)
       ].map(csvEsc).join(','));
     }
   }
-  download('hillview-takeoff.csv', lines.join('\n'), 'text/csv');
+  download('takeoff.csv', String.fromCharCode(0xFEFF) + lines.join('\n'), 'text/csv;charset=utf-8');   // #3: UTF-8 BOM so Excel doesn't mojibake
 }
 function csvEsc(v) {
   const s = String(v ?? '');
@@ -2238,7 +2288,7 @@ function copyReport() {
     if (s.length > n) s = s.slice(0, n-1)+'…';
     return right ? s.padStart(n) : s.padEnd(n);
   };
-  const header = ['System','Part #','Description','Roles','Cut In.','Stocks','+20%','Over']
+  const header = ['System','Part #','Description','Roles','Cut In.','Stocks','+'+wastePctVal()+'%','Over']
     .map((h,i) => pad(h, COL[i], i>=4)).join('  ');
   const rule = COL.map(n => '─'.repeat(n)).join('  ');
   const out = [header, rule];

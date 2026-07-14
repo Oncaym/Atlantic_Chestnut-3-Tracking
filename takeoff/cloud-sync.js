@@ -39,6 +39,7 @@
       };
       if (p.stockInches != null) o.stockInches = p.stockInches;
       if (p.continuous) o.continuous = true;   // 连续件标记(如 C Face Cover),云端保留
+      if (p.roleQty && Object.keys(p.roleQty).length) o.roleQty = p.roleQty;   // #4: per-role part qty, cloud-shared
       return o;
     });
   }
@@ -101,6 +102,7 @@
           var np = { id: uid(), system: name, partNumber: p.partNumber, description: p.description, roles: p.roles.slice() };
           if (p.stockInches != null) np.stockInches = p.stockInches;
           if (p.continuous) np.continuous = true;
+          if (p.roleQty) np.roleQty = p.roleQty;   // #4
           parts.push(np);
         });
         cleanAccessories(d.data && d.data.accessories).forEach(function (a) {

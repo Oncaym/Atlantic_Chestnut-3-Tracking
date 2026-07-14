@@ -253,7 +253,7 @@ ENT-1   IR501T   84&quot; x 108&quot;   x1"></textarea>
           <span class="tk-meta__val" id="meta-waste">—</span>
         </div>
         <div class="tk-meta">
-          <span class="tk-meta__label">Stocks +20%</span>
+          <span class="tk-meta__label">Stocks +waste%</span>
           <span class="tk-meta__val" id="meta-stocks">—</span>
         </div>
       </div>
@@ -262,7 +262,7 @@ ENT-1   IR501T   84&quot; x 108&quot;   x1"></textarea>
 
       <div class="tk-report__foot">
         <span class="tk-formula">
-          <b>stocks</b> = FFD packing (longest-first · backfill offcuts · splice over-length) · +20% = ⌈ stocks × <b>1.20</b> ⌉
+          <b>stocks</b> = FFD packing (longest-first · backfill offcuts · splice over-length) · +waste% = ⌈ stocks × (1 + waste%) ⌉
         </span>
         <div style="display:flex; gap:8px;">
           <button class="tk-btn tk-btn--ghost tk-btn--sm" id="copy-report">
@@ -357,8 +357,8 @@ ENT-1   IR501T   84&quot; x 108&quot;   x1"></textarea>
 <script src="firebase-init.js?v=20260713g"></script>
 <script src="systems.js?v=20260713g"></script>
 <script src="role-sections.js?v=20260713f"></script>
-<script src="app.js?v=20260713g"></script>
-<script src="cloud-sync.js?v=20260713e"></script>
+<script src="app.js?v=20260713h"></script>
+<script src="cloud-sync.js?v=20260713h"></script>
 <script src="tracker-bridge.js?v=20260713d"></script>
 </body>
 </html>
