@@ -2346,7 +2346,7 @@ const _ELEV_NEXT_TYPE={glass:'panel',panel:'door',door:'louver',louver:'hidden',
 function _elevParentFor(id){ const EL=window.ELEVATIONS||{}; for(const k in EL){ if(EL[k].base && EL[k].base.indexOf('>'+id+'<')>=0) return k; } return null; }
 function _elevKey(){ const u=state.units.find(x=>x.key===editingUnitId); if(!u) return null; const EL=window.ELEVATIONS||{}; if(EL[u.id]) return u.id; return _elevParentFor(u.id)||u.id; }
 function _elevFrameUnit(){ const key=_elevKey(); return state.units.find(x=>x.id===key) || state.units.find(x=>x.key===editingUnitId) || null; }
-function _elevStore(k){ if(!state.elevations)state.elevations={}; const s=state.elevations; if(!s[k])s[k]={el:{},custom:[]}; if(!s[k].el)s[k].el={}; if(!s[k].custom)s[k].custom=[]; return s[k]; }
+function _elevStore(k){ if(!state.elevations)state.elevations={}; const s=state.elevations; if(!s[k])s[k]={el:{},custom:[]}; if(!s[k].el)s[k].el={}; if(!s[k].custom)s[k].custom=[]; if(!s[k].deleted)s[k].deleted=[]; return s[k]; }
 function _elevSvgPt(svg,e){ const p=svg.createSVGPoint(); p.x=e.clientX; p.y=e.clientY; return p.matrixTransform(svg.getScreenCTM().inverse()); }
 function renderElevation(){
   const stage=document.getElementById('elevStage'); if(!stage) return;
@@ -2356,7 +2356,8 @@ function renderElevation(){
   if(!E){ stage.innerHTML='<div class="elev-empty">No elevation imported for <b>'+(key||'?')+'</b> yet.<br>Provide its shop-drawing DXF and I\'ll generate the interactive elevation.</div>'; if(kpi)kpi.innerHTML=''; const fb=document.getElementById('elevFrameBtn'); if(fb)fb.style.display='none'; return; }
   const S=_elevStore(key);
   const parts=E.elements.map(e=>({id:e.id,x:e.x,y:e.y,w:e.w,h:e.h,t0:e.t0}))
-              .concat(S.custom.map(c=>({id:c.id,x:c.x,y:c.y,w:c.w,h:c.h,t0:c.type})));
+              .concat(S.custom.map(c=>({id:c.id,x:c.x,y:c.y,w:c.w,h:c.h,t0:c.type})))
+              .filter(p=>!S.deleted.includes(p.id));   // #3: deleted elements removed entirely
   const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   const hot=parts.map(p=>{ const r=S.el[p.id]||{}; const type=r.type||p.t0; const status=r.status||'pending'; const nm=r.name||p.id;
     return '<rect class="el-el" data-id="'+esc(p.id)+'" data-type="'+type+'" data-status="'+status+'" x="'+p.x+'" y="'+p.y+'" width="'+p.w+'" height="'+p.h+'"><title>'+esc(nm)+' · '+type+' · '+status+'</title></rect>'; }).join('');
@@ -2379,7 +2380,7 @@ function renderElevation(){
 function _renderElevKpis(key,u){
   const kpi=document.getElementById('elevKpis'); if(!kpi) return;
   const S=_elevStore(key); const E=(window.ELEVATIONS||{})[key]; if(!E){kpi.innerHTML='';return;}
-  const parts=E.elements.map(e=>({id:e.id,t0:e.t0})).concat(S.custom.map(c=>({id:c.id,t0:c.type})));
+  const parts=E.elements.map(e=>({id:e.id,t0:e.t0})).concat(S.custom.map(c=>({id:c.id,t0:c.type}))).filter(p=>!S.deleted.includes(p.id));   // #3: skip deleted
   const bt={glass:[0,0],panel:[0,0],louver:[0,0],door:[0,0]};
   parts.forEach(p=>{ const r=S.el[p.id]||{}; const type=r.type||p.t0; const status=r.status||'pending'; if(type==='hidden')return; if(!bt[type])bt[type]=[0,0]; bt[type][1]++; if(status==='installed')bt[type][0]++; });
   const sfI=(u&&u.status==='installed'?1:0)+bt.door[0], sfT=1+bt.door[1];
@@ -2405,6 +2406,7 @@ function openElevFrameStatus(){ const fu=_elevFrameUnit(); if(!fu) return; _elev
   document.getElementById('elevStatusTitle').textContent=fu.id+' · frame (framing installation)';
   document.getElementById('elevStatusSel').value=fu.status||'pending';
   document.getElementById('elevStatusDate').value=fu.date||'';
+  { const db=document.getElementById('elevStatusDelBtn'); if(db)db.style.display='none'; }   // #3: no delete for frame status
   document.getElementById('elevStatusModal').classList.add('show');
 }
 function openElevStatus(elId){ const key=_elevKey(); if(!key)return; _elevCurEl=elId; const S=_elevStore(key); const E=window.ELEVATIONS[key]||{elements:[]};
@@ -2419,9 +2421,20 @@ function openElevStatus(elId){ const key=_elevKey(); if(!key)return; _elevCurEl=
   document.getElementById('elevStatusSel').value=rec.status||'pending';
   document.getElementById('elevStatusDate').value=rec.date||'';
   document.getElementById('elevStatusNote').value=rec.note||'';
+  { const db=document.getElementById('elevStatusDelBtn'); if(db)db.style.display=''; }   // #3: allow delete for a real element
   document.getElementById('elevStatusModal').classList.add('show');
 }
 function closeElevStatus(){ const m=document.getElementById('elevStatusModal'); if(m)m.classList.remove('show'); }
+// #3: permanently delete an elevation element (custom → removed; base/imported → recorded in S.deleted so it never renders/counts). Not just 'hidden'.
+function deleteElevElement(){ const key=_elevKey(); if(!key||!_elevCurEl||_elevCurEl==='__frame__')return;
+  if(!confirm('Delete this element from the elevation? It is removed entirely (not just hidden).'))return;
+  const S=_elevStore(key);
+  const ci=S.custom.findIndex(c=>c.id===_elevCurEl);
+  if(ci>=0) S.custom.splice(ci,1);
+  else if(!S.deleted.includes(_elevCurEl)) S.deleted.push(_elevCurEl);
+  if(S.el) delete S.el[_elevCurEl];
+  saveState(); closeElevStatus(); renderElevation();
+}
 function saveElevStatus(){ const key=_elevKey(); if(!key||!_elevCurEl)return;
   if(_elevCurEl==='__frame__'){ const fu=_elevFrameUnit();
     if(fu){ fu.status=document.getElementById('elevStatusSel').value; fu.date=document.getElementById('elevStatusDate').value; }

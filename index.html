@@ -2994,6 +2994,7 @@ document.addEventListener('DOMContentLoaded', applyThemeUI);
     <div class="form-row"><label>Install Date</label><input type="date" id="elevStatusDate"></div>
     <div class="form-row"><label>Note</label><textarea id="elevStatusNote" rows="2" placeholder="Notes"></textarea></div>
     <div class="modal-actions">
+      <button class="btn" type="button" id="elevStatusDelBtn" onclick="deleteElevElement()" style="color:#c62828;margin-right:auto;">Delete</button>
       <button class="btn" type="button" onclick="closeElevStatus()">Cancel</button>
       <button class="btn btn-primary" type="button" onclick="saveElevStatus()">Save</button>
     </div>
@@ -3126,7 +3127,7 @@ document.addEventListener('DOMContentLoaded', applyThemeUI);
 <script type="application/json" id="__embedded_state"></script>
 <script src="app-log.js?v=20260710"></script>
 <script src="elevations.js?v=20260710"></script>
-<script src="app.js?v=20260710"></script>
+<script src="app.js?v=20260713e"></script>
 <!-- boot handled inside app.js (core) -->
 </body>
 </html>
