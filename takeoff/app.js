@@ -543,7 +543,7 @@ function computeAccessories() {
     tally(agg(o.system || ''), o, q);
     tally(allOpen, o, q);
   }
-  return (state.accessories || []).map(a => {
+  const ruleRows = (state.accessories || []).map(a => {
     const g = (a.system === '' || a.system === undefined) ? allOpen : (bySys[a.system] || { pos: {}, lites: 0, openingsQty: 0 });
     const pos = g.pos, lites = g.lites, openingsQty = g.openingsQty;
     const sel = (a.positions && a.positions.length) ? a.positions : Object.keys(pos);
@@ -572,6 +572,16 @@ function computeAccessories() {
     }
     return { acc: a, qty, basis };
   });
+  // Perimeter-based gaskets computed at DXF import (state.openings[].gasketLF). Read-only rows in the table.
+  const gsum = {};
+  for (const o of state.openings) { const gk = o.gasketLF; if (!gk) continue; const q = o.qty || 1; for (const k in gk) gsum[k] = (gsum[k] || 0) + (+gk[k] || 0) * q; }
+  const BOX = { 'E2-0120': 500, 'E2-0127': 250 };
+  const GDESC = { 'E2-0120': 'Gasket — IMP panel ×2 + opening perimeter ×1', 'E2-0127': 'Gasket — glass ×2 perimeter' };
+  const gaskRows = Object.keys(gsum).filter(k => gsum[k] > 0.05).map(k => {
+    const lf = Math.round(gsum[k] * 10) / 10, box = BOX[k], boxes = box ? Math.ceil(lf / box) : 0;
+    return { acc: { _computed: true, partNumber: k, description: GDESC[k] || 'Gasket', rule: 'perimeter', positions: [], param: '', min: 0, unit: 'LF', system: '750XT' }, qty: lf, basis: box ? (boxes + ' box' + (boxes > 1 ? 'es' : '') + ' @ ' + box + "'/box") : '' };
+  });
+  return ruleRows.concat(gaskRows);
 }
 
 function renderAccessories() {
@@ -585,7 +595,19 @@ function renderAccessories() {
     return;
   }
   const sysOpts = ['', ...SYSTEMS_LIST()];
-  tbody.innerHTML = rows.map(({ acc: a, qty, basis }) => `
+  tbody.innerHTML = rows.map(({ acc: a, qty, basis }) => a._computed ? `
+    <tr class="acc-computed" title="Computed from imported elevations — perimeter-based gasket (auto)">
+      <td class="col-sys">${escHtml(a.system || '')}</td>
+      <td class="col-mark mono">${escHtml(a.partNumber || '')}</td>
+      <td>${escHtml(a.description || '')}</td>
+      <td class="col-sys">perimeter</td>
+      <td>auto (import)</td>
+      <td class="col-num-sm">—</td>
+      <td class="col-num-sm">—</td>
+      <td class="col-num"><span class="acc-qty mono" title="${escAttr(basis)}">${formatNumber(qty)} ${escHtml(a.unit || 'ea')}</span></td>
+      <td class="tk-rowdel" title="${escAttr(basis)}">🔒</td>
+    </tr>
+  ` : `
     <tr data-id="${a.id}">
       <td class="col-sys"><select class="tk-cell-select" data-afield="system">${sysOpts.map(s => `<option value="${escAttr(s)}" ${s === (a.system || '') ? 'selected' : ''}>${s || '(all)'}</option>`).join('')}</select></td>
       <td class="col-mark"><input class="tk-cell-input mono" data-afield="partNumber" value="${escAttr(a.partNumber || '')}" placeholder="P/N" /></td>
@@ -1315,7 +1337,8 @@ function buildElevExport(mark, c, pool, louverBand, doorRegions, structuralPolys
   base += '</g>';
   const els = []; let n = 0;
   const louverBays = new Set();   // #louver-fix: bays that already got a louver cell from the grid
-  const add = (x1, y1, x2, y2, t0) => els.push({ id: mark + '-' + (++n), x: X(x1), y: Y(y2), w: W(x2 - x1), h: W(y2 - y1), t0 });
+  const G = { glass: 0, panel: 0 };   // gasket: sum of element perimeters (inches), by type
+  const add = (x1, y1, x2, y2, t0) => { if (t0 === 'glass' || t0 === 'panel') G[t0] += 2 * ((x2 - x1) + (y2 - y1)); els.push({ id: mark + '-' + (++n), x: X(x1), y: Y(y2), w: W(x2 - x1), h: W(y2 - y1), t0 }); };
   const H = pool.filter(p => p.width > p.height && p.height >= 1);
   const V = pool.filter(p => p.height > p.width && p.width >= 1);
   const vxs = [...new Set(V.map(v => Math.round(v.centerX)))].sort((a, b) => a - b);
@@ -1347,7 +1370,11 @@ function buildElevExport(mark, c, pool, louverBand, doorRegions, structuralPolys
   if (louverBand) { for (let i = 0; i + 1 < vxs.length; i++) { const xL = vxs[i], xR = vxs[i + 1], cx = (xL + xR) / 2; if (cx < louverBand.minX - 10 || cx > louverBand.maxX + 10) continue; if (louverBays.has(i)) continue; if (inDoor(xL, xR, louverBand.minY, louverBand.maxY)) continue; add(xL, louverBand.minY, xR, louverBand.maxY, 'louver'); } }
   for (const d of doorRegions) add(d.minX, bb.minY, d.maxX, d.headY, 'door');
   for (const p of boards) add(p.minX, p.minY, p.maxX, p.maxY, 'panel');
-  return { key: mark, data: { viewBox: `0 0 ${+(bb.width * s).toFixed(1)} 400`, name: mark, base, elements: els } };
+  // Gaskets (perimeter-based): glass → 2 loops of E2-0127; IMP panel → 2 loops of E2-0120; opening outline → 1 loop of E2-0120.
+  // Louver/by-others get none. Door openings use the outer perimeter (door jambs, transom not counted).
+  const openingPerim = 2 * (bb.width + bb.height);
+  const gaskets = { 'E2-0127': +((2 * G.glass) / 12).toFixed(2), 'E2-0120': +((2 * G.panel + openingPerim) / 12).toFixed(2) };
+  return { key: mark, data: { viewBox: `0 0 ${+(bb.width * s).toFixed(1)} 400`, name: mark, base, elements: els }, gaskets };
 }
 
 async function exportElevationsToTracker() {
@@ -1629,6 +1656,7 @@ function parseRawDxfOpenings(text) {
     });
     const _ex = buildElevExport(mark, c, alumPool, louverBand, doorRegions, structuralPolys, panelStrips, byOthersZones);
     ELEV_EXPORTS.set(_ex.key, _ex);
+    if (_ex.gaskets) openings[openings.length - 1].gasketLF = _ex.gaskets;   // gasket: perimeter-based, per opening
   }
   return { openings, errors: [] };
 }

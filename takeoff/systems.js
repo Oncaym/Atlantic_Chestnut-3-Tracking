@@ -163,14 +163,7 @@
         { partNumber: 'AS-7110',  description: 'Pressure Plate (Wide)',      roles: ['Vertical (wide)', 'Vertical (wide X)'] },
         { partNumber: 'E9-1660',  description: 'Face Cover (Wide)',          roles: ['Vertical (wide)', 'Vertical (wide X)'] },
       ],
-      accessories: [
-        // ===== Gaskets (T1) — per-role count from Roles.dxf; length by run (per_lf: qty = count × LF) =====
-        { partNumber: 'E2-0120', description: 'Gasket (E2-0120)',       rule: 'per_lf', positions: ['Head (X)', 'Sill (X)', 'Head', 'Sill', 'Jamb (X)', 'Jamb', 'Door Jamb'],       param: 1, min: 0, unit: 'LF' },
-        { partNumber: 'E2-0120', description: 'Gasket (E2-0120)',       rule: 'per_lf', positions: ['Sill (normal)'],                                                             param: 2, min: 0, unit: 'LF' },
-        { partNumber: 'F',       description: 'Gasket F (placeholder)', rule: 'per_lf', positions: ['Horizontal', 'Vertical', 'Vertical (wide)'],                                  param: 4, min: 0, unit: 'LF' },
-        { partNumber: 'F',       description: 'Gasket F (placeholder)', rule: 'per_lf', positions: ['Head', 'Sill', 'Jamb', 'Door Jamb', 'Horizontal (X)', 'Horizontal(Y)'],       param: 2, min: 0, unit: 'LF' },
-        { partNumber: 'F',       description: 'Gasket F (placeholder)', rule: 'per_lf', positions: ['Sill (normal)'],                                                             param: 1, min: 0, unit: 'LF' },
-      ],
+      accessories: [],   // gaskets are computed per-elevation by perimeter at DXF import (see buildElevExport / computeAccessories), not role-based rules
     },
   };
 
