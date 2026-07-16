@@ -836,6 +836,8 @@ window._cloudApplyRemoteState = function(remoteState, meta) {
     // Ensure core arrays exist (Firebase may strip large fields like log)
     if (!Array.isArray(remoteState.log)) remoteState.log = Object.values(remoteState.log || {});
     if (!remoteState.positions) remoteState.positions = {};
+    if (!Array.isArray(remoteState.submittals)) remoteState.submittals = Object.values(remoteState.submittals || {});
+    if (!Array.isArray(remoteState.materials)) remoteState.materials = Object.values(remoteState.materials || {});
 
     mergeSeedUnits(remoteState);
 
@@ -1011,6 +1013,7 @@ function render() {
   renderUnitGrid();
   renderTable();
   renderTimeline();
+  renderSubmittals();
   renderCharts();
   renderGlassChart();
   document.getElementById('lastUpdated').textContent = new Date(state.updatedAt).toLocaleString();
@@ -2286,13 +2289,48 @@ function _roRowsRaw() {
 function readRoRows() { return _roRowsRaw().filter(m=>m.dims||m.by); }
 function addRoRow() { const rows=_roRowsRaw(); rows.push({date:new Date().toISOString().slice(0,10),stage:'R.O. measure'}); renderRoList(rows); }
 function removeRoRow(i) { const rows=_roRowsRaw(); rows.splice(i,1); renderRoList(rows); }
+/* Note: the R.O. tab/UI above was retired by M3 (replaced by the RFI tab below), but
+   u.ro[] data + these read/render helpers are left in place untouched — u.ro stays
+   stored, just untabbed (per M3 D4). Nothing calls renderRoList/readRoRows anymore. */
+
+/* -------- RFI rows (unit modal, M3) --------
+   Stored per unit as u.rfi = [{ref, date, subject, status, party, response, dateAnswered}].
+   status ∈ open|answered|closed. Modeled on the old R.O. row functions above. Each NEW row
+   also auto-appends a gc-inquiry log entry (mirrors how R.O. appended field-verify), kept
+   non-auto so the app-log.js projection engine won't rewrite it. */
+function renderRfiList(rows) {
+  const box = document.getElementById('rfi-list'); if (!box) return;
+  const esc = s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  const r = (rows && rows.length) ? rows : [{}];
+  const STATUS = ['open','answered','closed'];
+  box.innerHTML = r.map((m,i)=>`
+    <div class="ro-row" style="display:grid;grid-template-columns:1fr 1fr 1.6fr 1fr 1.6fr 1fr auto;gap:6px;margin-top:6px">
+      <input type="text" placeholder="e.g. RFI-014" value="${esc(m.ref)}" autocomplete="off">
+      <input type="date" value="${esc(m.date)}">
+      <input type="text" placeholder="subject" value="${esc(m.subject)}" autocomplete="off">
+      <select>${STATUS.map(s=>`<option value="${s}"${(m.status||'open')===s?' selected':''}>${s}</option>`).join('')}</select>
+      <input type="text" placeholder="response" value="${esc(m.response)}" autocomplete="off">
+      <input type="date" value="${esc(m.dateAnswered)}">
+      <button type="button" class="btn-remove" onclick="removeRfiRow(${i})" title="Remove">×</button>
+    </div>`).join('');
+}
+function _rfiRowsRaw() {
+  return Array.from(document.querySelectorAll('#rfi-list .ro-row')).map(row=>{
+    const f = row.querySelectorAll('input,select');
+    return { ref:f[0].value.trim(), date:f[1].value, subject:f[2].value.trim(), status:f[3].value, response:f[4].value.trim(), dateAnswered:f[5].value };
+  });
+}
+function readRfiRows() { return _rfiRowsRaw().filter(m=>m.ref||m.subject); }
+function addRfiRow() { const rows=_rfiRowsRaw(); rows.push({date:new Date().toISOString().slice(0,10),status:'open'}); renderRfiList(rows); }
+function removeRfiRow(i) { const rows=_rfiRowsRaw(); rows.splice(i,1); renderRfiList(rows); }
 
 function formatStatus(s) {
   return { installed:t('status_installed'), 'in-progress':t('status_in_progress'), issue:t('status_issue'), pending:t('status_pending') }[s] || s;
 }
 function categoryLabel(c) {
   return { framing:'Framing', glass:'Glass', louver:'Louver', caulking:'Caulking', issue:'Issue',
-    'fit-issue':'Fit Issue', 'field-verify':'Field Verify', 'gc-inquiry':'GC Inquiry' }[c] || c;
+    'fit-issue':'Fit Issue', 'field-verify':'Field Verify', 'gc-inquiry':'GC Inquiry',
+    'doors':'Doors', 'metal-panel':'Metal Panel', 'sunshade':'Sun Shade', 'beauty-cap':'Beauty Cap' }[c] || c;
 }
 
 /* -------- Modals -------- */
@@ -2301,43 +2339,30 @@ function openUnit(id) {
   if (!u) return;
   editingUnitId = id;
   document.getElementById('modalTitle').textContent = t('edit_unit_title').replace('{id}', u.id);
-  // Doors don't have "framing" — relabel that tab to "Door" for SD units.
-  const _framingTab = document.getElementById('tab-framing');
-  if (_framingTab) _framingTab.textContent = isDoor(u) ? 'Door' : 'Framing';
-  document.getElementById('m-id').value = u.id;
-  document.getElementById('m-status').value = u.status;
-  document.getElementById('m-date').value = u.date || '';
-  document.getElementById('m-louver').value = u.louver;
-  { const _fc = document.getElementById('m-facecap'); if (_fc) _fc.value = u.facecap || 'na'; }
-  document.getElementById('m-note').value = u.note || '';
-  // populate glass panels list
-  let panels = u.glassPanels;
-  if (!panels || !panels.length) {
-    // migrate legacy string fields or default to 2 empty panels
-    if ((typeof u.glass === 'string' && u.glass) || (typeof u.panels === 'string' && u.panels)) {
-      // legacy string fields only — some baselines carry empty ARRAYS here, which are truthy
-      panels = [{ panel: (typeof u.panels === 'string' ? u.panels : ''), status: (typeof u.glass === 'string' ? u.glass : '') }];
-      while (panels.length < 2) panels.push({ panel: '', status: '' });
-    } else {
-      panels = [{ panel: '1F-', status: '' }, { panel: '1F-', status: '' }];
-    }
-  }
-  renderGlassPanelList(panels);
-  renderRoList(Array.isArray(u.ro) ? u.ro : []);
-  document.getElementById('m-glass-note').value = u.glassNote || '';
+  // Calendar-tab header fields (M3 — replaces the old Details/Framing tab's id/note/louver/facecap)
+  document.getElementById('cal-id').value = u.id;
+  { const _cl = document.getElementById('cal-louver'); if (_cl) _cl.value = u.louver || 'na'; }
+  { const _cf = document.getElementById('cal-facecap'); if (_cf) _cf.value = u.facecap || 'na'; }
+  document.getElementById('cal-note').value = u.note || '';
+  // glassPanels[]/glassNote/ro[] are preserved in state but no longer edited from the modal
+  // (M3 D3: Glass tab dropped, glass status now lives on elevation elements; R.O. tab dropped
+  // for RFI — u.ro stays stored, untabbed).
+  renderRfiList(Array.isArray(u.rfi) ? u.rfi : []);
   setElevMode(false);
-  const _hasElev = !!((window.ELEVATIONS || {})[u.id] || _elevParentFor(u.id));
-  switchModalTab(_hasElev ? 'elev' : 'framing');
+  switchModalTab('cal');
   document.getElementById('unitModal').classList.add('show');
 }
 
 function switchModalTab(tab) {
-  ['elev','ro','framing','glass'].forEach(t => {
+  ['cal','elev','rfi'].forEach(t => {
     const tb=document.getElementById('tab-'+t), pn=document.getElementById('panel-'+t);
     if (tb) tb.classList.toggle('active', t===tab);
     if (pn) pn.classList.toggle('active', t===tab);
   });
   if (tab==='elev') renderElevation();
+  else if (tab==='cal') renderCalendar();
+  // 'rfi' panel content is seeded once by openUnit() (like the old R.O. tab) — no re-render
+  // on switch, so in-progress row edits aren't discarded by a tab-away-and-back.
 }
 
 /* ===== Interactive elevation (per-SF, geometry from window.ELEVATIONS) ===== */
@@ -2387,6 +2412,76 @@ function _renderElevKpis(key,u){
   const card=(l,i,t)=>'<div class="kpi-card"><div class="kpi-label">'+l+'</div><div class="kpi-value">'+i+'</div><div class="kpi-sub">'+i+' / '+t+' installed</div></div>';
   const fc=(u&&u.facecap)||'na'; const fcT=(fc==='na')?0:1; const fcI=(fc==='yes')?1:0;
   kpi.innerHTML=card('Storefront',sfI,sfT)+card('Glass',bt.glass[0],bt.glass[1])+card('Metal Panel',bt.panel[0],bt.panel[1])+card('Louver',bt.louver[0],bt.louver[1])+card('Face Cap',fcI,fcT);
+}
+
+/* -------- Calendar tab (M3) --------
+   Elevation-backed scope rollups (glass/panel/louver/door), same bucketing logic as
+   _renderElevKpis above but returned as data (not painted) so the Calendar tab can reuse it.
+   Left as a standalone copy rather than refactoring _renderElevKpis, to avoid touching
+   working elevation-tab code for an unrelated feature. */
+function _elevScopeCounts(key) {
+  const bt = { glass:[0,0], panel:[0,0], louver:[0,0], door:[0,0] };
+  const E = (window.ELEVATIONS||{})[key]; if (!E) return bt;
+  const S = _elevStore(key);
+  const parts = E.elements.map(e=>({id:e.id,t0:e.t0})).concat(S.custom.map(c=>({id:c.id,t0:c.type}))).filter(p=>!S.deleted.includes(p.id));
+  parts.forEach(p=>{ const r=S.el[p.id]||{}; const type=r.type||p.t0; const status=r.status||'pending'; if(type==='hidden')return; if(!bt[type])bt[type]=[0,0]; bt[type][1]++; if(status==='installed')bt[type][0]++; });
+  return bt;
+}
+const CAL_STATUS_OPTS = ['', 'pending', 'in-progress', 'installed', 'issue'];
+const CAL_STATUS_LABEL = { '':'— N/A —', pending:'Pending', 'in-progress':'Ready', installed:'Installed', issue:'Issue' };
+function renderCalendar() {
+  const u = state.units.find(x=>x.key===editingUnitId);
+  const body = document.getElementById('cal-rows');
+  if (!u || !body) return;
+  if (!u.scopes) u.scopes = {};
+  const S = u.scopes;
+  const key = _elevKey();
+  const bt = _elevScopeCounts(key);
+  const rows = [];
+  rows.push({ scope:'frame', label: isDoor(u) ? 'Door' : 'Frame', editable:true,
+    status: (S.frame && S.frame.status) != null ? S.frame.status : (u.status || 'pending'),
+    date:   (S.frame && S.frame.date)   != null ? S.frame.date   : (u.date   || '') });
+  rows.push({ scope:'caulking', label:'Caulking', editable:true,
+    status: (S.caulking && S.caulking.status) || '', date: (S.caulking && S.caulking.date) || '' });
+  rows.push({ scope:'sunshade', label:'Sun Shade', editable:true,
+    status: (S.sunshade && S.sunshade.status) || '', date: (S.sunshade && S.sunshade.date) || '' });
+  if (u.facecap === 'yes') {
+    rows.push({ scope:'beautyCap', label:'Beauty Cap', editable:true,
+      status: (S.beautyCap && S.beautyCap.status) || 'installed', date: (S.beautyCap && S.beautyCap.date) || '' });
+  }
+  if (bt.glass[1] > 0) rows.push({ scope:'glass', label:'Glass', editable:false, rollup:bt.glass });
+  if (bt.panel[1] > 0) rows.push({ scope:'metalPanel', label:'Metal Panel', editable:false, rollup:bt.panel });
+  if (bt.louver[1] > 0 || u.louver === 'yes') rows.push({ scope:'louver', label:'Louver', editable:false, rollup: bt.louver[1]>0 ? bt.louver : null });
+  if (bt.door[1] > 0 || isDoor(u)) rows.push({ scope:'doors', label:'Doors', editable:false, rollup: bt.door[1]>0 ? bt.door : null });
+
+  rows.sort((a,b) => (a.date || '9999-99-99').localeCompare(b.date || '9999-99-99'));
+
+  const esc = s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  body.innerHTML = rows.map(r => {
+    if (!r.editable) {
+      const frac = r.rollup ? (r.rollup[0]+' / '+r.rollup[1]) : '—';
+      return `<div class="cal-row cal-row-rollup" data-scope="${r.scope}">
+        <span class="cal-row-label">${esc(r.label)}</span>
+        <span class="cal-row-rollup-frac">${frac}</span>
+        <span class="cal-row-hint">edit on Elevation tab</span>
+      </div>`;
+    }
+    return `<div class="cal-row" data-scope="${r.scope}">
+      <span class="cal-row-label">${esc(r.label)}</span>
+      <select class="cal-status">${CAL_STATUS_OPTS.map(o=>`<option value="${o}"${o===(r.status||'')?' selected':''}>${esc(CAL_STATUS_LABEL[o])}</option>`).join('')}</select>
+      <input type="date" class="cal-date" value="${esc(r.date)}">
+    </div>`;
+  }).join('');
+}
+function readCalendarScopes() {
+  const out = {};
+  document.querySelectorAll('#cal-rows .cal-row[data-scope]').forEach(row => {
+    const statusEl = row.querySelector('.cal-status');
+    if (!statusEl) return; // rollup row — nothing to read
+    const dateEl = row.querySelector('.cal-date');
+    out[row.dataset.scope] = { status: statusEl.value, date: dateEl ? dateEl.value : '' };
+  });
+  return out;
 }
 function setElevMode(edit){ _elevEdit=edit;
   const bs=document.getElementById('elevModeStatus'), be=document.getElementById('elevModeEdit');
@@ -2477,9 +2572,10 @@ function saveUnit() {
   const _oldFacecap = u.facecap;
   const _oldNote   = u.note || '';
   const _oldGlassPanels = JSON.parse(JSON.stringify(u.glassPanels || []));
+  const _oldScopes = JSON.parse(JSON.stringify(u.scopes || {}));
 
-  // --- Manual ID rename ---
-  const newId = (document.getElementById('m-id').value || '').trim();
+  // --- Manual ID rename (M3: field moved from m-id to the Calendar tab's cal-id) ---
+  const newId = (document.getElementById('cal-id').value || '').trim();
   if (!newId) { toast('编号不能为空 / ID required'); return; }
   if (newId !== u.id) {
     const oldId = u.id;
@@ -2487,27 +2583,31 @@ function saveUnit() {
     toast(`已重命名 / Renamed: ${oldId} → ${newId}`);
   }
 
-  u.status = document.getElementById('m-status').value;
-  u.date   = document.getElementById('m-date').value;
-  u.louver = document.getElementById('m-louver').value;
-  { const _fc = document.getElementById('m-facecap'); if (_fc) u.facecap = _fc.value; }
-  u.glassPanels = readGlassPanels();
-  u.glassNote   = document.getElementById('m-glass-note').value;
-  u.note   = document.getElementById('m-note').value;
+  // --- Calendar-tab header fields (M3) ---
+  { const _cl = document.getElementById('cal-louver'); if (_cl) u.louver = _cl.value; }
+  { const _cf = document.getElementById('cal-facecap'); if (_cf) u.facecap = _cf.value; }
+  u.note = document.getElementById('cal-note').value;
+  // glassPanels[] / glassNote / ro[] intentionally left untouched — those tabs were
+  // dropped by M3 (D3/D4); the data stays stored, just untabbed.
 
-  // --- R.O. field-verify rows: save + auto-log NEW measurements as evidence ---
-  const _oldRoLen = Array.isArray(u.ro) ? u.ro.length : 0;
-  u.ro = readRoRows();
-  if (u.ro.length > _oldRoLen) {
-    u.ro.slice(_oldRoLen).forEach(m => {
-      if (!(m.dims || m.by)) return;
-      const tolTxt = m.tol==='ok' ? ' · within tolerance' : m.tol==='out' ? ' · OUT of tolerance' : '';
-      // NOTE: no auto:true here — the app-log.js projection engine rewrites
-      // auto-flagged entries and would mangle this evidence record.
+  // --- Calendar-tab per-scope rows (M3 D1) ---
+  u.scopes = readCalendarScopes();
+  // D2: two-way mirror so the grid/timeline/scope-cards (which read u.status/u.date/
+  // u.facecap directly) keep working.
+  if (u.scopes.frame) { u.status = u.scopes.frame.status; u.date = u.scopes.frame.date; }
+  if (u.scopes.beautyCap && u.scopes.beautyCap.status === 'installed') u.facecap = 'yes';
+
+  // --- RFI rows (M3): save + auto-log NEW RFIs as gc-inquiry evidence (mirrors the
+  // old R.O. → field-verify auto-log; kept non-auto so app-log.js won't rewrite it) ---
+  const _oldRfiLen = Array.isArray(u.rfi) ? u.rfi.length : 0;
+  u.rfi = readRfiRows();
+  if (u.rfi.length > _oldRfiLen) {
+    u.rfi.slice(_oldRfiLen).forEach(m => {
+      if (!(m.ref || m.subject)) return;
       state.log.push({
         date: m.date || new Date().toISOString().slice(0,10),
-        category: 'field-verify', categories: ['field-verify'],
-        content: `${u.id} · ${m.stage||'R.O. measure'} ${m.dims||''}${m.by?' · by '+m.by:''}${tolTxt}`
+        category: 'gc-inquiry', categories: ['gc-inquiry'],
+        content: `${u.id} · RFI ${m.ref||''} ${m.subject||''}`.trim()
       });
     });
   }
@@ -2515,7 +2615,8 @@ function saveUnit() {
   // --- Auto-generate Daily Log entry from diff ---
   autoLogUnitChanges(u, {
     id: _oldId, status: _oldStatus, date: _oldDate,
-    louver: _oldLouver, facecap: _oldFacecap, note: _oldNote, glassPanels: _oldGlassPanels
+    louver: _oldLouver, facecap: _oldFacecap, note: _oldNote, glassPanels: _oldGlassPanels,
+    scopes: _oldScopes
   });
 
   closeModal();
@@ -2718,6 +2819,106 @@ function saveLog() {
   }
   closeLogModal();
   saveState();
+}
+
+/* -------- Submittal log (M4) -------- */
+let editingSubmittalIdx = null;
+let _submittalFilter = 'all';
+const SUBMITTAL_STATUS_LABEL = {
+  'draft': 'Draft', 'submitted': 'Submitted', 'under-review': 'Under Review',
+  'approved': 'Approved', 'approved-as-noted': 'Approved as Noted',
+  'revise-resubmit': 'Revise & Resubmit', 'rejected': 'Rejected'
+};
+function setSubmittalFilter(v) { _submittalFilter = v || 'all'; renderSubmittals(); }
+function renderSubmittals() {
+  if (!Array.isArray(state.submittals)) state.submittals = [];
+  const body = document.getElementById('submittalsBody');
+  if (!body) return;
+  const esc = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const rows = state.submittals
+    .map((s, i) => ({ s, i }))
+    .filter(({ s }) => _submittalFilter === 'all' || s.status === _submittalFilter);
+  body.innerHTML = rows.map(({ s, i }) => `
+    <tr onclick="editSubmittal(${i})" style="cursor:pointer">
+      <td><strong>${esc(s.number)}</strong></td>
+      <td>${esc(s.title)}</td>
+      <td>${esc(s.spec)}</td>
+      <td>${esc(s.scope)}</td>
+      <td>${s.submittedDate ? formatDate(s.submittedDate) : '<span style="color:var(--text-dim)">—</span>'}</td>
+      <td>${esc(SUBMITTAL_STATUS_LABEL[s.status] || s.status || '')}</td>
+      <td>${esc(s.rev)}</td>
+      <td>${s.returnedDate ? formatDate(s.returnedDate) : '<span style="color:var(--text-dim)">—</span>'}</td>
+      <td>${esc(s.ballInCourt)}</td>
+      <td style="font-size:12px;color:var(--text-dim);max-width:200px">${esc(s.note)}</td>
+    </tr>`).join('') || `<tr><td colspan="10" style="text-align:center;color:var(--text-dim);padding:24px">No submittals${_submittalFilter !== 'all' ? ' match this filter' : ' yet'}</td></tr>`;
+}
+function openAddSubmittal() {
+  editingSubmittalIdx = null;
+  document.getElementById('submittalModalTitle').textContent = 'Add Submittal';
+  ['sub-number','sub-title','sub-spec','sub-scope','sub-submitted','sub-rev','sub-returned','sub-ball','sub-note']
+    .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  document.getElementById('sub-status').value = 'draft';
+  document.getElementById('submittalDeleteBtn').style.display = 'none';
+  document.getElementById('submittalModal').classList.add('show');
+}
+function editSubmittal(idx) {
+  const s = state.submittals[idx];
+  if (!s) return;
+  editingSubmittalIdx = idx;
+  document.getElementById('submittalModalTitle').textContent = 'Edit Submittal';
+  document.getElementById('sub-number').value = s.number || '';
+  document.getElementById('sub-title').value = s.title || '';
+  document.getElementById('sub-spec').value = s.spec || '';
+  document.getElementById('sub-scope').value = s.scope || '';
+  document.getElementById('sub-submitted').value = s.submittedDate || '';
+  document.getElementById('sub-status').value = s.status || 'draft';
+  document.getElementById('sub-rev').value = s.rev || '';
+  document.getElementById('sub-returned').value = s.returnedDate || '';
+  document.getElementById('sub-ball').value = s.ballInCourt || '';
+  document.getElementById('sub-note').value = s.note || '';
+  document.getElementById('submittalDeleteBtn').style.display = '';
+  document.getElementById('submittalModal').classList.add('show');
+}
+function closeSubmittalModal() {
+  document.getElementById('submittalModal').classList.remove('show');
+  editingSubmittalIdx = null;
+}
+function saveSubmittal() {
+  const entry = {
+    number: document.getElementById('sub-number').value.trim(),
+    title: document.getElementById('sub-title').value.trim(),
+    spec: document.getElementById('sub-spec').value.trim(),
+    scope: document.getElementById('sub-scope').value.trim(),
+    submittedDate: document.getElementById('sub-submitted').value,
+    status: document.getElementById('sub-status').value,
+    rev: document.getElementById('sub-rev').value.trim(),
+    returnedDate: document.getElementById('sub-returned').value,
+    ballInCourt: document.getElementById('sub-ball').value.trim(),
+    note: document.getElementById('sub-note').value.trim(),
+  };
+  if (!entry.number && !entry.title) { toast('Enter at least a number or title'); return; }
+  if (!Array.isArray(state.submittals)) state.submittals = [];
+  if (editingSubmittalIdx !== null) {
+    entry.id = state.submittals[editingSubmittalIdx].id;
+    state.submittals[editingSubmittalIdx] = entry;
+  } else {
+    entry.id = 'sub_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    state.submittals.push(entry);
+  }
+  closeSubmittalModal();
+  saveState();
+}
+function deleteSubmittal(idx) {
+  const s = state.submittals[idx];
+  if (!s) return;
+  if (!confirm('Delete submittal ' + (s.number || s.title) + '?')) return;
+  state.submittals.splice(idx, 1);
+  closeSubmittalModal();
+  saveState();
+}
+function deleteSubmittalFromModal() {
+  if (editingSubmittalIdx === null) return;
+  deleteSubmittal(editingSubmittalIdx);
 }
 
 /* -------- Photo gallery viewer (ISSUE logs) -------- */
@@ -3190,7 +3391,7 @@ function _armPhotoMigration() {
    ====================================================== */
 const FEATURE_MODULES = [
   { k:'themeToggle',   emoji:'☀️', label:{en:'Day / Night toggle',zh:'Day / Night 切换按钮',ko:'주간/야간 전환'},            sel:['#themeToggle'] },
-  { k:'roTab',         emoji:'📐', label:{en:'Field Verify · R.O. tab',zh:'Field Verify · R.O. 实测 tab',ko:'Field Verify · R.O. 실측 tab'},    sel:['#tab-ro'] },
+  { k:'roTab',         emoji:'📐', label:{en:'RFI tab',zh:'RFI tab',ko:'RFI tab'},    sel:['#tab-rfi'] },
   { k:'logFilter',     emoji:'🔍', label:{en:'Daily-log search (evidence)',zh:'日志检索框（证据调取）',ko:'일지 검색(증거 조회)'},           sel:['#logFilter','#logFilterCount'] },
   { k:'chatLink',      emoji:'💬', label:{en:'Chat NL updater',zh:'Chat 自然语言更新入口',ko:'Chat 자연어 업데이트 입구'},            sel:['a[href="/chat"]'] },
   { k:'warehouseLink', emoji:'📦', label:{en:'Warehouse page',zh:'Warehouse 仓库页入口',ko:'Warehouse 창고 페이지 입구'},             sel:['a[href="warehouse.html"]'] },

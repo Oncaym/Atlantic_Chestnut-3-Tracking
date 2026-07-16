@@ -31,6 +31,21 @@ function autoLogUnitChanges(u, old) {
     upsertUnitLog(date, 'louver', u.id, u.key);
   }
 
+  // --- M3: unit-level Calendar scopes (caulking / sunshade / beautyCap) — same
+  // sweep-then-add pattern as frame/louver above, one log category per scope. ---
+  const _scopeCat = { caulking: 'caulking', sunshade: 'sunshade', beautyCap: 'beauty-cap' };
+  Object.keys(_scopeCat).forEach(function(scopeKey) {
+    const cat = _scopeCat[scopeKey];
+    const cur = (u.scopes && u.scopes[scopeKey]) || {};
+    const scopeDate = cur.date || date;
+    if (cur.status === 'installed') {
+      upsertUnitLog(scopeDate, cat, u.id, u.key);
+    } else if (cur.status === 'issue') {
+      upsertUnitLog(scopeDate, 'issue', u.id, u.key);
+    }
+    // pending / in-progress / blank: no entry (sweep below cleans any prior one)
+  });
+
   // --- Glass panel diff: log on actual status/date change. No sweep on purpose ---
   const _oldGP = (old && old.glassPanels) || [];
   const _newGP = u.glassPanels || [];

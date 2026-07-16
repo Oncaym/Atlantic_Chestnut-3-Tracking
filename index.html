@@ -639,6 +639,12 @@
   .tag.fit-issue { color: var(--yellow); border-color: rgba(210,153,34,0.5); }
   .tag.field-verify { color: #2dd4bf; border-color: rgba(45,212,191,0.5); }
   .tag.gc-inquiry { color: var(--accent); border-color: rgba(68,147,248,0.5); }
+  /* M3: new unit-level scope categories (doors / metal-panel rollups are edited on the
+     Elevation tab; sunshade / beauty-cap are Calendar-tab rows) */
+  .tag.doors { color: var(--orange); border-color: rgba(255,140,66,0.4); }
+  .tag.metal-panel { color: #8b949e; border-color: rgba(139,148,158,0.5); }
+  .tag.sunshade { color: var(--yellow); border-color: rgba(210,153,34,0.4); }
+  .tag.beauty-cap { color: var(--purple); border-color: rgba(188,140,255,0.4); }
 
   /* Responsibility/evidence meta line under a log entry */
   .timeline-meta { display:flex; flex-wrap:wrap; gap:6px; margin-top:4px; }
@@ -779,6 +785,10 @@
   .cat-chip.fit-issue:has(input:checked)    { color: var(--yellow); border-color: var(--yellow); background: rgba(210,153,34,0.14); }
   .cat-chip.field-verify:has(input:checked) { color: #2dd4bf;       border-color: #2dd4bf;       background: rgba(45,212,191,0.12); }
   .cat-chip.gc-inquiry:has(input:checked)   { color: var(--accent); border-color: var(--accent); background: rgba(68,147,248,0.12); }
+  .cat-chip.doors:has(input:checked)        { color: var(--orange); border-color: var(--orange); background: rgba(255,140,66,0.12); }
+  .cat-chip.metal-panel:has(input:checked)  { color: #8b949e;       border-color: #8b949e;       background: rgba(139,148,158,0.14); }
+  .cat-chip.sunshade:has(input:checked)     { color: var(--yellow); border-color: var(--yellow); background: rgba(210,153,34,0.12); }
+  .cat-chip.beauty-cap:has(input:checked)   { color: var(--purple); border-color: var(--purple); background: rgba(188,140,255,0.12); }
   /* Responsibility/evidence fields row: show only when a relevant category is picked */
   #l-resp-fields { display:none; }
   #logModal:has(#l-categories input[value="fit-issue"]:checked) #l-resp-fields,
@@ -1405,6 +1415,36 @@ function toggleTheme(){
   try { if (typeof renderGlassChart === 'function') renderGlassChart(); } catch(e){}
 }
 document.addEventListener('DOMContentLoaded', applyThemeUI);
+
+// M2: stage a DXF into the takeoff tool's IndexedDB handoff (af_dxf_handoff/files/"pending"),
+// flag a return hop, then open the takeoff tool to run the headless parse + auto-push.
+function stageDxfForTakeoff(e){
+  var file = e.target.files && e.target.files[0];
+  if(!file) return;
+  var reader = new FileReader();
+  reader.onload = function(){
+    try{
+      var req = indexedDB.open('af_dxf_handoff', 1);
+      req.onupgradeneeded = function(){ try{ req.result.createObjectStore('files'); }catch(err){} };
+      req.onsuccess = function(){
+        var db = req.result;
+        try{
+          var tx = db.transaction('files','readwrite');
+          tx.objectStore('files').put({ name: file.name, text: reader.result, ts: Date.now() }, 'pending');
+          tx.oncomplete = function(){
+            db.close();
+            try{ localStorage.setItem('af_dxf_return','1'); }catch(err){}
+            location.href = 'takeoff/index.html';
+          };
+          tx.onerror = function(){ db.close(); alert('Could not stage DXF for import.'); };
+        } catch(err){ db.close(); alert('Could not stage DXF for import.'); }
+      };
+      req.onerror = function(){ alert('Could not stage DXF for import.'); };
+    } catch(err){ alert('Could not stage DXF for import.'); }
+  };
+  reader.readAsText(file);
+  e.target.value = '';
+}
 </script>
 
 <header data-om-id="17a02737:5">
@@ -1424,6 +1464,8 @@ document.addEventListener('DOMContentLoaded', applyThemeUI);
       <a class="btn" href="warehouse.html" title="Warehouse"><span data-i18n="btn_warehouse">📦 Warehouse</span></a>
       <button class="btn" type="button" onclick="openDrawings()" title="Project drawings"><span data-i18n="btn_drawings">📐 Drawings</span></button>
       <a class="btn" href="takeoff/index.html" title="打开内嵌 Takeoff Tool（在里面 Import DXF）/ Open the embedded takeoff tool (import DXF there)">🛠 Takeoff Tool</a>
+      <input type="file" id="trackerDxfFile" accept=".dxf" style="display:none" onchange="stageDxfForTakeoff(event)">
+      <button class="btn" type="button" onclick="document.getElementById('trackerDxfFile').click()" title="Import a DXF — parses in the Takeoff Tool and returns here with elevations already pushed">⬆ Import DXF</button>
       <button class="btn btn-primary" onclick="openAddLog()" data-om-id="17a02737:21"><span data-i18n="btn_add_log" data-om-id="17a02737:22">+ Add Daily Log</span></button>
       <button class="btn btn-danger" onclick="resetData()" data-om-id="17a02737:23"><span data-i18n="btn_reset" data-om-id="17a02737:24">↻ Reset</span></button>
     </div>
@@ -1460,42 +1502,42 @@ document.addEventListener('DOMContentLoaded', applyThemeUI);
     <div class="kpi-card scope-card" data-scope="extSf" data-src="plan" data-expected="16" data-label="Exterior Storefront">
       <div class="scope-edit">›</div>
       <div class="kpi-label">Exterior Storefront</div>
-      <div class="kpi-value"><span class="sc-placed">0</span></div>
+      <div class="kpi-value"><span class="sc-inst">0</span>/<span class="sc-placed">0</span></div>
       <div class="kpi-sub"><b><span class="sc-placed">0</span> on plan</b> · <span class="sc-inst">0</span> installed · dwg 16</div>
       <div class="scope-bar"><i></i></div>
     </div>
     <div class="kpi-card scope-card" data-scope="intSf" data-src="plan" data-expected="10" data-label="Interior Storefront">
       <div class="scope-edit">›</div>
       <div class="kpi-label">Interior Storefront</div>
-      <div class="kpi-value"><span class="sc-placed">0</span></div>
+      <div class="kpi-value"><span class="sc-inst">0</span>/<span class="sc-placed">0</span></div>
       <div class="kpi-sub"><b><span class="sc-placed">0</span> on plan</b> · <span class="sc-inst">0</span> installed · dwg 10</div>
       <div class="scope-bar"><i></i></div>
     </div>
     <div class="kpi-card scope-card" data-scope="entryDoors" data-src="plan" data-expected="9" data-label="Entrance Doors">
       <div class="scope-edit">›</div>
       <div class="kpi-label">Entrance Doors</div>
-      <div class="kpi-value"><span class="sc-placed">0</span></div>
+      <div class="kpi-value"><span class="sc-inst">0</span>/<span class="sc-placed">0</span></div>
       <div class="kpi-sub"><b><span class="sc-placed">0</span> on plan</b> · <span class="sc-inst">0</span> installed · dwg 9</div>
       <div class="scope-bar"><i></i></div>
     </div>
     <div class="kpi-card scope-card" data-scope="slidingDoors" data-src="plan" data-expected="2" data-label="Auto Sliding Doors">
       <div class="scope-edit">›</div>
       <div class="kpi-label">Auto Sliding Doors</div>
-      <div class="kpi-value"><span class="sc-placed">0</span></div>
+      <div class="kpi-value"><span class="sc-inst">0</span>/<span class="sc-placed">0</span></div>
       <div class="kpi-sub"><b><span class="sc-placed">0</span> on plan</b> · <span class="sc-inst">0</span> installed · dwg 2</div>
       <div class="scope-bar"><i></i></div>
     </div>
     <div class="kpi-card scope-card" data-scope="hmDoors" data-src="plan" data-expected="7" data-label="Hollow Metal Doors">
       <div class="scope-edit">›</div>
       <div class="kpi-label">Hollow Metal Doors</div>
-      <div class="kpi-value"><span class="sc-placed">0</span></div>
+      <div class="kpi-value"><span class="sc-inst">0</span>/<span class="sc-placed">0</span></div>
       <div class="kpi-sub"><b><span class="sc-placed">0</span> on plan</b> · <span class="sc-inst">0</span> installed · dwg 7</div>
       <div class="scope-bar"><i></i></div>
     </div>
     <div class="kpi-card scope-card" data-scope="louvers" data-total="89" data-label="Louvers (Storm)">
       <div class="scope-edit">✎</div>
       <div class="kpi-label">Louvers</div>
-      <div class="kpi-value"><span class="scope-done">0</span></div>
+      <div class="kpi-value"><span class="scope-done">0</span>/89</div>
       <div class="kpi-sub"><b><span class="scope-done">0</span> / 89</b> installed · Storm Louver · Airolite SCC550</div>
       <div class="scope-bar"><i></i></div>
     </div>
@@ -1509,7 +1551,7 @@ document.addEventListener('DOMContentLoaded', applyThemeUI);
     <div class="kpi-card scope-card" data-scope="sunShade" data-total="19" data-label="Sun Shades">
       <div class="scope-edit">✎</div>
       <div class="kpi-label">Sun Shades</div>
-      <div class="kpi-value"><span class="scope-done">0</span></div>
+      <div class="kpi-value"><span class="scope-done">0</span>/19</div>
       <div class="kpi-sub"><b><span class="scope-done">0</span> / 19</b> installed · SAF alum. extrusions</div>
       <div class="scope-bar"><i></i></div>
     </div>
@@ -1530,7 +1572,7 @@ document.addEventListener('DOMContentLoaded', applyThemeUI);
     <div class="kpi-card scope-card" data-scope="glassGL3" data-total="1" data-label="Canopy Glass (GL-3)">
       <div class="scope-edit">✎</div>
       <div class="kpi-label">Glazing · GL-3</div>
-      <div class="kpi-value"><span class="scope-done">0</span></div>
+      <div class="kpi-value"><span class="scope-done">0</span>/1</div>
       <div class="kpi-sub"><b><span class="scope-done">0</span> / 1</b> installed · 9/16" Lami Temp · Canopy</div>
       <div class="scope-bar"><i></i></div>
     </div>
@@ -2829,6 +2871,33 @@ document.addEventListener('DOMContentLoaded', applyThemeUI);
     </section>
   </div>
 
+  <section class="section" id="submittalsSection">
+    <div class="section-header">
+      <div class="section-title">📋 Submittal Log</div>
+      <select id="submittalFilter" onchange="setSubmittalFilter(this.value)" style="font-size:12px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:5px 9px;margin:0 10px">
+        <option value="all">All statuses</option>
+        <option value="draft">Draft</option>
+        <option value="submitted">Submitted</option>
+        <option value="under-review">Under Review</option>
+        <option value="approved">Approved</option>
+        <option value="approved-as-noted">Approved as Noted</option>
+        <option value="revise-resubmit">Revise &amp; Resubmit</option>
+        <option value="rejected">Rejected</option>
+      </select>
+      <button class="btn" onclick="openAddSubmittal()" style="font-size:12px;padding:6px 10px">+ Add Submittal</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th><th>Title</th><th>Spec</th><th>Scope</th><th>Submitted</th><th>Status</th><th>Rev</th><th>Returned</th><th>Ball in court</th><th>Note</th>
+          </tr>
+        </thead>
+        <tbody id="submittalsBody"></tbody>
+      </table>
+    </div>
+  </section>
+
   <p class="last-updated" data-om-id="17a02737:1298"><span data-i18n="footer_updated" data-om-id="17a02737:1299">Last updated</span>: <span id="lastUpdated" data-om-id="17a02737:1300">5/22/2026, 10:13:13 AM</span> · <span data-i18n="footer_autosave" data-om-id="17a02737:1301">Auto-saved in browser</span></p>
 </main>
 
@@ -2838,10 +2907,50 @@ document.addEventListener('DOMContentLoaded', applyThemeUI);
     <h3 id="modalTitle" data-i18n="modal_edit_unit" data-om-id="17a02737:1304">Edit · SF01</h3>
     <!-- Tab bar -->
     <div class="modal-tabs">
-      <div class="modal-tab active" id="tab-elev" onclick="switchModalTab('elev')">Elevation</div>
-      <div class="modal-tab" id="tab-framing" onclick="switchModalTab('framing')">Details</div>
-      <div class="modal-tab" id="tab-glass" onclick="switchModalTab('glass')">Glass</div>
-      <div class="modal-tab" id="tab-ro" onclick="switchModalTab('ro')">Field Verify · R.O.</div>
+      <div class="modal-tab active" id="tab-cal" onclick="switchModalTab('cal')">Calendar</div>
+      <div class="modal-tab" id="tab-elev" onclick="switchModalTab('elev')">Elevation</div>
+      <div class="modal-tab" id="tab-rfi" onclick="switchModalTab('rfi')">RFI</div>
+    </div>
+
+    <!-- Calendar tab (M3): per-scope install schedule. Unit-level scopes (frame/caulking/
+         sunshade/beautyCap) are editable here; elevation-backed scopes (glass/metalPanel/
+         louver/doors) show a read-only rollup fraction — edit those on the Elevation tab. -->
+    <div class="modal-tab-panel active" id="panel-cal">
+      <div class="cal-header">
+        <div class="form-row">
+          <label>Unit ID</label>
+          <input type="text" id="cal-id" autocomplete="off" placeholder="e.g. SF12A">
+          <div style="font-size:11px;color:var(--text-dim);margin-top:4px;">Only changes the displayed ID (marker position is preserved)</div>
+        </div>
+        <div class="cal-header-row2">
+          <div class="form-row">
+            <label data-i18n="form_louver">Louver Installed?</label>
+            <select id="cal-louver">
+              <option value="no" data-i18n="opt_no">No</option>
+              <option value="yes" data-i18n="opt_yes">Yes</option>
+              <option value="na" data-i18n="opt_na">N/A</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <label data-i18n="form_facecap">Has Beauty Cap?</label>
+            <select id="cal-facecap">
+              <option value="no" data-i18n="opt_no">No</option>
+              <option value="yes" data-i18n="opt_yes">Yes</option>
+              <option value="na" data-i18n="opt_na">N/A</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <label data-i18n="form_note">Note</label>
+          <textarea id="cal-note" rows="2" data-i18n-placeholder="ph_note" placeholder="Notes"></textarea>
+        </div>
+      </div>
+      <div class="form-row">
+        <label>Install schedule — one row per scope. Elevation-backed scopes (Glass / Metal
+          Panel / Louver / Doors) show a read-only rollup; edit those on the Elevation tab.</label>
+        <div class="cal-rows-th"><span>Scope</span><span>Status</span><span>Date</span></div>
+        <div id="cal-rows"></div>
+      </div>
     </div>
 
     <!-- Elevation tab -->
@@ -2856,81 +2965,14 @@ document.addEventListener('DOMContentLoaded', applyThemeUI);
       <div class="kpi-grid" id="elevKpis" style="margin-top:14px"></div>
     </div>
 
-    <!-- Field Verify / R.O. tab -->
-    <div class="modal-tab-panel" id="panel-ro">
+    <!-- RFI tab (M3): per-elevation RFI register, replaces the old R.O. Field-Verify tab.
+         u.ro[] (old R.O. measurements) stays stored but untabbed — no UI here. -->
+    <div class="modal-tab-panel" id="panel-rfi">
       <div class="form-row">
-        <label>R.O. field measurements — record when measured, re-check at ordering. Entries auto-log as field-verify evidence.</label>
-        <div style="display:grid;grid-template-columns:1.1fr 1fr 1.6fr 1fr .9fr auto;gap:6px;font-size:11px;color:var(--text-dim)"><span>Date</span><span>Stage</span><span>Measured dims / note</span><span>By</span><span>Tolerance</span><span></span></div>
-        <div id="ro-list"></div>
-        <button type="button" class="btn" style="font-size:12px;margin-top:8px" onclick="addRoRow()">+ Add measurement</button>
-      </div>
-    </div>
-
-    <!-- Framing tab -->
-    <div class="modal-tab-panel active" id="panel-framing">
-      <div class="form-row" data-om-id="17a02737:1305">
-        <label data-om-id="17a02737:1306">Unit ID</label>
-        <input type="text" id="m-id" autocomplete="off" placeholder="e.g. SF12A" data-om-id="17a02737:1307">
-        <div style="font-size:11px;color:var(--text-dim);margin-top:4px;" data-om-id="17a02737:1308">Only changes the displayed ID (marker position is preserved)</div>
-      </div>
-      <div class="form-row" data-om-id="17a02737:1309">
-        <label data-i18n="form_status" data-om-id="17a02737:1310">Status</label>
-        <select id="m-status" data-om-id="17a02737:1311">
-          <option value="pending" data-i18n="status_pending" data-om-id="17a02737:1312">Pending</option>
-          <option value="in-progress" data-i18n="status_in_progress" data-om-id="17a02737:1313">Ready</option>
-          <option value="installed" data-i18n="status_installed" data-om-id="17a02737:1314">Installed</option>
-          <option value="issue" data-i18n="status_issue_long" data-om-id="17a02737:1315">Issue / Rework Needed</option>
-        </select>
-      </div>
-      <div class="form-row" data-om-id="17a02737:1316">
-        <label data-i18n="form_date" data-om-id="17a02737:1317">Installation Date</label>
-        <input type="date" id="m-date" data-om-id="17a02737:1318">
-      </div>
-      <div class="form-row" data-om-id="17a02737:1319">
-        <label data-i18n="form_louver" data-om-id="17a02737:1320">Louver Installed?</label>
-        <select id="m-louver" data-om-id="17a02737:1321">
-          <option value="no" data-i18n="opt_no" data-om-id="17a02737:1322">No</option>
-          <option value="yes" data-i18n="opt_yes" data-om-id="17a02737:1323">Yes</option>
-          <option value="na" data-i18n="opt_na" data-om-id="17a02737:1324">N/A</option>
-        </select>
-      </div>
-      <div class="form-row">
-        <label data-i18n="form_facecap">Face Cap Installed?</label>
-        <select id="m-facecap">
-          <option value="no" data-i18n="opt_no">No</option>
-          <option value="yes" data-i18n="opt_yes">Yes</option>
-          <option value="na" data-i18n="opt_na">N/A</option>
-        </select>
-      </div>
-      <div class="form-row" data-om-id="17a02737:1325">
-        <label data-i18n="form_note" data-om-id="17a02737:1326">Note</label>
-        <textarea id="m-note" rows="2" data-i18n-placeholder="ph_note" placeholder="Notes"></textarea>
-      </div>
-    </div>
-
-    <!-- Glass tab -->
-    <div class="modal-tab-panel" id="panel-glass">
-      <div class="form-row">
-        <label>Glass Panels</label>
-        <div class="glass-panel-th" style="display:grid;grid-template-columns:1fr 1.2fr 1.3fr auto;gap:6px"><span>Panel #</span><span>Status</span><span>Install Date</span><span></span></div>
-        <div id="glass-panels-list">
-    <div class="glass-panel-row" data-idx="0">
-      <input type="text" value="" placeholder="e.g. 1F-27" autocomplete="off">
-      <select><option value="" selected="">— Unknown —</option><option value="pending">Pending</option><option value="ready">Ready</option><option value="installed">Installed</option><option value="issue">Issue / Rework</option></select>
-      <input type="date" value="">
-      <button type="button" class="btn-remove" onclick="removeGlassPanel(0)" title="Remove">×</button>
-    </div>
-    <div class="glass-panel-row" data-idx="1">
-      <input type="text" value="" placeholder="e.g. 1F-27" autocomplete="off">
-      <select><option value="" selected="">— Unknown —</option><option value="pending">Pending</option><option value="ready">Ready</option><option value="installed">Installed</option><option value="issue">Issue / Rework</option></select>
-      <input type="date" value="">
-      <button type="button" class="btn-remove" onclick="removeGlassPanel(1)" title="Remove">×</button>
-    </div></div>
-        <button type="button" class="glass-panel-add" onclick="addGlassPanel()">＋ Add Panel</button>
-      </div>
-      <div class="form-row">
-        <label>Glass Note</label>
-        <textarea id="m-glass-note" rows="2" placeholder="e.g. Damaged, wrong size…"></textarea>
+        <label>RFIs for this elevation. New rows auto-log a gc-inquiry Daily Log entry.</label>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1.6fr 1fr 1.6fr 1fr auto;gap:6px;font-size:11px;color:var(--text-dim)"><span>Ref #</span><span>Date</span><span>Subject</span><span>Status</span><span>Response</span><span>Answered</span><span></span></div>
+        <div id="rfi-list"></div>
+        <button type="button" class="btn" style="font-size:12px;margin-top:8px" onclick="addRfiRow()">+ Add RFI</button>
       </div>
     </div>
     <div class="modal-actions" data-om-id="17a02737:1327">
@@ -2943,6 +2985,14 @@ document.addEventListener('DOMContentLoaded', applyThemeUI);
 
 <style>
   #unitModal .modal{max-width:940px;width:95vw}
+  /* Calendar tab (M3) */
+  .cal-header-row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .cal-rows-th{display:grid;grid-template-columns:1.2fr 1.3fr 1fr;gap:6px;font-size:11px;color:var(--text-dim)}
+  .cal-row{display:grid;grid-template-columns:1.2fr 1.3fr 1fr;gap:6px;align-items:center;margin-top:6px}
+  .cal-row-label{font-size:13px;color:var(--text)}
+  .cal-row-rollup{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:6px 10px}
+  .cal-row-rollup-frac{font-size:13px;font-weight:600;color:var(--accent-2)}
+  .cal-row-hint{font-size:11px;color:var(--text-dim);font-style:italic}
   .elev-bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
   .elev-hint{font-size:11px;color:var(--text-dim)}
   .elev-stage{background:#0b0e12;border:1px solid var(--border);border-radius:8px;padding:8px;max-height:64vh;overflow:auto}
@@ -3020,6 +3070,10 @@ document.addEventListener('DOMContentLoaded', applyThemeUI);
         <label class="cat-chip fit-issue"><input type="checkbox" value="fit-issue"><span>Fit Issue</span></label>
         <label class="cat-chip field-verify"><input type="checkbox" value="field-verify"><span>Field Verify</span></label>
         <label class="cat-chip gc-inquiry"><input type="checkbox" value="gc-inquiry"><span>GC Inquiry</span></label>
+        <label class="cat-chip doors"><input type="checkbox" value="doors"><span>Doors</span></label>
+        <label class="cat-chip metal-panel"><input type="checkbox" value="metal-panel"><span>Metal Panel</span></label>
+        <label class="cat-chip sunshade"><input type="checkbox" value="sunshade"><span>Sun Shade</span></label>
+        <label class="cat-chip beauty-cap"><input type="checkbox" value="beauty-cap"><span>Beauty Cap</span></label>
       </div>
     </div>
     <div class="form-row" data-om-id="17a02737:1351">
@@ -3078,6 +3132,66 @@ document.addEventListener('DOMContentLoaded', applyThemeUI);
   </div>
 </div>
 
+<!-- Submittal add/edit modal -->
+<div class="modal-overlay" id="submittalModal">
+  <div class="modal">
+    <h3 id="submittalModalTitle">Add Submittal</h3>
+    <div class="form-row">
+      <label>Number</label>
+      <input type="text" id="sub-number" placeholder="e.g. SUB-014">
+    </div>
+    <div class="form-row">
+      <label>Title</label>
+      <input type="text" id="sub-title" placeholder="e.g. Storefront shop drawings">
+    </div>
+    <div class="form-row">
+      <label>Spec section</label>
+      <input type="text" id="sub-spec" placeholder="e.g. 08 41 13">
+    </div>
+    <div class="form-row">
+      <label>Scope</label>
+      <input type="text" id="sub-scope" placeholder="e.g. Storefront / Curtain wall / Doors">
+    </div>
+    <div class="form-row">
+      <label>Submitted date</label>
+      <input type="date" id="sub-submitted">
+    </div>
+    <div class="form-row">
+      <label>Status</label>
+      <select id="sub-status">
+        <option value="draft">Draft</option>
+        <option value="submitted">Submitted</option>
+        <option value="under-review">Under Review</option>
+        <option value="approved">Approved</option>
+        <option value="approved-as-noted">Approved as Noted</option>
+        <option value="revise-resubmit">Revise &amp; Resubmit</option>
+        <option value="rejected">Rejected</option>
+      </select>
+    </div>
+    <div class="form-row">
+      <label>Revision</label>
+      <input type="text" id="sub-rev" placeholder="e.g. Rev 0">
+    </div>
+    <div class="form-row">
+      <label>Returned date</label>
+      <input type="date" id="sub-returned">
+    </div>
+    <div class="form-row">
+      <label>Ball in court</label>
+      <input type="text" id="sub-ball" placeholder="e.g. GC / Architect / AC3">
+    </div>
+    <div class="form-row">
+      <label>Note</label>
+      <textarea id="sub-note" rows="2"></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-danger" id="submittalDeleteBtn" onclick="deleteSubmittalFromModal()" style="margin-right:auto;display:none">Delete</button>
+      <button class="btn" onclick="closeSubmittalModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveSubmittal()">Save</button>
+    </div>
+  </div>
+</div>
+
 <!-- Photo gallery modal (viewing ISSUE photos) -->
 <div class="modal-overlay" id="photoGalleryModal">
   <div class="modal photo-gallery-modal">
@@ -3125,9 +3239,9 @@ document.addEventListener('DOMContentLoaded', applyThemeUI);
 <div id="toast" class="toast">Saved ✓</div>
 
 <script type="application/json" id="__embedded_state"></script>
-<script src="app-log.js?v=20260710"></script>
-<script src="elevations.js?v=20260710"></script>
-<script src="app.js?v=20260713e"></script>
+<script src="app-log.js?v=20260716a"></script>
+<script src="elevations.js?v=20260716a"></script>
+<script src="app.js?v=20260716a"></script>
 <!-- boot handled inside app.js (core) -->
 </body>
 </html>

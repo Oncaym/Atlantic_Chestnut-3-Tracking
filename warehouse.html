@@ -362,6 +362,36 @@
   @media (min-width: 640px) {
     .photo-btn { min-height: 140px; }
   }
+
+  /* ---- material tracking (M5) ---- */
+  .mat-header-row { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+  .mat-header-row h2 { margin-bottom: 0; flex: 1; }
+  .mat-add-btn {
+    background: var(--accent); color: #fff; border: 0; border-radius: 8px;
+    padding: 7px 12px; font-size: 12px; font-weight: 700; cursor: pointer;
+  }
+  .mat-item {
+    padding: 10px 0; border-bottom: 1px solid var(--border); cursor: pointer;
+  }
+  .mat-item:last-child { border-bottom: 0; }
+  .mat-item .top { display: flex; gap: 6px; align-items: baseline; margin-bottom: 3px; }
+  .mat-item .name { font-weight: 700; font-size: 14px; flex: 1; }
+  .mat-item .scope { font-size: 11px; color: var(--text-dim); }
+  .mat-item .sub { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
+  .mat-status-badge {
+    font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 999px;
+    text-transform: uppercase; letter-spacing: 0.03em;
+    background: var(--panel-2); color: var(--text-dim);
+  }
+  .mat-status-badge.delivered, .mat-status-badge.installed { color: var(--green); background: rgba(63,185,80,.12); }
+  .mat-status-badge.shipped { color: var(--accent); background: rgba(68,147,248,.12); }
+  .mat-status-badge.in-production, .mat-status-badge.ordered { color: var(--yellow); background: rgba(210,153,34,.12); }
+  .mat-status-badge.not-ordered { color: var(--text-dim); }
+  .mat-item.overdue .sub.expected { color: var(--red); font-weight: 700; }
+  .mat-overdue-pill {
+    font-size: 10px; font-weight: 700; color: var(--red); background: rgba(248,81,73,.12);
+    padding: 2px 7px; border-radius: 999px; text-transform: uppercase;
+  }
 </style>
 </head>
 <body>
@@ -445,6 +475,17 @@
       <div class="empty" data-i18n="loading">Loading…</div>
     </div>
   </section>
+
+  <!-- Material tracking (M5): lead time + delivery status, synced to the tracker's cloud state.materials[] -->
+  <section class="card">
+    <div class="mat-header-row">
+      <h2 style="margin-bottom:0">📦 Material Tracking</h2>
+      <button class="mat-add-btn" id="matAddBtn" onclick="openAddMaterial()">+ Add</button>
+    </div>
+    <div id="materialsList">
+      <div class="empty">Loading…</div>
+    </div>
+  </section>
 </main>
 
 <div class="toast" id="toast"></div>
@@ -491,6 +532,74 @@
       <button class="btn-danger"    id="deleteBtn" onclick="onDeleteItem()" data-i18n="delete">Delete</button>
       <button class="btn-secondary" onclick="closeEditModal()" data-i18n="cancel">Cancel</button>
       <button class="btn-primary"   id="updateBtn" onclick="onUpdateItem()" data-i18n="update">Update</button>
+    </div>
+  </div>
+</div>
+
+<!-- Material add/edit modal -->
+<div class="edit-modal" id="materialModal" onclick="onMaterialBackdropClick(event)">
+  <div class="edit-modal-card" onclick="event.stopPropagation()">
+    <div class="edit-modal-head">
+      <h3 id="materialModalTitle">Add Material</h3>
+      <button class="icon-btn" onclick="closeMaterialModal()" aria-label="close">×</button>
+    </div>
+
+    <div class="field">
+      <label>Material</label>
+      <input type="text" id="mat-material" placeholder="e.g. 750XT extrusions">
+    </div>
+    <div class="field">
+      <label>Scope</label>
+      <input type="text" id="mat-scope" placeholder="e.g. Storefront / Curtain wall / Glazing">
+    </div>
+    <div class="field">
+      <label>Supplier</label>
+      <input type="text" id="mat-supplier" placeholder="e.g. Alucoil">
+    </div>
+    <div class="field">
+      <label>PO Number</label>
+      <input type="text" id="mat-po" placeholder="e.g. PO-1042">
+    </div>
+    <div class="field">
+      <label>Quantity</label>
+      <input type="text" id="mat-qty" placeholder="e.g. 240 pcs / 12 crates">
+    </div>
+    <div class="field">
+      <label>Lead time (weeks)</label>
+      <input type="text" id="mat-leadtime" placeholder="e.g. 8">
+    </div>
+    <div class="field">
+      <label>Ordered date</label>
+      <input type="date" id="mat-ordered">
+    </div>
+    <div class="field">
+      <label>Expected date</label>
+      <input type="date" id="mat-expected">
+    </div>
+    <div class="field">
+      <label>Status</label>
+      <select id="mat-status">
+        <option value="not-ordered">Not ordered</option>
+        <option value="ordered">Ordered</option>
+        <option value="in-production">In production</option>
+        <option value="shipped">Shipped</option>
+        <option value="delivered">Delivered</option>
+        <option value="installed">Installed</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Delivered date</label>
+      <input type="date" id="mat-delivered">
+    </div>
+    <div class="field">
+      <label>Note</label>
+      <textarea id="mat-note" rows="2"></textarea>
+    </div>
+
+    <div class="edit-footer">
+      <button class="btn-danger"    id="matDeleteBtn" onclick="onDeleteMaterial()" style="display:none">Delete</button>
+      <button class="btn-secondary" onclick="closeMaterialModal()">Cancel</button>
+      <button class="btn-primary"   id="matSaveBtn" onclick="onSaveMaterial()">Save</button>
     </div>
   </div>
 </div>
@@ -729,6 +838,7 @@ fbAuth.onAuthStateChanged(user => {
     setConn("signin");
     showGate(true);
     subscribeRecent(); // still allow read attempt (rules permit auth!=null read, but unauth gets nothing)
+    subscribeMaterials();
     return;
   }
   // Allowlist check (mirrors friday-triage.html pattern)
@@ -739,6 +849,7 @@ fbAuth.onAuthStateChanged(user => {
       setConn(isEditor ? "live" : "viewer");
       showGate(!isEditor);
       subscribeRecent();
+      subscribeMaterials();
     })
     .catch(err => {
       console.warn("[warehouse] allowlist check failed:", err);
@@ -748,6 +859,7 @@ fbAuth.onAuthStateChanged(user => {
       setConn("live");
       showGate(false);
       subscribeRecent();
+      subscribeMaterials();
     });
 });
 
@@ -930,6 +1042,182 @@ function formatAgo(ts) {
 function shortenEmail(e) {
   if (!e) return "";
   return e.split("@")[0];
+}
+
+// ---------- Material tracking (M5) ----------
+// Lives in the SAME Firebase project's /state doc (state.materials[]) as the
+// main tracker (app.js), so it shares one source of truth. We read the
+// "state/materials" subtree directly (cheap, real-time), but WRITES fetch the
+// full /state doc first and stamp a fresh _clientId — same pattern as
+// chat.html confirmPreview() (see M6) — so an open tracker tab's cloud-sync.js
+// self-echo filter doesn't swallow warehouse-originated changes.
+let materialsList = []; // [{id, material, scope, supplier, poNumber, qty, leadTimeWeeks,
+                         //   orderedDate, expectedDate, status, deliveredDate, note}]
+const MAT_STATUS_LABEL = {
+  "not-ordered": "Not ordered", "ordered": "Ordered", "in-production": "In production",
+  "shipped": "Shipped", "delivered": "Delivered", "installed": "Installed",
+};
+let editingMaterialId = null;
+
+function subscribeMaterials() {
+  fbDb.ref("state/materials").on("value", snap => {
+    const v = snap.val();
+    materialsList = Array.isArray(v) ? v.filter(Boolean) : Object.values(v || {});
+    renderMaterials();
+  }, err => {
+    console.warn("[warehouse] materials subscribe failed:", err);
+    document.getElementById("materialsList").innerHTML = `<div class="empty">Could not load materials.</div>`;
+  });
+}
+
+function isOverdue(m) {
+  if (!m.expectedDate) return false;
+  if (m.status === "delivered" || m.status === "installed") return false;
+  return m.expectedDate < new Date().toISOString().slice(0, 10);
+}
+
+function renderMaterials() {
+  const list = document.getElementById("materialsList");
+  if (!materialsList.length) {
+    list.innerHTML = `<div class="empty">No materials tracked yet.</div>`;
+    return;
+  }
+  const sorted = materialsList.slice().sort((a, b) => (a.expectedDate || "9999").localeCompare(b.expectedDate || "9999"));
+  list.innerHTML = sorted.map(m => {
+    const overdue = isOverdue(m);
+    const statusLabel = MAT_STATUS_LABEL[m.status] || m.status || "";
+    const bits = [];
+    if (m.supplier) bits.push(escapeHtml(m.supplier));
+    if (m.poNumber) bits.push("PO " + escapeHtml(m.poNumber));
+    if (m.qty) bits.push(escapeHtml(m.qty));
+    const expectedTxt = m.expectedDate ? ("Expected " + escapeHtml(m.expectedDate)) : "";
+    return `
+      <div class="mat-item${overdue ? " overdue" : ""}" onclick="editMaterial('${escapeAttr(m.id)}')">
+        <div class="top">
+          <span class="name">${escapeHtml(m.material || "(unnamed)")}</span>
+          <span class="mat-status-badge ${escapeAttr(m.status || "not-ordered")}">${escapeHtml(statusLabel)}</span>
+          ${overdue ? '<span class="mat-overdue-pill">Overdue</span>' : ""}
+        </div>
+        ${m.scope ? `<div class="scope">${escapeHtml(m.scope)}</div>` : ""}
+        <div class="sub">${bits.join(" · ")}</div>
+        ${expectedTxt ? `<div class="sub expected">${expectedTxt}</div>` : ""}
+      </div>`;
+  }).join("");
+}
+
+function openAddMaterial() {
+  if (!isEditor) { toast(t("gate_msg"), "err"); return; }
+  editingMaterialId = null;
+  document.getElementById("materialModalTitle").textContent = "Add Material";
+  ["mat-material","mat-scope","mat-supplier","mat-po","mat-qty","mat-leadtime","mat-ordered","mat-expected","mat-delivered","mat-note"]
+    .forEach(id => { const el = document.getElementById(id); if (el) el.value = ""; });
+  document.getElementById("mat-status").value = "not-ordered";
+  document.getElementById("matDeleteBtn").style.display = "none";
+  document.getElementById("materialModal").classList.add("show");
+}
+
+function editMaterial(id) {
+  const m = materialsList.find(x => x.id === id);
+  if (!m) return;
+  editingMaterialId = id;
+  document.getElementById("materialModalTitle").textContent = "Edit Material";
+  document.getElementById("mat-material").value = m.material || "";
+  document.getElementById("mat-scope").value = m.scope || "";
+  document.getElementById("mat-supplier").value = m.supplier || "";
+  document.getElementById("mat-po").value = m.poNumber || "";
+  document.getElementById("mat-qty").value = m.qty || "";
+  document.getElementById("mat-leadtime").value = m.leadTimeWeeks || "";
+  document.getElementById("mat-ordered").value = m.orderedDate || "";
+  document.getElementById("mat-expected").value = m.expectedDate || "";
+  document.getElementById("mat-status").value = m.status || "not-ordered";
+  document.getElementById("mat-delivered").value = m.deliveredDate || "";
+  document.getElementById("mat-note").value = m.note || "";
+  document.getElementById("matDeleteBtn").style.display = isEditor ? "" : "none";
+  document.getElementById("materialModal").classList.add("show");
+}
+
+function closeMaterialModal() {
+  document.getElementById("materialModal").classList.remove("show");
+  editingMaterialId = null;
+}
+
+function onMaterialBackdropClick(ev) {
+  if (ev.target.id === "materialModal") closeMaterialModal();
+}
+
+// Fetch the full /state doc, splice in the updated materials array, and write it
+// back with a fresh _clientId (mirrors chat.html confirmPreview — see M6 fix).
+async function pushMaterials(nextMaterials, desc) {
+  const snap = await fbDb.ref("state").once("value");
+  const live = snap.val() || {};
+  const next = JSON.parse(JSON.stringify(live));
+  next.materials = nextMaterials;
+  next.updatedAt = new Date().toISOString();
+  const payload = Object.assign({}, next, {
+    _ts: firebase.database.ServerValue.TIMESTAMP,
+    _by: currentUser ? currentUser.email : "warehouse",
+    _desc: desc || "Warehouse: updated materials",
+    _clientId: "wh-" + Math.random().toString(36).slice(2),
+  });
+  await fbDb.ref("state").set(payload);
+}
+
+async function onSaveMaterial() {
+  if (!isEditor) { toast(t("gate_msg"), "err"); return; }
+  const entry = {
+    material: document.getElementById("mat-material").value.trim(),
+    scope: document.getElementById("mat-scope").value.trim(),
+    supplier: document.getElementById("mat-supplier").value.trim(),
+    poNumber: document.getElementById("mat-po").value.trim(),
+    qty: document.getElementById("mat-qty").value.trim(),
+    leadTimeWeeks: document.getElementById("mat-leadtime").value.trim(),
+    orderedDate: document.getElementById("mat-ordered").value,
+    expectedDate: document.getElementById("mat-expected").value,
+    status: document.getElementById("mat-status").value,
+    deliveredDate: document.getElementById("mat-delivered").value,
+    note: document.getElementById("mat-note").value.trim(),
+  };
+  if (!entry.material) { toast("Enter a material name", "err"); return; }
+  const btn = document.getElementById("matSaveBtn");
+  btn.disabled = true; btn.textContent = "Saving…";
+  try {
+    const next = materialsList.slice();
+    if (editingMaterialId) {
+      entry.id = editingMaterialId;
+      const idx = next.findIndex(x => x.id === editingMaterialId);
+      if (idx >= 0) next[idx] = entry; else next.push(entry);
+    } else {
+      entry.id = "mat_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+      next.push(entry);
+    }
+    await pushMaterials(next, "Warehouse: " + (editingMaterialId ? "updated" : "added") + " material " + entry.material);
+    toast(t("saved"), "ok");
+    closeMaterialModal();
+  } catch (err) {
+    console.error("[warehouse] material save failed:", err);
+    toast(t("err_save") + ": " + (err.message || err), "err");
+  } finally {
+    btn.disabled = false; btn.textContent = "Save";
+  }
+}
+
+async function onDeleteMaterial() {
+  if (!editingMaterialId) return;
+  if (!isEditor) { toast(t("gate_msg"), "err"); return; }
+  if (!confirm("Delete this material record?")) return;
+  const btn = document.getElementById("matDeleteBtn");
+  btn.disabled = true; btn.textContent = t("deleting");
+  try {
+    const next = materialsList.filter(x => x.id !== editingMaterialId);
+    await pushMaterials(next, "Warehouse: removed material");
+    toast(t("deleted"), "ok");
+    closeMaterialModal();
+  } catch (err) {
+    console.error("[warehouse] material delete failed:", err);
+    toast(t("err_delete") + ": " + (err.message || err), "err");
+  } finally {
+    btn.disabled = false; btn.textContent = "Delete";
+  }
 }
 
 // ---------- Edit modal (tap a Recent row to edit / delete) ----------

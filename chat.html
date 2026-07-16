@@ -708,6 +708,7 @@
         _ts: firebase.database.ServerValue.TIMESTAMP,
         _by: currentUser.email,
         _desc: desc,
+        _clientId: 'chat-' + Math.random().toString(36).slice(2),
       });
       await db.ref('state').set(payload);
       // History
