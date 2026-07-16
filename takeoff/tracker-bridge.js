@@ -54,6 +54,12 @@
       if (!result || !result.openings || !result.openings.length) result = parseDxfText(pend.text);
       Promise.resolve(appendParsedOpenings(result)).then(function () {
         if (statusEl) statusEl.textContent = (pend.name || 'DXF') + ': ' + statusEl.textContent;
+        // M2: if the tracker staged this import (its "Import DXF" button), hop back once
+        // the headless parse + auto-push (inside appendParsedOpenings) has completed.
+        if (localStorage.getItem('af_dxf_return')) {
+          localStorage.removeItem('af_dxf_return');
+          setTimeout(function () { location.href = '../index.html'; }, 600);
+        }
       }).catch(function (e) {
         console.error('tracker-bridge append failed:', e);
         if (statusEl) { statusEl.textContent = 'Could not import ' + (pend.name || 'DXF'); statusEl.className = 'tk-dxf__status is-err'; }

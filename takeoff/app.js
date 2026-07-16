@@ -7,6 +7,47 @@ const PARTS_DB_VERSION = 20260618;
 // SYSTEMS & POSITIONS derived dynamically from parts data (with fallback defaults)
 const DEFAULT_SYSTEMS = ['IR501T', '450'];
 const DEFAULT_POSITIONS = ['Head', 'Jamb', 'Sill', 'Horizontal', 'Vertical', 'Transom Bar', 'Door Jamb', 'Door Jamb At Transom'];
+
+// ============================================================
+//  #whitelist (#2): keep each system's detected roles inside the roles that actually
+//  belong to that system. One universal geometric detector emits generic roles
+//  (Transom Bar / Door Jamb At Transom / Outside 90° Corner / Subsill …); without this,
+//  a system like 45TU (which has no 'Door Jamb At Transom' or 'Outside 90° Corner') keeps
+//  roles that don't exist for it. Allowed roles are derived straight from SYSTEM_DEFS
+//  (parts.roles ∪ accessories.positions), so it self-configures and never touches a role
+//  the system legitimately defines (e.g. 750XT's (X)/(wide) variants stay untouched).
+//  Anything out-of-system is remapped to the nearest in-system role via ROLE_REMAP.
+const ROLE_REMAP = {
+  'Door Jamb At Transom': ['Door Jamb', 'Jamb', 'Vertical'],
+  'Door Jamb':            ['Door Jamb', 'Jamb', 'Vertical'],
+  'Outside 90° Corner':   ['Corner', 'Vertical', 'Jamb'],
+  'Corner':               ['Corner', 'Outside 90° Corner', 'Vertical', 'Jamb'],
+  'Transom Bar':          ['Transom Bar', 'Head', 'Horizontal'],
+  'Subsill':              ['Subsill', 'Sill'],
+};
+const _allowedRolesCache = new Map();
+function allowedRolesForSystem(system) {
+  if (_allowedRolesCache.has(system)) return _allowedRolesCache.get(system);
+  const def = (window.SYSTEM_DEFS || {})[system];
+  const set = new Set();
+  if (def) {
+    for (const p of (def.parts || [])) for (const r of (p.roles || [])) set.add(r);
+    for (const a of (def.accessories || [])) for (const r of (a.positions || [])) set.add(r);
+  }
+  _allowedRolesCache.set(system, set);
+  return set;
+}
+// Remap any cut whose role isn't in `system`'s allowed set to the nearest role that is.
+function applyRoleWhitelist(cuts, system) {
+  const allowed = allowedRolesForSystem(system);
+  if (!allowed.size) return;                 // unknown system → leave as-is
+  for (const c of cuts) {
+    if (!c || allowed.has(c.position)) continue;
+    const chain = ROLE_REMAP[c.position];
+    if (!chain) continue;                     // no known target → leave visible for manual fix
+    for (const cand of chain) { if (allowed.has(cand)) { c.position = cand; break; } }
+  }
+}
 function SYSTEMS_LIST() {
   const fromParts = Array.from(new Set((state.parts||[]).map(p => p.system).filter(Boolean)));
   return fromParts.length ? fromParts : DEFAULT_SYSTEMS.slice();
@@ -293,6 +334,74 @@ function cutDisplayPosition(c, system) {
 // T3: stable geometry key for a cut's source (rounded to 0.1") — remembers manual role overrides across re-imports.
 function srcKey(s) { return [s.x, s.y, s.w, s.h].map(n => Math.round((n || 0) * 10) / 10).join('|'); }
 
+// ============================================================
+//  #persist (#1): manual elevation edits (splits/merges/role/length/count) survive
+//  reload AND are shared across browsers/Vercel via Firestore (project elevDb,
+//  collection `elevEdits`, one doc per mark). Local state.elevEdits mirrors the cloud
+//  and is the offline fallback. On DXF re-import a saved edit-set is restored only when
+//  its geometry signature matches the fresh parse (see parseRawDxfOpenings).
+//  Note: this is also the training data #4's auto-propagation will learn from.
+// ============================================================
+function elevGeoSig(cuts) {
+  // Role-independent fingerprint of the parsed source geometry for one elevation.
+  return (cuts || []).filter(c => c && c.src).map(c => srcKey(c.src)).sort().join(';');
+}
+function elevEditRecord(o) {
+  return {
+    cuts: (o.cuts || []).map(c => ({ position: c.position, length: c.length, count: c.count || 1, src: c.src ? { ...c.src } : null })),
+    geoSig: o.geoSig || elevGeoSig(o.cuts),
+    width: o.width, height: o.height, system: o.system || '',
+  };
+}
+function persistElevEdits(o) {
+  if (!o || !o.mark) return;
+  state.elevEdits = state.elevEdits || {};
+  const rec = elevEditRecord(o);
+  rec.updatedAt = Date.now();
+  state.elevEdits[o.mark] = rec;
+  save();
+  const fb = window.__fb;
+  if (fb && fb.setDoc) {
+    try {
+      fb.setDoc(fb.doc(fb.elevDb || fb.db, 'elevEdits', String(o.mark)),
+        Object.assign({}, rec, { updatedAt: fb.serverTimestamp() }), { merge: true })
+        .catch(err => console.warn('[elevEdits] push failed:', err));
+    } catch (err) { console.warn('[elevEdits] push failed:', err); }
+  }
+}
+function clearElevEdits(mark) {
+  if (!mark) return;
+  if (state.roleEdits) delete state.roleEdits[mark];
+  if (state.elevEdits) delete state.elevEdits[mark];
+  save();
+  const fb = window.__fb;
+  if (fb && fb.setDoc) {
+    try {
+      fb.setDoc(fb.doc(fb.elevDb || fb.db, 'elevEdits', String(mark)),
+        { cuts: [], geoSig: '', updatedAt: fb.serverTimestamp() }, { merge: true }).catch(() => {});
+    } catch (_) {}
+  }
+}
+function loadElevEditsFromCloud() {
+  const fb = window.__fb;
+  if (!fb || !fb.getDocs || !fb.collection) return;
+  fb.getDocs(fb.collection(fb.elevDb || fb.db, 'elevEdits')).then(snap => {
+    state.elevEdits = state.elevEdits || {};
+    snap.forEach(d => {
+      const data = d.data() || {};
+      if (data && Array.isArray(data.cuts)) {
+        if (data.cuts.length) state.elevEdits[d.id] = { cuts: data.cuts, geoSig: data.geoSig || '', width: data.width, height: data.height, system: data.system || '', updatedAt: data.updatedAt || 0 };
+        else delete state.elevEdits[d.id];   // a cleared mark
+      }
+    });
+    save();
+  }).catch(err => console.warn('[elevEdits] load failed:', err));
+}
+if (typeof window !== 'undefined') {
+  if (window.__fb) loadElevEditsFromCloud();
+  else window.addEventListener('fb-ready', loadElevEditsFromCloud, { once: true });
+}
+
 // 手动修改识别: 点立面图色块/底部 chip 选中某根料 → 内联编辑器(位置/长度/数量/删除); "+ Add cut" 新增。
 let viewerOpeningId = null;
 let viewerEditIdx = null;
@@ -377,9 +486,12 @@ function renderViewer(openingId) {
   // 无溯源料(手动加的/手填) → 可点 chip
   const manual = cuts.map((c, i) => ({ c, i })).filter(x => !x.c.src);
   let html = '';
-  const _ovm = state.roleEdits && state.roleEdits[o.mark];   // T3: show + clear remembered manual overrides
-  if (_ovm && Object.keys(_ovm).length) {
-    html += `<div style="margin:6px 0;font-size:11px;color:#999;">Manual role overrides on ${escHtml(o.mark)}: ${Object.keys(_ovm).length} remembered · <button class="tk-btn tk-btn--ghost tk-btn--sm" id="vc-clear-ov" title="Forget remembered role overrides for this mark (next import reverts to pure auto)">× clear</button></div>`;
+  const _ovm = state.roleEdits && state.roleEdits[o.mark];   // legacy role-only overrides
+  const _sev = state.elevEdits && state.elevEdits[o.mark] && (state.elevEdits[o.mark].cuts || []).length;   // #persist: full saved edit-set (synced)
+  if (_sev || (_ovm && Object.keys(_ovm).length)) {
+    const _n = _sev || Object.keys(_ovm).length;
+    const _label = _sev ? `Saved manual edits on ${escHtml(o.mark)}: ${_n} pieces · synced` : `Manual role overrides on ${escHtml(o.mark)}: ${_n} remembered`;
+    html += `<div style="margin:6px 0;font-size:11px;color:#999;">${_label} · <button class="tk-btn tk-btn--ghost tk-btn--sm" id="vc-clear-ov" title="Forget saved edits for this mark (next import reverts to pure auto-detection)">× clear</button></div>`;
   }
   if (manual.length) {
     html += `<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;font-size:12px;">`
@@ -421,7 +533,11 @@ function renderViewer(openingId) {
 
 function refreshAfterCutEdit() {
   save();
-  if (viewerOpeningId != null) renderViewer(viewerOpeningId);
+  if (viewerOpeningId != null) {
+    const o = state.openings.find(x => x.id === viewerOpeningId);
+    if (o) persistElevEdits(o);   // #persist (#1): save full edit-set (local + cloud)
+    renderViewer(viewerOpeningId);
+  }
   renderReport(); renderMeta(); renderOpenings();
 }
 
@@ -432,9 +548,9 @@ document.addEventListener('click', e => {
     viewerEditIdx = null;
     return;
   }
-  if (e.target.closest('#vc-clear-ov') && viewerOpeningId != null) {   // T3: forget overrides for this mark
+  if (e.target.closest('#vc-clear-ov') && viewerOpeningId != null) {   // forget saved edits for this mark (local + cloud)
     const o = state.openings.find(x => x.id === viewerOpeningId);
-    if (o && state.roleEdits) { delete state.roleEdits[o.mark]; save(); renderViewer(viewerOpeningId); }
+    if (o) { clearElevEdits(o.mark); renderViewer(viewerOpeningId); }
     return;
   }
   if (e.target.closest('#vc-split') && viewerOpeningId != null && viewerEditIdx != null) {   // #2: split at clicked point
@@ -1641,9 +1757,21 @@ function parseRawDxfOpenings(text) {
       }
       cuts.length = 0; cuts.push(...next);
     }
-    // T3: re-apply remembered manual role overrides for this mark (survives re-import; no-op if none).
-    const _ov = state.roleEdits && state.roleEdits[mark];
-    if (_ov) for (const cc of cuts) { if (cc.src) { const k = srcKey(cc.src); if (_ov[k] != null) cc.position = _ov[k]; } }
+    // #whitelist (#2): constrain roles to those that belong to this system.
+    applyRoleWhitelist(cuts, system);
+    // #persist (#1): fingerprint of THIS parse (geometry only, role-independent).
+    const _freshSig = elevGeoSig(cuts);
+    // If a full saved edit-set exists for this mark and the DXF geometry is unchanged,
+    // restore it wholesale (splits/merges/role/length edits all survive). Otherwise fall
+    // back to the lighter remembered role overrides (legacy roleEdits).
+    const _saved = state.elevEdits && state.elevEdits[mark];
+    if (_saved && _saved.geoSig === _freshSig && Array.isArray(_saved.cuts) && _saved.cuts.length) {
+      cuts.length = 0;
+      for (const sc of _saved.cuts) cuts.push({ position: sc.position, length: sc.length, count: sc.count || 1, src: sc.src ? { ...sc.src } : null });
+    } else {
+      const _ov = state.roleEdits && state.roleEdits[mark];
+      if (_ov) for (const cc of cuts) { if (cc.src) { const k = srcKey(cc.src); if (_ov[k] != null) cc.position = _ov[k]; } }
+    }
     // Louver area is not glass → exclude it from vision-lite counting.
     const lites = dxfCountLites(alumPool.filter(p => !inLouver(p)));
     openings.push({
@@ -1652,11 +1780,11 @@ function parseRawDxfOpenings(text) {
       height: dxfRound(c.bbox.height),
       horiz: cuts.filter(c => c.position === 'Horizontal').reduce((a,c) => a + c.count, 0),
       vert: cuts.filter(c => c.position === 'Vertical').reduce((a,c) => a + c.count, 0),
-      cuts,
+      cuts, geoSig: _freshSig,
     });
     const _ex = buildElevExport(mark, c, alumPool, louverBand, doorRegions, structuralPolys, panelStrips, byOthersZones);
     ELEV_EXPORTS.set(_ex.key, _ex);
-    if (_ex.gaskets) openings[openings.length - 1].gasketLF = _ex.gaskets;   // gasket: perimeter-based, per opening
+    if (_ex.gaskets && system === '750XT') openings[openings.length - 1].gasketLF = _ex.gaskets;   // gasket: perimeter model is 750XT-only (45TU etc. use per-role glazing gasket rules)
   }
   return { openings, errors: [] };
 }
@@ -1803,9 +1931,19 @@ function dxfDetectCuts(outline, alumProfiles, doorSubframe, opts) {
       if (!colMap.has(k)) colMap.set(k, []);
       colMap.get(k).push(v);
     }
-    const colXs = [...colMap.keys()].sort((a, b) => a - b);
-    for (let i = 0; i + 1 < colXs.length; i++) {
-      const xL = colXs[i], xR = colXs[i + 1];
+    const colKeys = [...colMap.keys()].sort((a, b) => a - b);
+    // #6 fix (phantom door, verified against 45TU.dxf EL-05): a bay's boundary must be the
+    // FACING EDGE of its bounding vertical, not the vertical's center. A wide vertical (e.g.
+    // a corner post/mullion) offsets its center from where the adjoining Head/Sill actually
+    // terminates; with a center-based boundary that offset can exceed the ±2 span tolerance
+    // below, so a real spanning Sill/Head reads as "missing" → the whole bay is misread as a
+    // doorless gap (phantom door), and the bounding vertical gets misclassified as Door Jamb.
+    const colEdge = (k, side) => {
+      const vs = colMap.get(k);
+      return side === 'right' ? Math.max(...vs.map(v => v.maxX)) : Math.min(...vs.map(v => v.minX));
+    };
+    for (let i = 0; i + 1 < colKeys.length; i++) {
+      const xL = colEdge(colKeys[i], 'right'), xR = colEdge(colKeys[i + 1], 'left');
       const spans = h => h.minX <= xL + 2 && h.maxX >= xR - 2;
       // bay 底部有横料 → 窗
       if (horizontals.some(h => spans(h) && (h.minY + h.maxY) / 2 <= floorY + sillTol)) continue;
@@ -2214,6 +2352,8 @@ async function appendParsedOpenings(result, sourceEl = null) {
   if (is1600(sys)) openings.forEach(reclassify1600);
   state.openings.push(...openings);
   renderOpenings(); renderReport(); renderMeta(); save();
+  // M2: auto-push elevations parsed this batch (manual "→ Tracker" button stays as a force-re-push fallback).
+  if (ELEV_EXPORTS.size && window.__fb) { try { await exportElevationsToTracker(); } catch (e) { console.warn('[M2] auto-push failed:', e); } }
   const msg = `+${openings.length} openings added` + (errors.length ? ` · ${errors.length} skipped` : '');
   statusEl.textContent = msg;
   statusEl.className = 'tk-dxf__status ' + (errors.length ? 'is-err' : 'is-ok');
