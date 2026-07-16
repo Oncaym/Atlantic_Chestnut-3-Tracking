@@ -165,8 +165,37 @@
       ],
       accessories: [],   // gaskets are computed per-elevation by perimeter at DXF import (see buildElevExport / computeAccessories), not role-based rules
     },
+
+    // ===== YKK AP 45TU (Storefront) — from elevations/45TU parts.xlsx =====
+    // Glazing gasket E2-0052 is per-role (count = runs along the member), NOT the 750XT perimeter model.
+    '45TU': {
+      parts: [
+        { partNumber: 'BE9-2553', description: 'Head/Mullion/Jamb',        roles: ['Head', 'Jamb', 'Vertical'] },
+        { partNumber: 'E9-1038',  description: 'Flat Filler',              roles: ['Jamb', 'Head', 'Sill'] },
+        { partNumber: 'BE9-2552', description: 'Pocket Filler (Slotted)',  roles: ['Vertical'] },
+        { partNumber: 'BE9-2566', description: '90° Corner Mullion',       roles: ['Corner'] },
+        { partNumber: 'BE9-2567', description: '90° Corner Mullion',       roles: ['Corner'] },
+        { partNumber: 'AS-0411',  description: 'Single Acting Door Jamb',  roles: ['Door Jamb'] },
+        { partNumber: 'E9-1019',  description: 'Deep Pocket Filler',       roles: ['Door Jamb'] },
+        { partNumber: 'BE9-2556', description: 'Horizontal',               roles: ['Horizontal'] },
+        { partNumber: 'E9-1015',  description: 'Glass Stop',               roles: ['Horizontal', 'Sill'] },
+        { partNumber: 'BE9-2579', description: 'Sill',                     roles: ['Sill'] },
+        { partNumber: 'AS-0412',  description: 'Single Acting Door Head',  roles: ['Transom Bar'] },
+        { partNumber: 'E9-0413',  description: 'Transom Glass Stop',       roles: ['Transom Bar'] },
+      ],
+      accessories: [
+        // Glazing gasket E2-0052 — per-role run count from the xlsx QTY column
+        { partNumber: 'E2-0052', description: 'Glazing Gasket', rule: 'per_lf',    positions: ['Jamb', 'Door Jamb', 'Head', 'Sill'],  param: 2, min: 0, unit: 'LF' },
+        { partNumber: 'E2-0052', description: 'Glazing Gasket', rule: 'per_lf',    positions: ['Vertical', 'Corner', 'Horizontal'],   param: 4, min: 0, unit: 'LF' },
+        { partNumber: 'E1-1058', description: 'Shear Block (Sill/Horizontal, 1/end)', rule: 'per_piece', positions: ['Sill', 'Horizontal'], param: 2, min: 0, unit: 'ea' },
+        { partNumber: 'E1-1059', description: 'Shear Block (Head, 1/end)',           rule: 'per_piece', positions: ['Head'],               param: 2, min: 0, unit: 'ea' },
+        { partNumber: 'E2-0628', description: 'Setting Block (2/horizontal & sill)', rule: 'per_piece', positions: ['Horizontal', 'Sill'], param: 2, min: 0, unit: 'ea' },
+        { partNumber: 'PC-1220', description: 'End cap (horizontal/head/sill, 2/end)', rule: 'per_piece', positions: ['Horizontal', 'Head', 'Sill'], param: 2, min: 0, unit: 'ea' },
+        { partNumber: 'E2-0259', description: 'Foam Backer Tape (2/mullion top)',    rule: 'per_piece', positions: ['Vertical'],           param: 2, min: 0, unit: 'ea' },
+      ],
+    },
   };
 
   // 系统显示/默认顺序(无 mark 洞口默认取第一个; '450' 是整数样式键会被 JS 排前, 故显式固定)
-  window.SYSTEM_ORDER = ['IR501T', '450', '1600 (10-1/2″)', '1600 (7-13/16″)', '750XT'];
+  window.SYSTEM_ORDER = ['IR501T', '450', '1600 (10-1/2″)', '1600 (7-13/16″)', '750XT', '45TU'];
 })();
