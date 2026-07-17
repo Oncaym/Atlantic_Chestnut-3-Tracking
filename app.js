@@ -2459,11 +2459,22 @@ function renderCalendar() {
   const esc = s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   body.innerHTML = rows.map(r => {
     if (!r.editable) {
+      // #cal-bulk-edit: elevation-backed scopes (glass/panel/louver/door) are rollups of MANY
+      // individual elements (_elevStore(key).el[id].status) — there's no single status/date to
+      // bind a normal row to. Instead of forcing every edit onto the Elevation tab, offer a bulk
+      // "set all N pieces to this status/date" action right here: pick status+date, hit Apply,
+      // and every matching non-hidden element for this unit gets that status/date (mirrors the
+      // per-element write in saveElevStatus()). Deliberately a separate explicit button, not
+      // wired into the modal's main Save — a stray dropdown selection must never silently
+      // overwrite everyone's individually-tracked progress just because Save was clicked.
       const frac = r.rollup ? (r.rollup[0]+' / '+r.rollup[1]) : '—';
       return `<div class="cal-row cal-row-rollup" data-scope="${r.scope}">
         <span class="cal-row-label">${esc(r.label)}</span>
         <span class="cal-row-rollup-frac">${frac}</span>
-        <span class="cal-row-hint">edit on Elevation tab</span>
+        <select class="cal-bulk-status">${CAL_STATUS_OPTS.slice(1).map(o=>`<option value="${o}">${esc(CAL_STATUS_LABEL[o])}</option>`).join('')}</select>
+        <input type="date" class="cal-bulk-date">
+        <button type="button" class="btn btn-sm cal-bulk-apply" onclick="applyCalendarBulkScope('${r.scope}', this)" title="Set every ${esc(r.label)} piece on this unit to the selected status/date">Apply to all</button>
+        <span class="cal-row-hint">or edit individually on Elevation tab</span>
       </div>`;
     }
     return `<div class="cal-row" data-scope="${r.scope}">
@@ -2472,6 +2483,32 @@ function renderCalendar() {
       <input type="date" class="cal-date" value="${esc(r.date)}">
     </div>`;
   }).join('');
+}
+// #cal-bulk-edit: apply one status+date to every element of `scope`'s type (glass→glass,
+// metalPanel→panel, louver→louver, doors→door) for the unit currently open in the modal.
+// Same per-element write shape as saveElevStatus() so the Elevation tab and KPIs stay correct.
+const CAL_BULK_SCOPE_TYPE = { glass: 'glass', metalPanel: 'panel', louver: 'louver', doors: 'door' };
+function applyCalendarBulkScope(scope, btnEl) {
+  const row = btnEl && btnEl.closest('.cal-row-rollup');
+  const statusEl = row && row.querySelector('.cal-bulk-status');
+  const dateEl = row && row.querySelector('.cal-bulk-date');
+  const status = statusEl ? statusEl.value : '';
+  const date = dateEl ? dateEl.value : '';
+  const type = CAL_BULK_SCOPE_TYPE[scope];
+  const key = _elevKey();
+  if (!type || !key) return;
+  const E = (window.ELEVATIONS || {})[key];
+  const S = _elevStore(key);
+  const parts = (E ? E.elements.map(e => ({ id: e.id, t0: e.t0 })) : [])
+    .concat(S.custom.map(c => ({ id: c.id, t0: c.type })))
+    .filter(p => !S.deleted.includes(p.id));
+  const targets = parts.filter(p => ((S.el[p.id] || {}).type || p.t0) === type);
+  if (!targets.length) { toast('No ' + scope + ' pieces found for this unit'); return; }
+  if (!confirm(`Set all ${targets.length} ${scope} piece(s) on this unit to "${CAL_STATUS_LABEL[status] || status}"${date ? ' (' + date + ')' : ''}? This overwrites their individually-tracked status.`)) return;
+  targets.forEach(p => { S.el[p.id] = Object.assign({}, S.el[p.id], { status, date }); });
+  saveState();
+  renderCalendar();
+  renderElevation();
 }
 function readCalendarScopes() {
   const out = {};
@@ -2838,19 +2875,37 @@ function renderSubmittals() {
   const rows = state.submittals
     .map((s, i) => ({ s, i }))
     .filter(({ s }) => _submittalFilter === 'all' || s.status === _submittalFilter);
-  body.innerHTML = rows.map(({ s, i }) => `
-    <tr onclick="editSubmittal(${i})" style="cursor:pointer">
-      <td><strong>${esc(s.number)}</strong></td>
-      <td>${esc(s.title)}</td>
-      <td>${esc(s.spec)}</td>
-      <td>${esc(s.scope)}</td>
-      <td>${s.submittedDate ? formatDate(s.submittedDate) : '<span style="color:var(--text-dim)">—</span>'}</td>
-      <td>${esc(SUBMITTAL_STATUS_LABEL[s.status] || s.status || '')}</td>
-      <td>${esc(s.rev)}</td>
-      <td>${s.returnedDate ? formatDate(s.returnedDate) : '<span style="color:var(--text-dim)">—</span>'}</td>
-      <td>${esc(s.ballInCourt)}</td>
-      <td style="font-size:12px;color:var(--text-dim);max-width:200px">${esc(s.note)}</td>
-    </tr>`).join('') || `<tr><td colspan="10" style="text-align:center;color:var(--text-dim);padding:24px">No submittals${_submittalFilter !== 'all' ? ' match this filter' : ' yet'}</td></tr>`;
+  body.innerHTML = rows.map(({ s, i }, p) => `
+    <tr style="cursor:pointer">
+      <td style="white-space:nowrap" onclick="event.stopPropagation()">
+        <button class="btn" style="padding:2px 6px;font-size:11px;line-height:1;min-height:0" title="Move up" ${p === 0 ? 'disabled' : ''} onclick="moveSubmittal(${i},-1)">&#9650;</button>
+        <button class="btn" style="padding:2px 6px;font-size:11px;line-height:1;min-height:0" title="Move down" ${p === rows.length - 1 ? 'disabled' : ''} onclick="moveSubmittal(${i},1)">&#9660;</button>
+      </td>
+      <td onclick="editSubmittal(${i})"><strong>${esc(s.number)}</strong></td>
+      <td onclick="editSubmittal(${i})">${esc(s.title)}</td>
+      <td onclick="editSubmittal(${i})">${esc(s.spec)}</td>
+      <td onclick="editSubmittal(${i})">${esc(s.scope)}</td>
+      <td onclick="editSubmittal(${i})">${s.submittedDate ? formatDate(s.submittedDate) : '<span style="color:var(--text-dim)">—</span>'}</td>
+      <td onclick="editSubmittal(${i})">${esc(SUBMITTAL_STATUS_LABEL[s.status] || s.status || '')}</td>
+      <td onclick="editSubmittal(${i})">${esc(s.rev)}</td>
+      <td onclick="editSubmittal(${i})">${s.returnedDate ? formatDate(s.returnedDate) : '<span style="color:var(--text-dim)">—</span>'}</td>
+      <td onclick="editSubmittal(${i})">${esc(s.ballInCourt)}</td>
+      <td onclick="editSubmittal(${i})" style="font-size:12px;color:var(--text-dim);max-width:200px">${esc(s.note)}</td>
+    </tr>`).join('') || `<tr><td colspan="11" style="text-align:center;color:var(--text-dim);padding:24px">No submittals${_submittalFilter !== 'all' ? ' match this filter' : ' yet'}</td></tr>`;
+}
+// Manual reordering (Leo, 2026-07-17): swaps this row with its adjacent VISIBLE neighbor (same
+// filter as render), so ↑/↓ always matches what's on screen even when a status filter is
+// active. Operates on the real state.submittals array (the source of truth — filtering never
+// changes stored order), so it persists/syncs exactly like any other submittal edit.
+function moveSubmittal(idx, dir) {
+  if (!Array.isArray(state.submittals)) return;
+  const rows = state.submittals.map((s, i) => ({ s, i })).filter(({ s }) => _submittalFilter === 'all' || s.status === _submittalFilter);
+  const pos = rows.findIndex(r => r.i === idx);
+  const swapPos = pos + dir;
+  if (pos < 0 || swapPos < 0 || swapPos >= rows.length) return;
+  const a = rows[pos].i, b = rows[swapPos].i;
+  const tmp = state.submittals[a]; state.submittals[a] = state.submittals[b]; state.submittals[b] = tmp;
+  saveState(false);
 }
 function openAddSubmittal() {
   editingSubmittalIdx = null;

@@ -375,6 +375,13 @@
   }
   .mat-item:last-child { border-bottom: 0; }
   .mat-item .top { display: flex; gap: 6px; align-items: baseline; margin-bottom: 3px; }
+  .mat-reorder { display: flex; flex-direction: column; gap: 1px; align-items: center; }
+  .mat-reorder-btn {
+    background: var(--bg); border: 1px solid var(--border); color: var(--text-dim);
+    border-radius: 4px; width: 20px; height: 16px; font-size: 9px; line-height: 1;
+    padding: 0; cursor: pointer;
+  }
+  .mat-reorder-btn:disabled { opacity: 0.3; cursor: default; }
   .mat-item .name { font-weight: 700; font-size: 14px; flex: 1; }
   .mat-item .scope { font-size: 11px; color: var(--text-dim); }
   .mat-item .sub { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
@@ -480,6 +487,10 @@
   <section class="card">
     <div class="mat-header-row">
       <h2 style="margin-bottom:0">📦 Material Tracking</h2>
+      <select id="matSortMode" onchange="setMaterialSortMode(this.value)" style="font-size:12px;background:var(--bg,#1a1f26);color:var(--text,#eee);border:1px solid var(--border,#333);border-radius:6px;padding:5px 9px;margin:0 8px">
+        <option value="expected">Sort: Expected Date</option>
+        <option value="manual">Sort: Manual order</option>
+      </select>
       <button class="mat-add-btn" id="matAddBtn" onclick="openAddMaterial()">+ Add</button>
     </div>
     <div id="materialsList">
@@ -1058,6 +1069,17 @@ const MAT_STATUS_LABEL = {
   "shipped": "Shipped", "delivered": "Delivered", "installed": "Installed",
 };
 let editingMaterialId = null;
+// Manual reordering (Leo, 2026-07-17): default stays "Expected Date" (existing behavior,
+// no regression); switching to "Manual order" shows ↑/↓ controls and renders in the stored
+// array order (materialsList as received from Firebase) instead of re-sorting by date — the
+// two modes would otherwise fight (any manual reorder would just get sorted away again).
+// The mode itself is a per-browser view preference (localStorage), not synced state.
+let _matSortMode = localStorage.getItem('mat_sort_mode') || 'expected';
+function setMaterialSortMode(v) {
+  _matSortMode = (v === 'manual') ? 'manual' : 'expected';
+  localStorage.setItem('mat_sort_mode', _matSortMode);
+  renderMaterials();
+}
 
 function subscribeMaterials() {
   fbDb.ref("state/materials").on("value", snap => {
@@ -1078,12 +1100,15 @@ function isOverdue(m) {
 
 function renderMaterials() {
   const list = document.getElementById("materialsList");
+  const sortSel = document.getElementById("matSortMode");
+  if (sortSel) sortSel.value = _matSortMode;
   if (!materialsList.length) {
     list.innerHTML = `<div class="empty">No materials tracked yet.</div>`;
     return;
   }
-  const sorted = materialsList.slice().sort((a, b) => (a.expectedDate || "9999").localeCompare(b.expectedDate || "9999"));
-  list.innerHTML = sorted.map(m => {
+  const manual = _matSortMode === "manual";
+  const ordered = manual ? materialsList.slice() : materialsList.slice().sort((a, b) => (a.expectedDate || "9999").localeCompare(b.expectedDate || "9999"));
+  list.innerHTML = ordered.map((m, p) => {
     const overdue = isOverdue(m);
     const statusLabel = MAT_STATUS_LABEL[m.status] || m.status || "";
     const bits = [];
@@ -1091,9 +1116,15 @@ function renderMaterials() {
     if (m.poNumber) bits.push("PO " + escapeHtml(m.poNumber));
     if (m.qty) bits.push(escapeHtml(m.qty));
     const expectedTxt = m.expectedDate ? ("Expected " + escapeHtml(m.expectedDate)) : "";
+    const reorder = manual ? `
+        <div class="mat-reorder" onclick="event.stopPropagation()">
+          <button class="mat-reorder-btn" title="Move up" ${p === 0 ? "disabled" : ""} onclick="moveMaterial('${escapeAttr(m.id)}',-1)">&#9650;</button>
+          <button class="mat-reorder-btn" title="Move down" ${p === ordered.length - 1 ? "disabled" : ""} onclick="moveMaterial('${escapeAttr(m.id)}',1)">&#9660;</button>
+        </div>` : "";
     return `
       <div class="mat-item${overdue ? " overdue" : ""}" onclick="editMaterial('${escapeAttr(m.id)}')">
         <div class="top">
+          ${reorder}
           <span class="name">${escapeHtml(m.material || "(unnamed)")}</span>
           <span class="mat-status-badge ${escapeAttr(m.status || "not-ordered")}">${escapeHtml(statusLabel)}</span>
           ${overdue ? '<span class="mat-overdue-pill">Overdue</span>' : ""}
@@ -1103,6 +1134,24 @@ function renderMaterials() {
         ${expectedTxt ? `<div class="sub expected">${expectedTxt}</div>` : ""}
       </div>`;
   }).join("");
+}
+// Manual reordering (Leo, 2026-07-17): swaps this material with its stored-order neighbor and
+// pushes the full reordered array — same cloud-write pattern as add/edit/delete (pushMaterials
+// fetches the live /state doc, splices in materials, stamps a fresh _clientId so an open
+// tracker tab's self-echo filter doesn't swallow the change; see M6/M5 in memory.md).
+async function moveMaterial(id, dir) {
+  if (!isEditor) { toast(t("gate_msg"), "err"); return; }
+  const pos = materialsList.findIndex(x => x.id === id);
+  const swapPos = pos + dir;
+  if (pos < 0 || swapPos < 0 || swapPos >= materialsList.length) return;
+  const next = materialsList.slice();
+  const tmp = next[pos]; next[pos] = next[swapPos]; next[swapPos] = tmp;
+  try {
+    await pushMaterials(next, "Warehouse: reordered materials");
+  } catch (err) {
+    console.error("[warehouse] material reorder failed:", err);
+    toast(t("err_save") + ": " + (err.message || err), "err");
+  }
 }
 
 function openAddMaterial() {

@@ -1,0 +1,32 @@
+# .claudeignore — keep heavy / non-code files out of context to protect the prompt cache.
+# These are never needed for code work; excluding them keeps the cache stable and context lean.
+
+# Backups & bak copies
+*.bak
+_bak/
+backups/
+**/backup-state.js.out
+
+# Heavy binaries / assets
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.pdf
+*.zip
+*.dwg
+# NOTE: do NOT ignore *.dxf — the parser needs sample drawings for the verification harness.
+
+# Generated / large data dumps (regenerate from source; not edited by hand)
+out.json
+harness-baseline*.json
+role-sections.js
+
+# Caches / deps
+__pycache__/
+*.pyc
+node_modules/
+.DS_Store
+
+# Big XREF / source CAD exports dropped in for reference
+XREF_*
