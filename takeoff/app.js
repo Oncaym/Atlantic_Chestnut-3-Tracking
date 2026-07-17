@@ -24,6 +24,13 @@ const ROLE_REMAP = {
   'Corner':               ['Corner', 'Outside 90° Corner', 'Vertical', 'Jamb'],
   'Transom Bar':          ['Transom Bar', 'Head', 'Horizontal'],
   'Subsill':              ['Subsill', 'Sill'],
+  // #S3: defensive fallback only — systems.js's 750XT parts already list these directly, so
+  // this chain shouldn't normally fire; kept in case a future edit drops them from a part's
+  // roles[] and the whitelist needs somewhere safe to remap to.
+  'Jamb (IMP-1)':         ['Jamb (IMP-1)', 'Jamb (X)', 'Jamb'],
+  'Vertical (IMP-1)':     ['Vertical (IMP-1)', 'Vertical (X)', 'Vertical'],
+  'Vertical (wide IMP-1)':['Vertical (wide IMP-1)', 'Vertical (wide X)', 'Vertical (wide)'],
+  'Horizontal (Glass&Glass)': ['Horizontal (Glass&Glass)', 'Horizontal'],
 };
 const _allowedRolesCache = new Map();
 function allowedRolesForSystem(system) {
@@ -353,11 +360,30 @@ function elevEditRecord(o) {
     width: o.width, height: o.height, system: o.system || '',
   };
 }
+// #history (2026-07-19, Leo — SF01 data loss): keep at most this many prior versions per mark,
+// newest first, nested inside the same elevEdits doc (`rec.history`) so it travels with one
+// write/read — no new Firestore collection needed. This is what lets a bad overwrite (like the
+// SF01 case, where an automatic reclassification silently replaced a hand-set special-case
+// classification) be undone from within the app, instead of depending on an external backup that
+// didn't exist for this data (the nightly GitHub Action only backs up the tracker's Realtime DB
+// /state, never the takeoff tool's Firestore collections).
+const ELEV_EDITS_HISTORY_LIMIT = 5;
 function persistElevEdits(o) {
   if (!o || !o.mark) return;
   state.elevEdits = state.elevEdits || {};
   const rec = elevEditRecord(o);
   rec.updatedAt = Date.now();
+  const prev = state.elevEdits[o.mark];
+  // Only push a history entry if something actually changed (avoid piling up no-op saves).
+  const prevSig = prev ? JSON.stringify((prev.cuts || []).map(c => [c.position, c.length, c.count])) : null;
+  const nextSig = JSON.stringify((rec.cuts || []).map(c => [c.position, c.length, c.count]));
+  if (prev && prevSig !== nextSig) {
+    const prevHistory = Array.isArray(prev.history) ? prev.history : [];
+    const prevEntry = { cuts: prev.cuts, geoSig: prev.geoSig, width: prev.width, height: prev.height, system: prev.system, updatedAt: prev.updatedAt || 0 };
+    rec.history = [prevEntry, ...prevHistory].slice(0, ELEV_EDITS_HISTORY_LIMIT);
+  } else {
+    rec.history = (prev && Array.isArray(prev.history)) ? prev.history : [];
+  }
   state.elevEdits[o.mark] = rec;
   save();
   const fb = window.__fb;
@@ -368,6 +394,20 @@ function persistElevEdits(o) {
         .catch(err => console.warn('[elevEdits] push failed:', err));
     } catch (err) { console.warn('[elevEdits] push failed:', err); }
   }
+}
+// #history: restore one prior version for `mark` back to being the live edit-set. The version
+// being replaced is itself pushed to history first (via persistElevEdits' own diffing), so
+// restoring is never a dead end — you can always step back again.
+function restoreElevEditsVersion(mark, historyIdx) {
+  const rec = state.elevEdits && state.elevEdits[mark];
+  const entry = rec && Array.isArray(rec.history) && rec.history[historyIdx];
+  if (!entry) return false;
+  const o = state.openings.find(x => x.mark === mark);
+  if (!o) return false;
+  o.cuts = (entry.cuts || []).map(c => ({ position: c.position, length: c.length, count: c.count || 1, src: c.src ? { ...c.src } : null }));
+  o.geoSig = entry.geoSig || elevGeoSig(o.cuts);
+  persistElevEdits(o);   // saves the restored version as current, pushing today's (pre-restore) version into history
+  return true;
 }
 function clearElevEdits(mark) {
   if (!mark) return;
@@ -385,16 +425,34 @@ function clearElevEdits(mark) {
 function loadElevEditsFromCloud() {
   const fb = window.__fb;
   if (!fb || !fb.getDocs || !fb.collection) return;
+  const _localSnapshot = Object.assign({}, state.elevEdits || {}); // #11: pre-merge snapshot, to find cloud gaps below
   fb.getDocs(fb.collection(fb.elevDb || fb.db, 'elevEdits')).then(snap => {
     state.elevEdits = state.elevEdits || {};
+    const _cloudMarks = new Set();
     snap.forEach(d => {
+      _cloudMarks.add(d.id);
       const data = d.data() || {};
       if (data && Array.isArray(data.cuts)) {
-        if (data.cuts.length) state.elevEdits[d.id] = { cuts: data.cuts, geoSig: data.geoSig || '', width: data.width, height: data.height, system: data.system || '', updatedAt: data.updatedAt || 0 };
+        if (data.cuts.length) state.elevEdits[d.id] = { cuts: data.cuts, geoSig: data.geoSig || '', width: data.width, height: data.height, system: data.system || '', updatedAt: data.updatedAt || 0, history: Array.isArray(data.history) ? data.history : [] };
         else delete state.elevEdits[d.id];   // a cleared mark
       }
     });
     save();
+    // #11: one-time self-heal — a mark edited locally before the elevEdits Firestore rule was
+    // published/deployed only ever saved to localStorage; now that cloud is reachable, push any
+    // such local-only mark up. No-op once everything's synced (skips marks the cloud already has).
+    const _missing = Object.keys(_localSnapshot).filter(mark => !_cloudMarks.has(mark) && _localSnapshot[mark] && Array.isArray(_localSnapshot[mark].cuts) && _localSnapshot[mark].cuts.length);
+    if (_missing.length && fb.setDoc) {
+      console.log('[elevEdits] self-heal: pushing ' + _missing.length + ' local-only mark(s) to cloud:', _missing.join(', '));
+      for (const mark of _missing) {
+        const rec = _localSnapshot[mark];
+        try {
+          fb.setDoc(fb.doc(fb.elevDb || fb.db, 'elevEdits', String(mark)),
+            Object.assign({}, rec, { updatedAt: fb.serverTimestamp() }), { merge: true })
+            .catch(err => console.warn('[elevEdits] self-heal push failed for', mark, err));
+        } catch (err) { console.warn('[elevEdits] self-heal push failed for', mark, err); }
+      }
+    }
   }).catch(err => console.warn('[elevEdits] load failed:', err));
 }
 if (typeof window !== 'undefined') {
@@ -402,11 +460,217 @@ if (typeof window !== 'undefined') {
   else window.addEventListener('fb-ready', loadElevEditsFromCloud, { once: true });
 }
 
+// ============================================================
+//  #LayerB (2026-07-17): learned role corrections — PROPAGATION-DESIGN.md §3.
+//  When Leo manually recolors a piece (viewer "Position" dropdown), we capture a GEOMETRIC
+//  signature of that piece (system, orientation, size class, band, what it borders) → the role
+//  he chose, rather than a coordinate — so the correction generalizes to every OTHER opening
+//  with the same signature, not just this one mark (that's what #1's per-mark elevEdits
+//  already does). Stored per system in state.roleRules[system] = [{signature, role,
+//  updatedAt}], synced to Firestore `roleRules/{system}` (one doc per system, same
+//  fetch-all/merge pattern as elevEdits). Applied AFTER Layer A + the #2 whitelist, BEFORE a
+//  mark-specific saved edit-set/roleEdits override (those still win — Layer B is for
+//  OPENINGS THAT HAVE NEVER BEEN MANUALLY CORRECTED, not a way to override an explicit
+//  per-mark edit). One rule per unique signature (a later correction just updates it in
+//  place) — that's what makes "most-specific / most-recent wins" trivial: the signature IS
+//  the specificity, and there's only ever one (freshest) role stored per signature.
+//  NOTE: requires a Firestore rule for the new `roleRules` collection (Console → Firestore →
+//  Rules), same one-time step #1's `elevEdits` needed — reads/writes silently fail until then.
+// ============================================================
+function computeRoleSignature(cut, ctx) {
+  const s = cut && cut.src;
+  if (!s || !ctx) return null; // no geometry (manually-added chip) → nothing to learn from
+  const orientation = s.w > s.h ? 'H' : 'V';
+  const sizeClass = orientation === 'V' ? (s.w >= 3.5 ? 'wide' : 'narrow') : 'narrow';
+  const tol = 3;
+  const bbox = ctx.bbox || {};
+  const atEdge = (v, edge) => edge != null && Math.abs(v - edge) < tol;
+  let band = 'interior';
+  if (/Transom/i.test(cut.position || '') || cut.edgeDoorJamb) band = 'transom';
+  else if (orientation === 'H' && (atEdge(s.y, bbox.minY) || atEdge(s.y + s.h, bbox.maxY))) band = 'perimeter';
+  else if (orientation === 'V' && (atEdge(s.x, bbox.minX) || atEdge(s.x + s.w, bbox.maxX))) band = 'perimeter';
+  const midX = s.x + s.w / 2, midY = s.y + s.h / 2;
+  const inBand = b => midX >= b.minX - 6 && midX <= b.maxX + 6 && midY >= b.minY - 3 && midY <= b.maxY + 3;
+  let borders = 'glass';
+  if ((ctx.imp1Bands || []).some(inBand)) borders = 'imp-1';
+  else if (ctx.louverBand && midX >= ctx.louverBand.minX - 10 && midX <= ctx.louverBand.maxX + 10 &&
+           midY >= ctx.louverBand.minY - 5 && midY <= ctx.louverBand.maxY + 5) borders = 'louver';
+  else if ((ctx.doorRegions || []).some(d => midX >= d.minX - 3 && midX <= d.maxX + 3 && midY <= d.headY)) borders = 'door';
+  return { system: ctx.system, orientation, sizeClass, band, borders };
+}
+function roleSigKey(sig) { return sig ? [sig.system, sig.orientation, sig.sizeClass, sig.band, sig.borders].join('|') : null; }
+function persistRoleRule(system, signature, role) {
+  if (!signature || !system || !role) return;
+  const key = roleSigKey(signature);
+  state.roleRules = state.roleRules || {};
+  const list = state.roleRules[system] = state.roleRules[system] || [];
+  const existing = list.find(r => roleSigKey(r.signature) === key);
+  if (existing) { existing.role = role; existing.updatedAt = Date.now(); }
+  else list.push({ signature, role, updatedAt: Date.now() });
+  save();
+  const fb = window.__fb;
+  if (fb && fb.setDoc) {
+    try {
+      fb.setDoc(fb.doc(fb.elevDb || fb.db, 'roleRules', String(system)),
+        { rules: list, updatedAt: fb.serverTimestamp() }, { merge: true })
+        .catch(err => console.warn('[roleRules] push failed:', err));
+    } catch (err) { console.warn('[roleRules] push failed:', err); }
+  }
+}
+// #fix (2026-07-18): IMP-1 base role ↔ IMP-1-variant role mapping, shared by both classification
+// stages below. Keeping this as the single source of truth means "which family is this
+// member" (Jamb vs Vertical vs Vertical (wide)) is never lost, even after normalizing an
+// already-IMP-1-labeled segment back to its base role for re-evaluation.
+const IMP1_VERTICAL_ROLES = ['Jamb', 'Vertical', 'Vertical (wide)'];
+function normalizeImp1RoleToBase(position) {
+  if (position === 'Jamb (IMP-1)') return 'Jamb';
+  if (position === 'Vertical (IMP-1)') return 'Vertical';
+  if (position === 'Vertical (wide IMP-1)') return 'Vertical (wide)';
+  return position;
+}
+function toImp1Role(baseRole) {
+  if (baseRole === 'Jamb') return 'Jamb (IMP-1)';
+  if (baseRole === 'Vertical (wide)') return 'Vertical (wide IMP-1)';
+  if (baseRole === 'Vertical') return 'Vertical (IMP-1)';
+  return baseRole;
+}
+// #fix (2026-07-18, per Leo's spec "750XT IMP-1/Glass/Louver 识别与构件分类修复"): the full
+// 750XT role-classification pipeline. Two-STAGE IMP-1 vertical handling, per Leo's explicit
+// requirement — stage 1 alone (whole-member-spans-the-band split) is not sufficient because a
+// vertical member is not always one continuous whole piece by the time this runs:
+//   - it may already be several separate DXF-native segments (broken at intersections), or
+//   - it may be a RESTORED state.elevEdits[mark] snapshot already split into 3+ pieces (e.g. by
+//     an earlier manual edit), each already carrying a plain (non-IMP-1) role.
+// In either case no single segment "fully spans past the band on both sides", so the old
+// single-stage check never fired and the piece stayed permanently mislabeled. Stage 2 fixes
+// this: it re-evaluates EVERY vertical-family segment (freshly split, DXF-native multi-segment,
+// or restored) purely by its own geometric overlap with the band, independent of whether it was
+// ever a single whole piece. Called from both a fresh parse and a restored-snapshot re-pass —
+// see parseRawDxfOpenings call sites — and is idempotent either way.
+function classifyRoles(cuts, ctx) {
+  const { system, bbox, imp1Bands = [], louverBand, doorRegions, mark } = ctx;
+  const inX = (b, midX) => midX >= b.minX - 6 && midX <= b.maxX + 6;
+  if (system === '750XT' && imp1Bands.length) {
+    // ---- Stage 1: split a WHOLE (unsplit) vertical that fully spans a band into 3 pieces
+    // (above/through/below). Only creates new segments where none exist yet; a no-op for
+    // members that are already segmented (DXF-native or restored) — those are handled by Stage 2.
+    const next = [];
+    for (const cut of cuts) {
+      const s = cut.src;
+      if (!s || s.w > s.h) { next.push(cut); continue; } // horizontal — never touched by IMP-1 split (Head/Sill/Horizontal stay as classified)
+      const midX = s.x + s.w / 2;
+      const baseRole = normalizeImp1RoleToBase(cut.position);
+      const xb = IMP1_VERTICAL_ROLES.includes(baseRole)
+        ? imp1Bands.find(b => inX(b, midX) && s.y < b.minY - 2 && (s.y + s.h) > b.maxY + 2) : null;
+      if (xb) {
+        const mk = (y0, y1, pos) => ({ position: pos, length: dxfRound(y1 - y0), count: cut.count || 1,
+          src: { x: s.x, y: dxfRound(y0), w: s.w, h: dxfRound(y1 - y0), layer: s.layer } });
+        next.push(mk(s.y, xb.minY, baseRole));
+        next.push(mk(xb.minY, xb.maxY, toImp1Role(baseRole)));
+        next.push(mk(xb.maxY, s.y + s.h, baseRole));
+        continue;
+      }
+      next.push(cut);
+    }
+    cuts.length = 0; cuts.push(...next);
+    // ---- Stage 2: reclassify EVERY vertical-family segment (just-split, DXF-native multi-
+    // segment, or restored-from-snapshot) by its own overlap with the relevant band — not by
+    // whether it happens to span the whole band itself. Always normalizes to the base role
+    // first so a stale IMP-1 label never survives un-reevaluated (Leo: "先将旧的 Jamb (IMP-1)
+    // 等 role normalize 回基础 role;再根据当前几何重新判断;否则旧 role 可能永久残留").
+    // Boundary (Jamb) vs interior (Vertical/Vertical (wide)) identity is preserved throughout —
+    // normalize→reclassify never merges the two families into one label.
+    for (const cut of cuts) {
+      const s = cut.src;
+      if (!s || s.w > s.h) continue; // horizontals are never part of this vertical split
+      const baseRole = normalizeImp1RoleToBase(cut.position);
+      if (!IMP1_VERTICAL_ROLES.includes(baseRole)) continue;
+      const midX = s.x + s.w / 2;
+      const band = imp1Bands.find(b => inX(b, midX));
+      if (!band) { cut.position = baseRole; continue; }
+      // "majority inside the band" — segment overlaps the band by more than half its own
+      // height. A segment that just touches a band edge (e.g. the above/below remainder after
+      // Stage 1's split) has ~0 overlap and correctly stays the base role; a segment that IS
+      // the band crossing (fresh, DXF-native, or restored) has high/full overlap.
+      const segTop = s.y, segBot = s.y + s.h;
+      const ovTop = Math.max(segTop, band.minY), ovBot = Math.min(segBot, band.maxY);
+      const overlap = Math.max(0, ovBot - ovTop);
+      const frac = s.h > 0 ? overlap / s.h : 0;
+      cut.position = frac > 0.5 ? toImp1Role(baseRole) : baseRole;
+    }
+  }
+  // #S3-followup (2026-07-17, Leo): "if it's glass top and bottom, then it's
+  // horizontal(glass&glass)". Everything that borders IMP-1 or louver already got its own
+  // label above (this step only ever sees whatever is still plain 'Horizontal'), so any
+  // remaining plain 'Horizontal' that does NOT touch/cross an IMP-1 band is, by construction,
+  // glass on both sides. A 'Horizontal' that DOES touch/cross the band is left unrelabeled —
+  // its correct label (`Horizontal (IMP-1&Glass)`) needs a firm spec from Leo first (see
+  // memory.md "Horizontal (IMP-1&Glass)").
+  if (system === '750XT') {
+    for (const cut of cuts) {
+      if (cut.position !== 'Horizontal') continue;
+      const s = cut.src; if (!s) continue;
+      const midX = s.x + s.w / 2;
+      const bordersImp1 = imp1Bands.some(b => inX(b, midX) &&
+        (Math.abs(s.y - b.maxY) < 3 || Math.abs((s.y + s.h) - b.minY) < 3 || (s.y < b.maxY && (s.y + s.h) > b.minY)));
+      if (!bordersImp1) cut.position = 'Horizontal (Glass&Glass)';
+    }
+  }
+  // #whitelist (#2): constrain roles to those that belong to this system.
+  applyRoleWhitelist(cuts, system);
+  // #LayerB (2026-07-17): apply any of Leo's learned per-signature corrections for this system.
+  applyLearnedRoleRules(cuts, { system, bbox, imp1Bands, louverBand, doorRegions });
+  // #fix (2026-07-19, Leo — SF01 data loss): a piece the user has EXPLICITLY assigned a role to
+  // via the elevation viewer's Position dropdown (state.roleEdits[mark][srcKey]) must never be
+  // silently overridden by the automatic Stage 1/2 IMP-1 geometry reclassification above — that
+  // is exactly what happened to SF01 (a hand-classified special case): the reclassification ran
+  // on every restore and clobbered a deliberate manual choice with no way to protect it. Applied
+  // LAST, after every automatic step, so an explicit per-piece pin always wins. Only covers
+  // pieces pinned via the dropdown (state.roleEdits) — see the "changed vs. saved" detection at
+  // the elevEdits restore call site for a broader safety net that also catches non-pinned drift.
+  if (mark && typeof state !== 'undefined' && state.roleEdits && state.roleEdits[mark]) {
+    const pins = state.roleEdits[mark];
+    for (const cut of cuts) {
+      if (!cut.src) continue;
+      const pinned = pins[srcKey(cut.src)];
+      if (pinned != null) cut.position = pinned;
+    }
+  }
+}
+function applyLearnedRoleRules(cuts, ctx) {
+  const rules = (state.roleRules && state.roleRules[ctx.system]) || [];
+  if (!rules.length) return;
+  const bySig = new Map(rules.map(r => [roleSigKey(r.signature), r]));
+  for (const cut of cuts) {
+    const sig = computeRoleSignature(cut, ctx);
+    const key = sig && roleSigKey(sig);
+    const rule = key && bySig.get(key);
+    if (rule && rule.role && rule.role !== cut.position) cut.position = rule.role;
+  }
+}
+function loadRoleRulesFromCloud() {
+  const fb = window.__fb;
+  if (!fb || !fb.getDocs || !fb.collection) return;
+  fb.getDocs(fb.collection(fb.elevDb || fb.db, 'roleRules')).then(snap => {
+    state.roleRules = state.roleRules || {};
+    snap.forEach(d => {
+      const data = d.data() || {};
+      if (Array.isArray(data.rules)) state.roleRules[d.id] = data.rules;
+    });
+    save();
+  }).catch(err => console.warn('[roleRules] load failed:', err));
+}
+if (typeof window !== 'undefined') {
+  if (window.__fb) loadRoleRulesFromCloud();
+  else window.addEventListener('fb-ready', loadRoleRulesFromCloud, { once: true });
+}
+
 // 手动修改识别: 点立面图色块/底部 chip 选中某根料 → 内联编辑器(位置/长度/数量/删除); "+ Add cut" 新增。
 let viewerOpeningId = null;
 let viewerEditIdx = null;
 let _viewerGeom = null;      // #2: {minX,maxY} to map a click back to src coords
 let viewerSplitSrc = null;   // #2: src-coord point where the user last clicked (for precise split)
+let viewerShowGasket = false;  // #gasket-viz (2026-07-19): toggle framing view ↔ gasket diagram
 // #5: floating tooltip showing a role's section drawing (from role-sections.js) on hover.
 function _ensureRoleTip() {
   let t = document.getElementById('role-tip');
@@ -451,6 +715,51 @@ function renderViewer(openingId) {
   const cuts = o.cuts || (o.cuts = []);
   if (viewerEditIdx != null && (viewerEditIdx < 0 || viewerEditIdx >= cuts.length)) viewerEditIdx = null;
 
+  // #gasket-viz (2026-07-19, Leo: "gasket takeoff is still not accurate... draw gasket lines so
+  // I can know how you do the takeoff"): toggle button, always shown when this mark has an
+  // exported elevation (built alongside every parse, in ELEV_EXPORTS). Framing view is default;
+  // switching to the gasket diagram shows the same SVG buildElevExport pushes to the tracker
+  // (infill cells colored by type + both infill gasket loops + the perimeter loop(s)) without
+  // needing Firestore — this is exactly the geometry the gasketLF numbers are computed from.
+  const _exExport = ELEV_EXPORTS.get(o.mark);
+  const toggleHtml = _exExport
+    ? `<button class="tk-btn tk-btn--ghost tk-btn--sm" id="vc-toggle-gasket" style="float:right;">${viewerShowGasket ? '📐 Framing view' : '🧵 Gasket diagram'}</button>`
+    : '';
+  const subEl = document.getElementById('viewer-sub');
+  if (subEl && subEl.parentElement) {
+    let btnHost = document.getElementById('viewer-gasket-toggle-host');
+    if (!btnHost) {
+      btnHost = document.createElement('span');
+      btnHost.id = 'viewer-gasket-toggle-host';
+      subEl.parentElement.appendChild(btnHost);
+    }
+    btnHost.innerHTML = toggleHtml;
+  }
+  if (viewerShowGasket && _exExport) {
+    const d = _exExport.data;
+    const elRects = (d.elements || []).map(el => {
+      const col = { glass: '#bcd6ee', panel: '#c9c9c9', louver: '#bfe6c8', door: '#f2c48a' }[el.t0] || '#ddd';
+      return `<rect x="${el.x}" y="${el.y}" width="${el.w}" height="${el.h}" fill="${col}" fill-opacity="0.55" stroke="none"><title>${escHtml(el.t0)}</title></rect>`;
+    }).join('');
+    box.innerHTML = `<svg viewBox="${d.viewBox}" style="width:100%;max-height:520px;display:block;background:#0b0e12;">${elRects}${d.base}</svg>`;
+    box.onmouseover = null; box.onmousemove = null; box.onmouseout = null;
+    legend.innerHTML = `
+      <div style="display:flex;flex-wrap:wrap;gap:14px;font-size:12px;">
+        <span><span style="display:inline-block;width:12px;height:12px;background:#bcd6ee;margin-right:5px;"></span>Glass cell</span>
+        <span><span style="display:inline-block;width:12px;height:12px;background:#c9c9c9;margin-right:5px;"></span>IMP-1/panel cell</span>
+        <span><span style="display:inline-block;width:12px;height:12px;background:#bfe6c8;margin-right:5px;"></span>Louver (no infill gasket)</span>
+        <span><span style="display:inline-block;width:12px;height:12px;background:#f2c48a;margin-right:5px;"></span>Door (no infill gasket)</span>
+        <span><span style="display:inline-block;width:16px;height:0;border-top:2px dashed #2dd4bf;margin-right:5px;vertical-align:middle;"></span>E2-0127 glass gasket (2 loops/cell = interior+exterior)</span>
+        <span><span style="display:inline-block;width:16px;height:0;border-top:2px dashed #f97316;margin-right:5px;vertical-align:middle;"></span>E2-0120 IMP-1 infill gasket (2 loops/cell)</span>
+        <span><span style="display:inline-block;width:16px;height:0;border-top:2px solid #eab308;margin-right:5px;vertical-align:middle;"></span>E2-0120 storefront perimeter (1 loop/independent zone)</span>
+      </div>
+      <div style="margin-top:6px;font-size:11px;color:#999;">
+        Glass ${_exExport.gaskets ? formatNumber(_exExport.gaskets.glass) : 0}LF · IMP-1 infill ${_exExport.gaskets ? formatNumber(_exExport.gaskets.imp1) : 0}LF · Perimeter ${_exExport.gaskets ? formatNumber(_exExport.gaskets.perimeter) : 0}LF
+      </div>`;
+    if (editBox) editBox.innerHTML = '';
+    return;
+  }
+
   const srcs = cuts.filter(c => c.src);
   if (srcs.length) {
     const minX = Math.min(...srcs.map(c => c.src.x));
@@ -487,11 +796,36 @@ function renderViewer(openingId) {
   const manual = cuts.map((c, i) => ({ c, i })).filter(x => !x.c.src);
   let html = '';
   const _ovm = state.roleEdits && state.roleEdits[o.mark];   // legacy role-only overrides
-  const _sev = state.elevEdits && state.elevEdits[o.mark] && (state.elevEdits[o.mark].cuts || []).length;   // #persist: full saved edit-set (synced)
+  const _elevRec = state.elevEdits && state.elevEdits[o.mark];
+  const _sev = _elevRec && (_elevRec.cuts || []).length;   // #persist: full saved edit-set (synced)
   if (_sev || (_ovm && Object.keys(_ovm).length)) {
     const _n = _sev || Object.keys(_ovm).length;
     const _label = _sev ? `Saved manual edits on ${escHtml(o.mark)}: ${_n} pieces · synced` : `Manual role overrides on ${escHtml(o.mark)}: ${_n} remembered`;
     html += `<div style="margin:6px 0;font-size:11px;color:#999;">${_label} · <button class="tk-btn tk-btn--ghost tk-btn--sm" id="vc-clear-ov" title="Forget saved edits for this mark (next import reverts to pure auto-detection)">× clear</button></div>`;
+  }
+  // #history (2026-07-19, Leo — SF01 data loss): show the last N saved versions for this mark
+  // with a one-click Restore, so an overwrite (auto-reclassification, a bad manual edit, etc.)
+  // is always recoverable from inside the app — there is no external backup for this data.
+  const _hist = (_elevRec && Array.isArray(_elevRec.history)) ? _elevRec.history : [];
+  if (_hist.length) {
+    const fmtWhen = t => { try { return new Date(t).toLocaleString(); } catch (_) { return ''; } };
+    html += `<div style="margin:6px 0;font-size:11px;color:#999;">
+      <details><summary style="cursor:pointer;">🕐 Version history (${_hist.length})</summary>
+      <div style="margin-top:4px;display:flex;flex-direction:column;gap:4px;">
+        ${_hist.map((h, i) => `<div style="display:flex;align-items:center;gap:8px;">
+          <span>${fmtWhen(h.updatedAt)} · ${(h.cuts || []).length} pieces</span>
+          <button class="tk-btn tk-btn--ghost tk-btn--sm" data-restore-hist="${i}" title="Restore this version (today's version is saved to history first)">↺ Restore</button>
+        </div>`).join('')}
+      </div></details></div>`;
+  }
+  // #fix (2026-07-19): visible warning when restoring a saved snapshot caused the automatic
+  // classifier to change a piece that was never explicitly pinned — surfaces drift instead of
+  // letting it silently overwrite the saved version on the next edit (the SF01 failure mode).
+  if (o._reclassifiedDrift && o._reclassifiedDrift.length) {
+    html += `<div style="margin:6px 0;padding:6px 10px;border:1px solid #d9822b;border-radius:6px;background:rgba(217,130,43,.12);font-size:11px;">
+      ⚠ ${o._reclassifiedDrift.length} piece(s) changed from your saved version when reclassified:
+      ${o._reclassifiedDrift.map(d => `${escHtml(d.from)} → ${escHtml(d.to)}`).join(', ')}.
+      Use Version history above to restore the previous version if this wasn't intended.</div>`;
   }
   if (manual.length) {
     html += `<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;font-size:12px;">`
@@ -543,6 +877,11 @@ function refreshAfterCutEdit() {
 
 document.addEventListener('click', e => {
   if (!e.target || !e.target.closest) return;
+  if (e.target.closest('#vc-toggle-gasket') && viewerOpeningId != null) {   // #gasket-viz: framing ↔ gasket diagram toggle
+    viewerShowGasket = !viewerShowGasket;
+    renderViewer(viewerOpeningId);
+    return;
+  }
   if (e.target.closest('#viewer-close')) {
     document.getElementById('viewer-section').style.display = 'none';
     viewerEditIdx = null;
@@ -552,6 +891,15 @@ document.addEventListener('click', e => {
     const o = state.openings.find(x => x.id === viewerOpeningId);
     if (o) { clearElevEdits(o.mark); renderViewer(viewerOpeningId); }
     return;
+  }
+  { // #history: restore a prior version for the mark currently open in the viewer
+    const restoreBtn = e.target.closest('[data-restore-hist]');
+    if (restoreBtn && viewerOpeningId != null) {
+      const o = state.openings.find(x => x.id === viewerOpeningId);
+      const idx = +restoreBtn.getAttribute('data-restore-hist');
+      if (o && restoreElevEditsVersion(o.mark, idx)) { renderReport(); renderMeta(); renderOpenings(); renderViewer(viewerOpeningId); }
+      return;
+    }
   }
   if (e.target.closest('#vc-split') && viewerOpeningId != null && viewerEditIdx != null) {   // #2: split at clicked point
     const o = state.openings.find(x => x.id === viewerOpeningId); const c = o && o.cuts && o.cuts[viewerEditIdx];
@@ -623,6 +971,12 @@ document.addEventListener('change', e => {
       state.roleEdits = state.roleEdits || {};
       (state.roleEdits[o.mark] = state.roleEdits[o.mark] || {})[srcKey(c.src)] = c.position;
     }
+    // #LayerB: also learn a general signature→role rule from this correction, so future
+    // imports (ANY mark, this system) with the same geometric signature get it automatically.
+    if (c.src && o.system) {
+      const sig = computeRoleSignature(c, Object.assign({ system: o.system }, o._bands || {}));
+      if (sig) persistRoleRule(o.system, sig, c.position);
+    }
   }
   else if (e.target.id === 'vc-len') c.length = parseFloat(e.target.value) || 0;
   else if (e.target.id === 'vc-cnt') c.count = Math.max(1, parseInt(e.target.value) || 1);
@@ -688,14 +1042,22 @@ function computeAccessories() {
     }
     return { acc: a, qty, basis };
   });
-  // Perimeter-based gaskets computed at DXF import (state.openings[].gasketLF). Read-only rows in the table.
-  const gsum = {};
-  for (const o of state.openings) { const gk = o.gasketLF; if (!gk) continue; const q = o.qty || 1; for (const k in gk) gsum[k] = (gsum[k] || 0) + (+gk[k] || 0) * q; }
-  const BOX = { 'E2-0120': 500, 'E2-0127': 250 };
-  const GDESC = { 'E2-0120': 'Gasket — IMP panel ×2 + opening perimeter ×1', 'E2-0127': 'Gasket — glass ×2 perimeter' };
+  // Perimeter-based gaskets computed at DXF import (state.openings[].gasketLF). Read-only rows
+  // in the table. #fix (2026-07-18, Leo §一/§七): infill gasket (glass/IMP-1) and storefront
+  // perimeter gasket are TWO INDEPENDENT takeoffs — kept as separate semantic keys
+  // (imp1/glass/perimeter) all the way from buildElevExport so they never get summed together,
+  // even though `imp1` and `perimeter` happen to use the same physical part number (E2-0120).
+  const gsum = { imp1: 0, glass: 0, perimeter: 0 };
+  for (const o of state.openings) { const gk = o.gasketLF; if (!gk) continue; const q = o.qty || 1; for (const k in gsum) gsum[k] += (+gk[k] || 0) * q; }
+  const GASKET_DEFS = {
+    imp1:      { partNumber: 'E2-0120', description: 'Gasket — IMP-1 infill ×2 (interior + exterior)', box: 500 },
+    glass:     { partNumber: 'E2-0127', description: 'Gasket — glass infill ×2 (interior + exterior)', box: 250 },
+    perimeter: { partNumber: 'E2-0120', description: 'Gasket — storefront perimeter ×1 (per independent zone)', box: 500 },
+  };
   const gaskRows = Object.keys(gsum).filter(k => gsum[k] > 0.05).map(k => {
-    const lf = Math.round(gsum[k] * 10) / 10, box = BOX[k], boxes = box ? Math.ceil(lf / box) : 0;
-    return { acc: { _computed: true, partNumber: k, description: GDESC[k] || 'Gasket', rule: 'perimeter', positions: [], param: '', min: 0, unit: 'LF', system: '750XT' }, qty: lf, basis: box ? (boxes + ' box' + (boxes > 1 ? 'es' : '') + ' @ ' + box + "'/box") : '' };
+    const def = GASKET_DEFS[k];
+    const lf = Math.round(gsum[k] * 10) / 10, boxes = def.box ? Math.ceil(lf / def.box) : 0;
+    return { acc: { _computed: true, partNumber: def.partNumber, description: def.description, rule: 'perimeter', positions: [], param: '', min: 0, unit: 'LF', system: '750XT' }, qty: lf, basis: def.box ? (boxes + ' box' + (boxes > 1 ? 'es' : '') + ' @ ' + def.box + "'/box") : '' };
   });
   return ruleRows.concat(gaskRows);
 }
@@ -1352,10 +1714,11 @@ function flash(id, msg, isErr) {
 //    Mark: SF-03   System: IR501T   72" x 96"   Q: 4
 //  Extracts: mark, system, width, height, qty
 // ============================================================
-function parseDxfText(text) {
-  const dxfOpenings = parseRawDxfOpenings(text);
+function parseDxfText(text, opts) {
+  const dxfOpenings = parseRawDxfOpenings(text, opts);
   if (dxfOpenings) return dxfOpenings;
 
+  const forcedSystem = opts && opts.forcedSystem;
   const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
   const out = [];
   const errors = [];
@@ -1364,10 +1727,12 @@ function parseDxfText(text) {
     // Skip header-ish lines
     if (/^(mark|tag|opening|system|qty|width|height)\b/i.test(raw) && /\b(mark|tag|opening)\b/i.test(raw) && /\b(width|height|qty|system)\b/i.test(raw)) continue;
 
-    // Detect system
-    let system = null;
-    if (/\bIR\s*501\s*T\b/i.test(raw)) system = 'IR501T';
-    else if (/\b450\b/i.test(raw) || /\b451\s*T\b/i.test(raw)) system = '450';
+    // Detect system (an explicit forcedSystem wins — same #S4 rule as the geometry parser)
+    let system = forcedSystem || null;
+    if (!system) {
+      if (/\bIR\s*501\s*T\b/i.test(raw)) system = 'IR501T';
+      else if (/\b450\b/i.test(raw) || /\b451\s*T\b/i.test(raw)) system = '450';
+    }
 
     // Width × height pattern: "72x96" "72 x 96" "72\" x 96\"" "72.5 × 96"
     let width = null, height = null;
@@ -1431,7 +1796,7 @@ function parseDxfText(text) {
 // ============================================================
 let ELEV_EXPORTS = new Map();   // T4: accumulate across imports, keyed by elevGeo doc key (re-parse of same mark overwrites). Session-only (payload not persisted across reload).
 
-function buildElevExport(mark, c, pool, louverBand, doorRegions, structuralPolys, panelStrips, byOthersZones) {
+function buildElevExport(mark, c, pool, louverBand, doorRegions, structuralPolys, panelStrips, byOthersZones, cuts) {
   const bb = c.bbox;
   // 只有"扁条"structural(h≤12,IMP 板带)才出 panel 元素——整面大小的 structural
   // 矩形(scope/backer 框)不是板,导出会盖住整个立面(SF11/12 巨型元素 bug)。
@@ -1454,7 +1819,15 @@ function buildElevExport(mark, c, pool, louverBand, doorRegions, structuralPolys
   const els = []; let n = 0;
   const louverBays = new Set();   // #louver-fix: bays that already got a louver cell from the grid
   const G = { glass: 0, panel: 0 };   // gasket: sum of element perimeters (inches), by type
-  const add = (x1, y1, x2, y2, t0) => { if (t0 === 'glass' || t0 === 'panel') G[t0] += 2 * ((x2 - x1) + (y2 - y1)); els.push({ id: mark + '-' + (++n), x: X(x1), y: Y(y2), w: W(x2 - x1), h: W(y2 - y1), t0 }); };
+  // #gasket-viz (2026-07-19, Leo: "gasket takeoff is still not accurate... draw gasket lines so
+  // I can know how you do the takeoff"): every glass/panel cell that contributes to G.glass/
+  // G.panel is recorded here (DXF-space rect) so the two loops actually counted for it
+  // (interior+exterior) can be drawn on the elevation, not just summed into a number.
+  const gasketCells = [];
+  const add = (x1, y1, x2, y2, t0) => {
+    if (t0 === 'glass' || t0 === 'panel') { G[t0] += 2 * ((x2 - x1) + (y2 - y1)); gasketCells.push({ x1, y1, x2, y2, t0 }); }
+    els.push({ id: mark + '-' + (++n), x: X(x1), y: Y(y2), w: W(x2 - x1), h: W(y2 - y1), t0 });
+  };
   const H = pool.filter(p => p.width > p.height && p.height >= 1);
   const V = pool.filter(p => p.height > p.width && p.width >= 1);
   const vxs = [...new Set(V.map(v => Math.round(v.centerX)))].sort((a, b) => a - b);
@@ -1485,11 +1858,74 @@ function buildElevExport(mark, c, pool, louverBand, doorRegions, structuralPolys
   // never forms a grid cell → emit an explicit louver element per bay across the band (bays already covered above are skipped).
   if (louverBand) { for (let i = 0; i + 1 < vxs.length; i++) { const xL = vxs[i], xR = vxs[i + 1], cx = (xL + xR) / 2; if (cx < louverBand.minX - 10 || cx > louverBand.maxX + 10) continue; if (louverBays.has(i)) continue; if (inDoor(xL, xR, louverBand.minY, louverBand.maxY)) continue; add(xL, louverBand.minY, xR, louverBand.maxY, 'louver'); } }
   for (const d of doorRegions) add(d.minX, bb.minY, d.maxX, d.headY, 'door');
-  for (const p of boards) add(p.minX, p.minY, p.maxX, p.maxY, 'panel');
-  // Gaskets (perimeter-based): glass → 2 loops of E2-0127; IMP panel → 2 loops of E2-0120; opening outline → 1 loop of E2-0120.
-  // Louver/by-others get none. Door openings use the outer perimeter (door jambs, transom not counted).
-  const openingPerim = 2 * (bb.width + bb.height);
-  const gaskets = { 'E2-0127': +((2 * G.glass) / 12).toFixed(2), 'E2-0120': +((2 * G.panel + openingPerim) / 12).toFixed(2) };
+  // #fix (2026-07-18, Leo §八): IMP-1 must be confirmed by HATCH signature ONLY (§二) — `boards`
+  // is a pure geometric heuristic (flat structural rectangle, no hatch check) and is NOT a
+  // confirmed IMP-1 signal. If a board happens to sit on a confirmed IMP-1 panelStrip, that
+  // physical panel's perimeter was already counted once by the grid-cell loop above (`inStrip`)
+  // — adding it again here would double-count the same panel. If it does NOT overlap a
+  // confirmed panelStrip, there is no hatch confirmation at all, so it must not be assumed to
+  // be IMP-1 either. Either way: still emit the visual element (elevation-view reference
+  // rectangle, unchanged from before) but never let `boards` contribute to the gasket sum —
+  // pushed directly instead of through `add()`, which is what accumulates G.panel/G.glass.
+  for (const p of boards) els.push({ id: mark + '-' + (++n), x: X(p.minX), y: Y(p.maxY), w: W(p.maxX - p.minX), h: W(p.maxY - p.minY), t0: 'panel' });
+  // Gaskets (per-infill-cell, confirmed 2026-07-16/17): glass → 2 loops (interior+exterior)
+  // of E2-0127; IMP-1 panel → 2 loops of E2-0120. #S3 bug fix: G.glass/G.panel already ARE the
+  // qty-2 (interior+exterior) sum — `add()` does `2*perimeter` per cell — so these must NOT be
+  // multiplied by 2 again (the old `2*G.glass`/`2*G.panel` silently doubled every cell a second
+  // time, inflating E2-0127 ~4x actual).
+  // #fix (2026-07-18, Leo §一/§五/§七): storefront perimeter gasket and infill gasket are TWO
+  // INDEPENDENT takeoffs — must not be summed into one number (the old code added openingPerim
+  // straight into the E2-0120 infill total). Perimeter is also computed PER INDEPENDENT ZONE,
+  // not the whole cluster bbox: real DXFs (confirmed against south.dxf SF04.1 — see
+  // PROPAGATION-DESIGN.md §12) show a louver band is its own fully-framed sub-opening (own
+  // head/sill/jambs, distinct Y-range from the main glass/IMP-1 zone, separated by a structural
+  // gap) even though it shares one mark/bbox with the main zone — each such zone needs its own
+  // E2-0120 perimeter gasket (Louver gets a perimeter gasket despite having NO infill gasket).
+  // Main-zone extent is derived from the actual classified Head/Sill member Y-positions (not the
+  // (X)-suffixed louver-zone variants), falling back to the full bbox when no Head/Sill cuts
+  // exist (e.g. non-750XT, or a mark with no louver split at all — matches the old behavior).
+  const _cuts = cuts || [];
+  const headYs = _cuts.filter(cc => cc.position === 'Head' && cc.src).map(cc => cc.src.y + cc.src.h);
+  const sillYs = _cuts.filter(cc => cc.position === 'Sill' && cc.src).map(cc => cc.src.y);
+  const mainTop = headYs.length ? Math.max(...headYs) : bb.maxY;
+  const mainBot = sillYs.length ? Math.min(...sillYs) : bb.minY;
+  const mainH = mainTop > mainBot ? (mainTop - mainBot) : bb.height;
+  const mainPerim = 2 * (bb.width + mainH);
+  let perimTotal = mainPerim;
+  if (louverBand) perimTotal += 2 * ((louverBand.maxX - louverBand.minX) + (louverBand.maxY - louverBand.minY));
+  const gaskets = {
+    imp1: +(G.panel / 12).toFixed(2),          // E2-0120 infill (IMP-1 panels), ×2 already baked into G.panel by add()
+    glass: +(G.glass / 12).toFixed(2),         // E2-0127 infill (glass), ×2 already baked into G.glass by add()
+    perimeter: +(perimTotal / 12).toFixed(2),  // E2-0120 storefront perimeter(s), ×1 per independent zone — separate takeoff from infill
+  };
+  // #gasket-viz (2026-07-19, Leo): draw BOTH gasket types directly on the elevation so the
+  // takeoff can be visually audited instead of trusted as a black-box number.
+  //  - Infill gasket (E2-0127 glass / E2-0120 IMP-1): TWO dashed loops per counted cell —
+  //    an inner ring and an outer ring, standing in for "interior + exterior" (×2) — inset from
+  //    the cell edges so they read as distinct lines rather than overlapping the framing rects
+  //    already drawn above. Teal = glass (E2-0127), orange = IMP-1 (E2-0120 infill).
+  //  - Perimeter gasket (E2-0120, ×1 per independent zone): a single bold gold outline around
+  //    each zone's own frame (main zone: full width × Head-to-Sill height; louver zone, if any:
+  //    its own band extents) — these are the two "independent storefronts" from §12/§13.
+  // Inset amounts are visual only (chosen to sit clearly inside a typical cell/frame without
+  // overlapping); they do not affect the LF numbers, which are computed from the raw cell/zone
+  // rects above, unchanged.
+  let gasketViz = '';
+  const inset = (x1, y1, x2, y2, d) => ({ x1: x1 + d, y1: y1 + d, x2: x2 - d, y2: y2 - d });
+  const rectPath = (r, color, dash) => {
+    if (r.x2 - r.x1 <= 0 || r.y2 - r.y1 <= 0) return '';
+    return `<rect x="${X(r.x1)}" y="${Y(r.y2)}" width="${W(r.x2 - r.x1)}" height="${W(r.y2 - r.y1)}" fill="none" stroke="${color}" stroke-width="0.5" ${dash ? `stroke-dasharray="${dash}"` : ''}/>`;
+  };
+  gasketViz += '<g>';
+  for (const cell of gasketCells) {
+    const color = cell.t0 === 'glass' ? '#2dd4bf' : '#f97316';   // teal E2-0127, orange E2-0120 infill
+    gasketViz += rectPath(inset(cell.x1, cell.y1, cell.x2, cell.y2, 0.6), color, '2,1');   // exterior loop
+    gasketViz += rectPath(inset(cell.x1, cell.y1, cell.x2, cell.y2, 2.2), color, '2,1');   // interior loop
+  }
+  gasketViz += rectPath({ x1: bb.minX, y1: mainBot, x2: bb.maxX, y2: mainTop }, '#eab308', null).replace('stroke-width="0.5"', 'stroke-width="1.2"');
+  if (louverBand) gasketViz += rectPath(louverBand, '#eab308', null).replace('stroke-width="0.5"', 'stroke-width="1.2"');
+  gasketViz += '</g>';
+  base = base.replace('</g>', '</g>' + gasketViz);
   return { key: mark, data: { viewBox: `0 0 ${+(bb.width * s).toFixed(1)} 400`, name: mark, base, elements: els }, gaskets };
 }
 
@@ -1501,9 +1937,15 @@ async function exportElevationsToTracker() {
   try {
     const fb = window.__fb;
     say('Pushing…');
+    // #M2-v2: merge ONLY the `.takeoff` subfield (system/cuts/gaskets) — the geometry fields
+    // (viewBox/base/elements) are the tracker's own dxf-elevations.js import's responsibility
+    // now; a plain merge of a doc containing just `{takeoff:{...}}` leaves sibling top-level
+    // fields (viewBox/base/elements) untouched. If a mark has no takeoff data (shouldn't
+    // happen — computed alongside every opening) skip it rather than writing an empty doc.
     for (const e of ELEV_EXPORTS.values()) {
+      if (!e.takeoff) continue;
       await fb.setDoc(fb.doc(fb.elevDb || fb.db, 'elevGeo', String(e.key)),
-        Object.assign({}, e.data, { updatedAt: fb.serverTimestamp() }), { merge: true });
+        { takeoff: Object.assign({}, e.takeoff, { updatedAt: fb.serverTimestamp() }) }, { merge: true });
     }
     const marks = [...ELEV_EXPORTS.keys()].join(', ');
     if (st) st.title = marks;
@@ -1514,8 +1956,14 @@ async function exportElevationsToTracker() {
   }
 }
 
-function parseRawDxfOpenings(text) {
+function parseRawDxfOpenings(text, opts) {
   if (!/\bSECTION\b/i.test(text) || !/\bENTITIES\b/i.test(text)) return null;
+  // #S4: a user-confirmed system (opts.forcedSystem) must win over the per-mark guess —
+  // otherwise unrecognized mark patterns (e.g. "EL-01") fall through dxfSystemForMark() to
+  // SYSTEMS_LIST()[0] and get classified/whitelisted against the WRONG system for the whole
+  // parse (only `o.system` got corrected afterward in appendParsedOpenings, too late to affect
+  // classification). See memory.md "S4" for the full diagnosis.
+  const forcedSystem = opts && opts.forcedSystem;
   const pairs = dxfPairs(text);
   const entities = dxfCollectEntities(pairs, 'ENTITIES');
   const blocks = dxfCollectBlocks(pairs);
@@ -1562,6 +2010,22 @@ function parseRawDxfOpenings(text) {
     }
     if (!xs.length) continue;
     hatchBoxes.push({ layer: lay, minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys) });
+  }
+  // #S3 (confirmed by Leo, 2026-07-16/17): IMP-1 metal panel is identified by a HATCH SHADE,
+  // not a layer — solid-fill, AutoCAD color index 8 (gray), drawn on layer '0'. Verified
+  // against the real south/north/east/west.dxf (26/6/8/2 matching entities respectively;
+  // 45TU.dxf has zero HATCH entities at all — IMP-1 is 750XT-only, per Leo). This is a
+  // DIFFERENT, unrelated signal from the `hatchBoxes` collection above (AF_HATCH/AF_GENERAL
+  // layers) — that was the pre-this-session guess and stays only for `byOthersZones` (large
+  // by-others opening blocks), not panel detection. Real per-entity boundary-path parsing
+  // (`dxfHatchBoundaryBBox`) is required here — the flat x/y scan used for `hatchBoxes` above
+  // produces garbage on real HATCH entities (see that function's header comment).
+  const imp1HatchBoxes = [];
+  for (const e of allEntities) {
+    if (!/^HATCH$/i.test(e.type)) continue;
+    if (dxfValue(e, 8) !== '0' || dxfValue(e, 62) !== '8' || dxfValue(e, 70) !== '1') continue;
+    const bb = dxfHatchBoundaryBBox(e);
+    if (bb) imp1HatchBoxes.push(bb);
   }
   // Collect ALL alum + door subframe polylines (no outline dependency)
   const profiles = allEntities
@@ -1632,7 +2096,7 @@ function parseRawDxfOpenings(text) {
     }
     if (best) used.add(best.id);
     const mark = best ? best.display : `EL-${String(openings.length+1).padStart(2,'0')}`;
-    const system = dxfSystemForMark(mark);
+    const system = forcedSystem || dxfSystemForMark(mark);
     // 几何识别(不分图层): 凡"真实框料"(细长矩形, min(w,h)>=1 且 max(w,h)>=10)都进分类池;
     // 薄 flashing(h<1 且宽)走 Subsill。门按几何判("底部无 sill 且跨内有 transom bar = 门")。
     // Louver: the blades sit on AF-PANEL (already outside the pool) — that IS the louver's own
@@ -1659,20 +2123,12 @@ function parseRawDxfOpenings(text) {
     const doorRegions = doorRegionsAll.filter(d => {
       const cx = (d.minX + d.maxX) / 2; return cx >= c.bbox.minX - 3 && cx <= c.bbox.maxX + 3;
     });
-    // 本立面范围内的金属板带(hatch 扁条 + structural 板 poly)与 by-others 大块区。
-    // louver 带范围内的条不算板带(维持 louver 的 (X) 逻辑)。
-    const stripHatches = hatchBoxes.filter(hb => (hb.maxY - hb.minY) <= 12 && (hb.maxX - hb.minX) >= 20 &&
-      hb.minX < c.bbox.maxX && hb.maxX > c.bbox.minX && hb.minY > c.bbox.minY - 2 && hb.maxY < c.bbox.maxY + 2);
-    const boardStrips = structuralPolys.filter(p => p.width >= p.height && p.height <= 12 && p.width >= 20 &&
-      p.centerX >= c.bbox.minX - 2 && p.centerX <= c.bbox.maxX + 2 && p.centerY >= c.bbox.minY - 2 && p.centerY <= c.bbox.maxY + 2)
-      .map(p => ({ layer: p.layer, minX: p.minX, maxX: p.maxX, minY: p.minY, maxY: p.maxY }));
-    // 板带必须在主 sill(竖件底端众数)之上——sill 以下的地下条(by-others 区)不是 IMP 带
-    const vBotsAll = alumPool.filter(p => p.height > p.width && p.width >= 1).map(p => Math.round(p.minY * 10) / 10);
-    const floorCnt = new Map(); for (const v of vBotsAll) floorCnt.set(v, (floorCnt.get(v) || 0) + 1);
-    const clusterFloor = vBotsAll.length ? [...floorCnt.entries()].sort((a, b) => b[1] - a[1])[0][0] : c.bbox.minY;
-    const panelStrips = stripHatches.concat(boardStrips)
-      .filter(s => s.minY > clusterFloor - 1)
-      .filter(s => !(louverBand && s.maxY > louverBand.minY - 5 && s.minY < louverBand.maxY + 5));
+    // #S3: this elevation's IMP-1 panel strips — from the confirmed hatch signal, 750XT only
+    // (per Leo: 45TU has no IMP-1 at all). Louver-band strips are excluded (keeps the
+    // pre-existing louver (X) logic untouched — the two regions don't overlap in practice).
+    const panelStrips = system === '750XT' ? imp1HatchBoxes.filter(hb =>
+      hb.minX < c.bbox.maxX && hb.maxX > c.bbox.minX && hb.minY > c.bbox.minY - 5 && hb.maxY < c.bbox.maxY + 5 &&
+      !(louverBand && hb.maxY > louverBand.minY - 5 && hb.minY < louverBand.maxY + 5)) : [];
     const byOthersZones = hatchBoxes.filter(hb => (hb.maxY - hb.minY) > 12 && (hb.maxX - hb.minX) > 12 &&
       hb.minX < c.bbox.maxX && hb.maxX > c.bbox.minX && hb.minY < c.bbox.maxY && hb.maxY > c.bbox.minY);
     const cuts = dxfDetectCuts(c.bbox, alumPool, [], { useBlockDoors: hasDoorBlocks, doorRegions, system });
@@ -1718,56 +2174,53 @@ function parseRawDxfOpenings(text) {
         }
       }
     }
-    // 750XT 金属板带(IMP): 带上沿那排横料 = Sill (normal)(青,板上玻璃的窗台),
-    // 带下沿那排 = Head(黄,板下主玻璃区的顶);穿过带的竖梃拆"蓝粉蓝"三段——
-    // 带段转 (X) 系(Vertical→Vertical (X), Jamb→Jamb (X), wide→wide X)。
-    if (system === '750XT' && panelStrips.length) {
-      // 相邻条按 y 重叠合并成"带",逐带处理(不能全部合成一个 bbox——不同高度可能有多条带)
-      const bands = [];
-      for (const s of panelStrips.slice().sort((a, b) => a.minY - b.minY)) {
-        const b = bands.find(bb => s.minY <= bb.maxY + 1 && s.maxY >= bb.minY - 1);
-        if (b) { b.minY = Math.min(b.minY, s.minY); b.maxY = Math.max(b.maxY, s.maxY); b.minX = Math.min(b.minX, s.minX); b.maxX = Math.max(b.maxX, s.maxX); }
-        else bands.push({ minX: s.minX, maxX: s.maxX, minY: s.minY, maxY: s.maxY });
-      }
-      const inX = (b, midX) => midX >= b.minX - 6 && midX <= b.maxX + 6;
-      const next = [];
-      for (const cut of cuts) {
-        const s = cut.src;
-        if (!s) { next.push(cut); continue; }
-        const midX = s.x + s.w / 2;
-        if (s.w > s.h) {
-          const above = bands.some(b => inX(b, midX) && Math.abs(s.y - b.maxY) < 2.6);
-          const below = bands.some(b => inX(b, midX) && Math.abs((s.y + s.h) - b.minY) < 2.6);
-          if (above && cut.position !== 'Horizontal (X)') cut.position = 'Sill (normal)';
-          else if (below && cut.position === 'Horizontal') cut.position = 'Head';
-          next.push(cut); continue;
-        }
-        const xb = (cut.position === 'Vertical' || cut.position === 'Jamb' || cut.position === 'Vertical (wide)')
-          ? bands.find(b => inX(b, midX) && s.y < b.minY - 2 && (s.y + s.h) > b.maxY + 2) : null;
-        if (xb) {
-          const xpos = cut.position === 'Jamb' ? 'Jamb (X)' : (cut.position === 'Vertical (wide)' ? 'Vertical (wide X)' : 'Vertical (X)');
-          const mk = (y0, y1, pos) => ({ position: pos, length: dxfRound(y1 - y0), count: cut.count || 1,
-            src: { x: s.x, y: dxfRound(y0), w: s.w, h: dxfRound(y1 - y0), layer: s.layer } });
-          next.push(mk(s.y, xb.minY, cut.position));
-          next.push(mk(xb.minY, xb.maxY, xpos));
-          next.push(mk(xb.maxY, s.y + s.h, cut.position));
-          continue;
-        }
-        next.push(cut);
-      }
-      cuts.length = 0; cuts.push(...next);
+    // #S3 (confirmed 2026-07-16/17): IMP-1 panel framing logic — ONLY the verticals that fully
+    // span across a panel band get relabeled: the band's own left/right boundary member →
+    // `Jamb (IMP-1)`, an interior mullion crossing through the band → `Vertical (IMP-1)` (wide
+    // verticals → `Vertical (wide IMP-1)`). The head (member above the panel) and the
+    // horizontal below it are explicitly LEFT UNCHANGED — Leo: "do not rename it as an
+    // IMP-1-specific member." (This replaces the old Sill(normal)/Head-swap + (X)-suffix
+    // band-split, which used the wrong AF_HATCH/AF_GENERAL hatch signal — see memory.md "S3".)
+    // Adjacent panel strips with overlapping Y merge into one band (a single physical panel is
+    // often several small hatch entities side by side at the same height). Computed even when
+    // empty so later steps (Horizontal Glass&Glass, Layer B signatures) can rely on it.
+    const imp1Bands = [];
+    for (const s of panelStrips.slice().sort((a, b) => a.minY - b.minY)) {
+      const b = imp1Bands.find(bb => s.minY <= bb.maxY + 1 && s.maxY >= bb.minY - 1);
+      if (b) { b.minY = Math.min(b.minY, s.minY); b.maxY = Math.max(b.maxY, s.maxY); b.minX = Math.min(b.minX, s.minX); b.maxX = Math.max(b.maxX, s.maxX); }
+      else imp1Bands.push({ minX: s.minX, maxX: s.maxX, minY: s.minY, maxY: s.maxY });
     }
-    // #whitelist (#2): constrain roles to those that belong to this system.
-    applyRoleWhitelist(cuts, system);
+    // #fix (2026-07-18, Leo): classification pipeline factored into a function so it can be
+    // re-applied to a RESTORED saved snapshot below, not just a fresh parse — previously a
+    // saved elevEdits snapshot (from before IMP-1/Glass&Glass/Layer B existed, or just from an
+    // earlier manual split) would wholesale overwrite `cuts` AFTER this pipeline ran once,
+    // permanently freezing that mark's roles at save-time and masking every later detection/
+    // learning improvement on every future re-import. Idempotent: the IMP-1 split step only
+    // acts on a WHOLE (unsplit) vertical that fully spans a band, so already-split/relabeled
+    // restored pieces pass through unchanged; only stale unsplit pieces get (re)classified.
+    classifyRoles(cuts, { system, bbox: c.bbox, imp1Bands, louverBand, doorRegions, mark });
     // #persist (#1): fingerprint of THIS parse (geometry only, role-independent).
     const _freshSig = elevGeoSig(cuts);
     // If a full saved edit-set exists for this mark and the DXF geometry is unchanged,
-    // restore it wholesale (splits/merges/role/length edits all survive). Otherwise fall
+    // restore it wholesale (splits/merges/role/length edits all survive), THEN re-run the same
+    // classification pipeline on the restored cuts so role labels stay live. Otherwise fall
     // back to the lighter remembered role overrides (legacy roleEdits).
     const _saved = state.elevEdits && state.elevEdits[mark];
+    let _reclassifiedDrift = null;   // #fix (2026-07-19): surfaced to the viewer — see renderViewer
     if (_saved && _saved.geoSig === _freshSig && Array.isArray(_saved.cuts) && _saved.cuts.length) {
       cuts.length = 0;
       for (const sc of _saved.cuts) cuts.push({ position: sc.position, length: sc.length, count: sc.count || 1, src: sc.src ? { ...sc.src } : null });
+      const _beforeReclass = cuts.map(cc => cc.position);
+      classifyRoles(cuts, { system, bbox: c.bbox, imp1Bands, louverBand, doorRegions, mark });
+      // #fix (2026-07-19, Leo — SF01 data loss): the automatic reclassification above can still
+      // change a piece that was never explicitly pinned via the dropdown (e.g. a hand-tuned split
+      // whose role happened to match old logic but not the new geometry rule). Rather than let
+      // that drift silently through a second save, record it so the viewer can show "N pieces
+      // changed from your saved version" — a visible warning instead of a silent overwrite, which
+      // is what let SF01 slip through uncaught.
+      const drift = [];
+      cuts.forEach((cc, i) => { if (_beforeReclass[i] != null && cc.position !== _beforeReclass[i]) drift.push({ src: cc.src, from: _beforeReclass[i], to: cc.position }); });
+      if (drift.length) { _reclassifiedDrift = drift; console.warn('[classify] ' + drift.length + ' piece(s) in ' + mark + ' changed from the saved version on reclassify:', drift); }
     } else {
       const _ov = state.roleEdits && state.roleEdits[mark];
       if (_ov) for (const cc of cuts) { if (cc.src) { const k = srcKey(cc.src); if (_ov[k] != null) cc.position = _ov[k]; } }
@@ -1781,8 +2234,20 @@ function parseRawDxfOpenings(text) {
       horiz: cuts.filter(c => c.position === 'Horizontal').reduce((a,c) => a + c.count, 0),
       vert: cuts.filter(c => c.position === 'Vertical').reduce((a,c) => a + c.count, 0),
       cuts, geoSig: _freshSig,
+      // #LayerB: geometric context for this opening, kept so a later MANUAL correction (viewer
+      // "Position" dropdown) can compute the same signature used during parsing. Local-only
+      // (not part of the elevGeo/elevEdits schema pushed to the tracker/Firestore).
+      _bands: { bbox: { minX: c.bbox.minX, minY: c.bbox.minY, maxX: c.bbox.maxX, maxY: c.bbox.maxY }, imp1Bands, louverBand, doorRegions },
+      // #fix (2026-07-19): non-null when reclassifying a restored saved snapshot changed a piece
+      // that wasn't pinned via the dropdown — surfaced as a warning banner in the viewer instead
+      // of silently overwriting the saved version. Local-only (not part of the synced schema).
+      _reclassifiedDrift,
     });
-    const _ex = buildElevExport(mark, c, alumPool, louverBand, doorRegions, structuralPolys, panelStrips, byOthersZones);
+    const _ex = buildElevExport(mark, c, alumPool, louverBand, doorRegions, structuralPolys, panelStrips, byOthersZones, cuts);
+    // #M2-v2: geometry (viewBox/base/elements) is now owned by the tracker's own
+    // dxf-elevations.js import; this tool's push (exportElevationsToTracker) writes ONLY
+    // the `.takeoff` subfield below, so it never clobbers the tracker's geometry.
+    _ex.takeoff = { system, cuts: cuts.map(cc => ({ position: cc.position, length: cc.length, count: cc.count || 1 })), gaskets: _ex.gaskets };
     ELEV_EXPORTS.set(_ex.key, _ex);
     if (_ex.gaskets && system === '750XT') openings[openings.length - 1].gasketLF = _ex.gaskets;   // gasket: perimeter model is 750XT-only (45TU etc. use per-role glazing gasket rules)
   }
@@ -2204,6 +2669,80 @@ function dxfValue(entity, code) {
   return values.length ? values[0] : '';
 }
 
+// #S3: real HATCH boundary-path parser (walks codes 91/92/93/72/73/10/20/11/21, per the DXF
+// spec), NOT a flat x(10)/y(20) pair scan. A flat scan is wrong for HATCH: every entity also
+// carries a base/elevation point (10/20/30 = 0,0,0, right after the AcDbHatch subclass marker,
+// BEFORE the boundary data) and, after the boundary paths, pattern-definition/seed-point data
+// that reuses the same 10/20 codes (e.g. gradient seed points under code 98) — a naive scan
+// picks up both and produces garbage boxes that "start at 0,0" (see PROPAGATION-DESIGN.md §3,
+// the original failed attempt). Returns the union bbox of ALL boundary-path loops (a single
+// HATCH entity here is typically many small sub-loops — bolt/reveal cutouts — that together
+// outline one physical panel), or null if unparseable. Only line (72=1) and arc/ellipse
+// (72=2/3, approximated by their circumscribing box) edges are handled — spline (72=4)
+// boundaries aren't expected in these architectural panel hatches and abort the walk safely
+// (returns whatever was accumulated so far, never throws).
+function dxfHatchBoundaryBBox(entity) {
+  const p = entity.pairs;
+  const i91 = p.findIndex(([c]) => c === 91); // number of boundary paths — marks the start of boundary data
+  if (i91 === -1) return null;
+  let i = i91 + 1;
+  let nPaths = parseInt(p[i91][1], 10);
+  if (!Number.isFinite(nPaths) || nPaths <= 0) return null;
+  const xs = [], ys = [];
+  const next = () => (i < p.length ? p[i] : null);
+  for (let pi = 0; pi < nPaths; pi++) {
+    const t92 = next(); if (!t92 || t92[0] !== 92) break; // malformed — stop, keep whatever we have
+    const flag = parseInt(t92[1], 10); i++;
+    const isPoly = (flag & 2) !== 0;
+    if (isPoly) {
+      const tBulge = next(); if (!tBulge || tBulge[0] !== 72) break;
+      const hasBulge = tBulge[1] === '1'; i++;
+      const tClosed = next(); if (!tClosed || tClosed[0] !== 73) break; i++;
+      const tN = next(); if (!tN || tN[0] !== 93) break;
+      const nverts = parseInt(tN[1], 10); i++;
+      let ok = true;
+      for (let v = 0; v < nverts; v++) {
+        const tx = next(); if (!tx || tx[0] !== 10) { ok = false; break; }
+        xs.push(parseFloat(tx[1])); i++;
+        const ty = next(); if (!ty || ty[0] !== 20) { ok = false; break; }
+        ys.push(parseFloat(ty[1])); i++;
+        if (hasBulge && next() && next()[0] === 42) i++; // skip bulge value
+      }
+      if (!ok) break;
+    } else {
+      const tN = next(); if (!tN || tN[0] !== 93) break;
+      const nedges = parseInt(tN[1], 10); i++;
+      let ok = true;
+      for (let ed = 0; ed < nedges; ed++) {
+        const tType = next(); if (!tType || tType[0] !== 72) { ok = false; break; }
+        const etype = parseInt(tType[1], 10); i++;
+        if (etype === 1) { // line: 10/20 start, 11/21 end
+          if (!next() || next()[0] !== 10) { ok = false; break; } xs.push(parseFloat(p[i][1])); i++;
+          if (!next() || next()[0] !== 20) { ok = false; break; } ys.push(parseFloat(p[i][1])); i++;
+          if (!next() || next()[0] !== 11) { ok = false; break; } xs.push(parseFloat(p[i][1])); i++;
+          if (!next() || next()[0] !== 21) { ok = false; break; } ys.push(parseFloat(p[i][1])); i++;
+        } else if (etype === 2 || etype === 3) { // arc/ellipse — approximate via circumscribing box
+          if (!next() || next()[0] !== 10) { ok = false; break; } const cx = parseFloat(p[i][1]); i++;
+          if (!next() || next()[0] !== 20) { ok = false; break; } const cy = parseFloat(p[i][1]); i++;
+          let r = 0;
+          if (etype === 2) { if (next() && next()[0] === 40) { r = parseFloat(p[i][1]); i++; } if (next() && next()[0] === 50) i++; if (next() && next()[0] === 51) i++; if (next() && next()[0] === 73) i++; }
+          else { let mx = 0, my = 0; if (next() && next()[0] === 11) { mx = parseFloat(p[i][1]); i++; } if (next() && next()[0] === 21) { my = parseFloat(p[i][1]); i++; } r = Math.hypot(mx, my); if (next() && next()[0] === 40) i++; if (next() && next()[0] === 50) i++; if (next() && next()[0] === 51) i++; if (next() && next()[0] === 73) i++; }
+          xs.push(cx - r, cx + r); ys.push(cy - r, cy + r);
+        } else { ok = false; break; } // spline or unknown edge type — bail out of this path
+      }
+      if (!ok) break;
+    }
+    // 97 = number of source boundary objects; skip that many 330 handles
+    const t97 = next();
+    if (t97 && t97[0] === 97) {
+      const nsrc = parseInt(t97[1], 10); i++;
+      for (let s = 0; s < nsrc; s++) { if (next() && next()[0] === 330) i++; }
+    }
+  }
+  if (!xs.length) return null;
+  return { minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys) };
+}
+
 function dxfMtextSummary(entity) {
   return {
     text: dxfValue(entity, 1).trim(),
@@ -2318,12 +2857,21 @@ async function setAllOpeningsSystem() {
   save(); renderOpenings(); renderReport(); renderMeta();
 }
 
-function runDxfParse() {
+async function runDxfParse() {
   const ta = document.getElementById('dxf-text');
-  appendParsedOpenings(parseDxfText(ta.value), ta);
+  const text = ta.value;
+  // #S4: ask which system BEFORE parsing, so classification/whitelist run against the
+  // confirmed system instead of a per-mark guess (see memory.md "S4").
+  const sys = await pickSystem({
+    title: 'Import — Select System',
+    msg: `Which system is this batch? (usually one at a time; the whole batch gets it — or keep auto-detect for a mixed schedule).`,
+    includeAuto: true,
+  });
+  if (sys === undefined) return; // cancelled — nothing parsed yet, nothing to undo
+  appendParsedOpenings(parseDxfText(text, { forcedSystem: sys || undefined }), ta, sys);
 }
 
-async function appendParsedOpenings(result, sourceEl = null) {
+async function appendParsedOpenings(result, sourceEl = null, presetSys) {
   const { openings, errors } = result;
   const statusEl = document.getElementById('dxf-status');
   if (!openings.length) {
@@ -2337,8 +2885,10 @@ async function appendParsedOpenings(result, sourceEl = null) {
     statusEl.className = 'tk-dxf__status is-err';
     return;
   }
-  // 导入时追问这批属于哪个 system(一般一次只做一种)。选系统=整批套用;保持自动=用 per-mark 识别;取消=不导入。
-  const sys = await pickSystem({
+  // #S4: callers now ask which system BEFORE parsing and pass their resolved choice as
+  // presetSys, so classification already ran against the confirmed system. Only ask here as a
+  // fallback if a caller didn't pre-ask (keeps this function safe to call directly elsewhere).
+  const sys = presetSys !== undefined ? presetSys : await pickSystem({
     title: 'Import — Select System',
     msg: `Parsed ${openings.length} openings. Which system is this batch? (usually one at a time; the whole batch gets it)`,
     includeAuto: true,
@@ -2348,7 +2898,7 @@ async function appendParsedOpenings(result, sourceEl = null) {
     statusEl.className = 'tk-dxf__status is-err';
     return;
   }
-  if (sys) openings.forEach(o => { o.system = sys; });
+  if (sys) openings.forEach(o => { o.system = sys; }); // belt-and-suspenders relabel; cuts were already classified with forcedSystem above
   if (is1600(sys)) openings.forEach(reclassify1600);
   state.openings.push(...openings);
   renderOpenings(); renderReport(); renderMeta(); save();
@@ -2370,15 +2920,24 @@ async function onDxfFileChange(e) {
   const statusEl = document.getElementById('dxf-status');
   try {
     const text = await file.text();
+    // #S4: ask which system BEFORE parsing (same rule as runDxfParse) so classification runs
+    // against the confirmed system instead of a per-mark guess.
+    const sys = await pickSystem({
+      title: 'Import — Select System',
+      msg: `Which system is ${file.name}? (usually one at a time; the whole batch gets it — or keep auto-detect for a mixed schedule).`,
+      includeAuto: true,
+    });
+    if (sys === undefined) { statusEl.textContent = 'Import cancelled'; statusEl.className = 'tk-dxf__status is-err'; e.target.value = ''; return; }
+    const forcedSystem = sys || undefined;
     // Try real DXF geometry parse first; fall back to text/schedule parser
     let result = null;
     if (text.includes('SECTION') && text.includes('ENTITIES')) {
-      try { result = parseRawDxfOpenings(text); } catch (e) { console.warn('DXF parse failed, falling back to text:', e); }
+      try { result = parseRawDxfOpenings(text, { forcedSystem }); } catch (e) { console.warn('DXF parse failed, falling back to text:', e); }
     }
     if (!result || !result.openings || !result.openings.length) {
-      result = parseDxfText(text);
+      result = parseDxfText(text, { forcedSystem });
     }
-    await appendParsedOpenings(result);
+    await appendParsedOpenings(result, null, sys);
     statusEl.textContent = `${file.name}: ${statusEl.textContent}`;
   } catch (err) {
     statusEl.textContent = `Could not read ${file.name}`;

@@ -149,20 +149,24 @@
       parts: [
         { partNumber: 'BE9-3904', description: 'Head/Sill (Open Back)',      roles: ['Head', 'Sill', 'Head (X)', 'Sill (X)', 'Sill (normal)'] },
         { partNumber: 'E9-3162',  description: 'Flush Filler',               roles: ['Head', 'Sill', 'Head (X)', 'Sill (X)', 'Sill (normal)'] },
-        { partNumber: 'AS-3907',  description: 'Permimeter Pressure Plate',  roles: ['Head (X)', 'Sill (X)', 'Jamb (X)', 'Jamb', 'Door Jamb', 'Sill (normal)'] },
-        { partNumber: 'E9-1206',  description: 'Face Cover',                 roles: ['Head', 'Head (X)', 'Sill (X)', 'Sill (normal)', 'Horizontal', 'Horizontal (X)', 'Jamb', 'Jamb (X)', 'Door Jamb', 'Vertical', 'Vertical (X)'] },
+        { partNumber: 'AS-3907',  description: 'Permimeter Pressure Plate',  roles: ['Head (X)', 'Sill (X)', 'Jamb (X)', 'Jamb', 'Jamb (IMP-1)', 'Door Jamb', 'Sill (normal)'] },
+        { partNumber: 'E9-1206',  description: 'Face Cover',                 roles: ['Head', 'Head (X)', 'Sill (X)', 'Sill (normal)', 'Horizontal', 'Horizontal (Glass&Glass)', 'Horizontal (X)', 'Jamb', 'Jamb (X)', 'Jamb (IMP-1)', 'Door Jamb', 'Vertical', 'Vertical (X)', 'Vertical (IMP-1)'] },
         { partNumber: 'A',        description: 'Pressure Plate',             roles: ['Head', 'Head (X)', 'Horizontal (X)'] },
         { partNumber: 'A',        description: 'Pocket Filler',              roles: ['Sill (X)', 'Jamb (X)', 'Vertical (X)', 'Vertical (wide X)'] }, // Vertical (Lv)/(X)/(wide X): ×2 per mullion(占位, 换真号时按 ×2 处理)
-        { partNumber: 'AS-3906',  description: 'Pressure Plate',             roles: ['Head', 'Horizontal', 'Horizontal (X)', 'Vertical', 'Vertical (X)'] },
-        { partNumber: 'BE9-3910', description: 'Horizontal/Vertical',        roles: ['Horizontal', 'Horizontal (X)', 'Jamb', 'Jamb (X)', 'Door Jamb', 'Vertical', 'Vertical (X)'] },
-        { partNumber: 'E1-3603',  description: 'Setting Block Chair',        roles: ['Horizontal', 'Horizontal (X)', 'Sill', 'Sill (normal)'] },
-        { partNumber: 'E2-0513',  description: 'Setting Block',              roles: ['Horizontal', 'Horizontal (X)', 'Sill', 'Sill (normal)'] },
+        { partNumber: 'AS-3906',  description: 'Pressure Plate',             roles: ['Head', 'Horizontal', 'Horizontal (Glass&Glass)', 'Horizontal (X)', 'Vertical', 'Vertical (X)', 'Vertical (IMP-1)'] },
+        { partNumber: 'BE9-3910', description: 'Horizontal/Vertical',        roles: ['Horizontal', 'Horizontal (Glass&Glass)', 'Horizontal (X)', 'Jamb', 'Jamb (X)', 'Jamb (IMP-1)', 'Door Jamb', 'Vertical', 'Vertical (X)', 'Vertical (IMP-1)'] },
+        { partNumber: 'E1-3603',  description: 'Setting Block Chair',        roles: ['Horizontal', 'Horizontal (Glass&Glass)', 'Horizontal (X)', 'Sill', 'Sill (normal)'] },
+        { partNumber: 'E2-0513',  description: 'Setting Block',              roles: ['Horizontal', 'Horizontal (Glass&Glass)', 'Horizontal (X)', 'Sill', 'Sill (normal)'] },
         { partNumber: 'B',        description: 'Permimeter Pressure Plate',  roles: ['Sill'] },
         { partNumber: 'C',        description: 'Face Cover',                 roles: ['Sill'], continuous: true }, // 连续覆盖 sill 整跑,不被竖梃打断(跑长出料,subsill 同逻辑)
-        { partNumber: 'BY7-9065', description: 'Vertical (Wide)',            roles: ['Vertical (wide)', 'Vertical (wide X)'] },
-        { partNumber: 'AS-7110',  description: 'Pressure Plate (Wide)',      roles: ['Vertical (wide)', 'Vertical (wide X)'] },
-        { partNumber: 'E9-1660',  description: 'Face Cover (Wide)',          roles: ['Vertical (wide)', 'Vertical (wide X)'] },
+        { partNumber: 'BY7-9065', description: 'Vertical (Wide)',            roles: ['Vertical (wide)', 'Vertical (wide X)', 'Vertical (wide IMP-1)'] },
+        { partNumber: 'AS-7110',  description: 'Pressure Plate (Wide)',      roles: ['Vertical (wide)', 'Vertical (wide X)', 'Vertical (wide IMP-1)'] },
+        { partNumber: 'E9-1660',  description: 'Face Cover (Wide)',          roles: ['Vertical (wide)', 'Vertical (wide X)', 'Vertical (wide IMP-1)'] },
       ],
+      // #S3: Jamb (IMP-1)/Vertical (IMP-1)/Vertical (wide IMP-1) reuse the SAME hardware as
+      // their plain (glass-side) counterparts above — same framing extrusion, different infill
+      // behind it. Flagged as an assumption (not from a parts.xlsx line item) — confirm against
+      // the real 750XT parts schedule if IMP-1 locations actually use different/heavier parts.
       accessories: [],   // gaskets are computed per-elevation by perimeter at DXF import (see buildElevExport / computeAccessories), not role-based rules
     },
 
