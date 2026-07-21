@@ -1759,6 +1759,35 @@ function downloadCombinedCuttingDxf() {
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 4000);
 }
+// #cutting-diagram (2026-07-21, Leo: "当前所有 openings 的 parts 加起来,不分 elevation,一个 dxf"):
+// POOLED packing — every opening's pieces for a given part number go into ONE bucket (not per
+// elevation), then FFD-packed together, so the diagram is the project-wide optimized cut list (the
+// same pooling buildReport() uses for the order-list stock counts). One plain diagram, no per-mark
+// sections and no source-mark labels (Leo's choice) — the shop just cuts each part to length.
+// Distinct from downloadCombinedCuttingDxf (which packs each elevation separately, then stacks the
+// per-elevation sections into one file).
+function buildPooledPacking() {
+  const buckets = new Map();
+  for (const o of (state.openings || [])) collectOpeningIntoBuckets(o, buckets, null, null);
+  return [...buckets.values()]
+    .filter(b => b.pieces.length)
+    .map(b => {
+      const stock = b.stockInches || STOCK_INCHES;
+      return { system: b.system, partNumber: b.partNumber, description: b.description, stock, sticks: packFFDLayout(b.pieces, stock) };
+    })
+    .sort((a, b) => a.partNumber.localeCompare(b.partNumber, undefined, { numeric: true }));
+}
+function downloadPooledCuttingDxf() {
+  const groups = buildPooledPacking();
+  if (!groups.length) { alert('No openings with stock cuts to export.'); return; }
+  const dxf = buildCuttingDxf(groups, 'ALL OPENINGS (pooled)');
+  const blob = new Blob([dxf], { type: 'application/dxf' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'all-openings-pooled-cutting.dxf';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
 
 // #cutting-diagram: factored out of buildReport() so a single opening can be
 // packed on its own (per-elevation diagram/DXF export) using the exact same matching rules
@@ -3744,6 +3773,8 @@ function init() {
   if (exportCuttingAllBtn) exportCuttingAllBtn.addEventListener('click', downloadAllCuttingDxf);
   const exportCuttingCombinedBtn = document.getElementById('export-cutting-dxf-combined');
   if (exportCuttingCombinedBtn) exportCuttingCombinedBtn.addEventListener('click', downloadCombinedCuttingDxf);
+  const exportCuttingPooledBtn = document.getElementById('export-cutting-dxf-pooled');
+  if (exportCuttingPooledBtn) exportCuttingPooledBtn.addEventListener('click', downloadPooledCuttingDxf);
   document.getElementById('copy-report').addEventListener('click', copyReport);
   document.getElementById('reset-all').addEventListener('click', resetAll);
 
