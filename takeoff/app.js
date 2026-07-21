@@ -44,9 +44,29 @@ function allowedRolesForSystem(system) {
   _allowedRolesCache.set(system, set);
   return set;
 }
-// Remap any cut whose role isn't in `system`'s allowed set to the nearest role that is.
+// #recognized-roles (#2, 2026-07-20, Opus — HANDOFF-FOR-OPUS Task 2): Leo can curate a per-system
+// list of the roles the classifier is allowed to output — `state.recognizedRoles[system]` (a plain
+// array of role strings, edited from the left-sidebar "Recognized Roles" panel). This is the
+// authoritative gate on top of the SYSTEM_DEFS-derived allowed set:
+//   - If a manual list EXISTS for a system, it (∪ customRoles, so manual "+ Add Role" assignment is
+//     never blocked) is the recognized set. A role Leo removes from it stops being produced by the
+//     whitelist AND is dropped from any stale per-piece pin (see classifyRoles' pin pass) — that
+//     pin drop is what finally stops a retired role from resurfacing on every re-import.
+//   - If NO manual list exists for a system, behaviour is exactly as before (SYSTEM_DEFS set only),
+//     so existing projects are unaffected until Leo opts in by curating a list.
+// Kept separate from customRoles/"+ Add Role" (that only makes a role AVAILABLE for manual
+// assignment; this gates what the AUTO-classifier may emit) — see PROPAGATION-DESIGN.md §17.
+function recognizedRolesForSystem(system) {
+  const manual = (typeof state !== 'undefined' && state.recognizedRoles) ? state.recognizedRoles[system] : null;
+  if (Array.isArray(manual)) return new Set([...manual, ...((state && state.customRoles) || [])]);
+  return allowedRolesForSystem(system);
+}
+function hasManualRecognizedList(system) {
+  return !!(typeof state !== 'undefined' && state.recognizedRoles && Array.isArray(state.recognizedRoles[system]));
+}
+// Remap any cut whose role isn't recognized for `system` to the nearest role that is.
 function applyRoleWhitelist(cuts, system) {
-  const allowed = allowedRolesForSystem(system);
+  const allowed = recognizedRolesForSystem(system);
   if (!allowed.size) return;                 // unknown system → leave as-is
   for (const c of cuts) {
     if (!c || allowed.has(c.position)) continue;
@@ -184,7 +204,79 @@ function renderAll() {
   renderOpenings();
   renderReport();
   renderMeta();
+  renderRecognizedRoles();
+  renderRoleTemplates();
   save();
+}
+
+// ---------- Recognized Roles panel (#2, 2026-07-20 Opus) ----------
+let _rrSystem = null;  // which system the panel is currently showing
+function renderRecognizedRoles() {
+  const sel = document.getElementById('rr-system');
+  const body = document.getElementById('rr-body');
+  if (!sel || !body) return;
+  const systems = SYSTEMS_LIST();
+  if (_rrSystem == null || !systems.includes(_rrSystem)) _rrSystem = systems[0] || null;
+  sel.innerHTML = systems.map(s => `<option value="${escHtml(s)}"${s === _rrSystem ? ' selected' : ''}>${escHtml(s)}</option>`).join('');
+  if (!_rrSystem) { body.innerHTML = '<p class="tk-section__sub">No systems defined yet — add parts first.</p>'; return; }
+  const curated = hasManualRecognizedList(_rrSystem);
+  const roles = curated
+    ? (state.recognizedRoles[_rrSystem] || [])
+    : Array.from(allowedRolesForSystem(_rrSystem));
+  const chips = roles.slice().sort().map(r =>
+    `<span class="tk-chip" data-role="${escHtml(r)}" style="display:inline-flex;align-items:center;gap:6px;margin:3px;padding:4px 8px;border:1px solid var(--af-border,#ccc);border-radius:14px;font-size:12px;">
+       ${escHtml(r)}
+       ${curated ? `<button type="button" class="rr-del" data-role="${escHtml(r)}" title="Retire this role" style="border:none;background:none;cursor:pointer;font-size:14px;line-height:1;color:var(--af-fg-3,#999);">×</button>` : ''}
+     </span>`).join('');
+  body.innerHTML = `
+    <div style="display:flex;flex-wrap:wrap;align-items:center;gap:2px;">${chips || '<span class="tk-section__sub">(no roles)</span>'}</div>
+    <div class="tk-addbar" style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+      ${curated
+        ? `<input id="rr-add" type="text" class="tk-input tk-input--sm" placeholder="Add a role (exact name)" style="min-width:200px;" />
+           <button class="tk-btn tk-btn--dark tk-btn--sm" id="rr-add-btn">Add role</button>
+           <button class="tk-btn tk-btn--ghost tk-btn--sm" id="rr-reset" title="Revert to the full parts-derived set (removes the manual restriction)">Reset to default</button>`
+        : `<span class="tk-section__sub" style="margin:0;">Showing the full parts-derived set for <b>${escHtml(_rrSystem)}</b> (uncurated).</span>
+           <button class="tk-btn tk-btn--dark tk-btn--sm" id="rr-curate" title="Start curating: seeds the list from the current set so you can remove retired roles">Curate this system</button>`}
+    </div>`;
+}
+
+// ---------- Template controls (#template, §16) ----------
+// Row shown inside the Elevation Viewer: save this elevation as a template, and (if any saved
+// template matches this elevation's fill layout) pick + apply one.
+function templateControlsHtml(o) {
+  if (!o || !o._bands) {
+    return `<div style="margin:6px 0;font-size:11px;color:#999;">🧩 Templates need a DXF-parsed elevation (no geometry on a hand-added opening).</div>`;
+  }
+  const seq = openingFillSequence(o);
+  const isManual = Array.isArray(o.fillLayout) && o.fillLayout.length;
+  const matches = templatesMatchingOpening(o);
+  let h = `<div style="margin:6px 0;font-size:12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+    <span style="color:#999;">🧩 Fill layout (top→bottom):</span>
+    <input id="vc-fill-layout" class="tk-cell-input" value="${escAttr(seq)}" spellcheck="false" title="Fill order top→bottom, separated by > — e.g. louver>imp-1>glass>glass. Edit to correct auto-detection; this is what templates match on." style="min-width:240px;font-family:var(--af-font-mono,monospace);" />
+    <button class="tk-btn tk-btn--ghost tk-btn--sm" id="vc-fill-auto" title="Reset to the auto-detected fill layout">↺ Auto</button>
+    <span style="color:${isManual ? '#2a8a4a' : '#999'};">(${isManual ? 'manual' : 'auto'})</span>
+    <button class="tk-btn tk-btn--ghost tk-btn--sm" id="vc-save-template" title="Save this elevation's fill layout + every member's role as a reusable template">💾 Save as Template</button>`;
+  if (matches.length) {
+    h += `<select id="vc-template-pick" class="tk-cell-select">${matches.map(t => `<option value="${escAttr(t.id)}">${escHtml(t.name)}</option>`).join('')}</select>
+      <button class="tk-btn tk-btn--dark tk-btn--sm" id="vc-apply-template" title="Preview, then apply the selected template's roles to this elevation">Apply Template</button>`;
+  } else {
+    h += `<span style="color:#999;">(no saved template matches this layout)</span>`;
+  }
+  return h + `</div>`;
+}
+
+// ---------- Templates management list (#template, §16) ----------
+function renderRoleTemplates() {
+  const host = document.getElementById('tmpl-list');
+  if (!host) return;
+  const tmpls = state.roleTemplates || [];
+  if (!tmpls.length) { host.innerHTML = '<p class="tk-section__sub">No templates yet. Open a correctly-classified elevation in the viewer and click "Save as Template".</p>'; return; }
+  host.innerHTML = tmpls.map(t => `
+    <div style="display:flex;align-items:center;gap:10px;padding:6px 4px;border-bottom:1px solid var(--af-line,#eee);font-size:12px;">
+      <b>${escHtml(t.name)}</b>
+      <span style="color:#999;">${escHtml(t.system)} · ${escHtml(t.fillSequence)} · ${(t.members||[]).length} slots</span>
+      <button class="tk-btn tk-btn--ghost tk-btn--sm tmpl-del" data-tmpl="${escAttr(t.id)}" title="Delete this template" style="margin-left:auto;">Delete</button>
+    </div>`).join('');
 }
 
 // ---------- Parts Database ----------
@@ -460,63 +552,11 @@ if (typeof window !== 'undefined') {
   else window.addEventListener('fb-ready', loadElevEditsFromCloud, { once: true });
 }
 
-// ============================================================
-//  #LayerB (2026-07-17): learned role corrections — PROPAGATION-DESIGN.md §3.
-//  When Leo manually recolors a piece (viewer "Position" dropdown), we capture a GEOMETRIC
-//  signature of that piece (system, orientation, size class, band, what it borders) → the role
-//  he chose, rather than a coordinate — so the correction generalizes to every OTHER opening
-//  with the same signature, not just this one mark (that's what #1's per-mark elevEdits
-//  already does). Stored per system in state.roleRules[system] = [{signature, role,
-//  updatedAt}], synced to Firestore `roleRules/{system}` (one doc per system, same
-//  fetch-all/merge pattern as elevEdits). Applied AFTER Layer A + the #2 whitelist, BEFORE a
-//  mark-specific saved edit-set/roleEdits override (those still win — Layer B is for
-//  OPENINGS THAT HAVE NEVER BEEN MANUALLY CORRECTED, not a way to override an explicit
-//  per-mark edit). One rule per unique signature (a later correction just updates it in
-//  place) — that's what makes "most-specific / most-recent wins" trivial: the signature IS
-//  the specificity, and there's only ever one (freshest) role stored per signature.
-//  NOTE: requires a Firestore rule for the new `roleRules` collection (Console → Firestore →
-//  Rules), same one-time step #1's `elevEdits` needed — reads/writes silently fail until then.
-// ============================================================
-function computeRoleSignature(cut, ctx) {
-  const s = cut && cut.src;
-  if (!s || !ctx) return null; // no geometry (manually-added chip) → nothing to learn from
-  const orientation = s.w > s.h ? 'H' : 'V';
-  const sizeClass = orientation === 'V' ? (s.w >= 3.5 ? 'wide' : 'narrow') : 'narrow';
-  const tol = 3;
-  const bbox = ctx.bbox || {};
-  const atEdge = (v, edge) => edge != null && Math.abs(v - edge) < tol;
-  let band = 'interior';
-  if (/Transom/i.test(cut.position || '') || cut.edgeDoorJamb) band = 'transom';
-  else if (orientation === 'H' && (atEdge(s.y, bbox.minY) || atEdge(s.y + s.h, bbox.maxY))) band = 'perimeter';
-  else if (orientation === 'V' && (atEdge(s.x, bbox.minX) || atEdge(s.x + s.w, bbox.maxX))) band = 'perimeter';
-  const midX = s.x + s.w / 2, midY = s.y + s.h / 2;
-  const inBand = b => midX >= b.minX - 6 && midX <= b.maxX + 6 && midY >= b.minY - 3 && midY <= b.maxY + 3;
-  let borders = 'glass';
-  if ((ctx.imp1Bands || []).some(inBand)) borders = 'imp-1';
-  else if (ctx.louverBand && midX >= ctx.louverBand.minX - 10 && midX <= ctx.louverBand.maxX + 10 &&
-           midY >= ctx.louverBand.minY - 5 && midY <= ctx.louverBand.maxY + 5) borders = 'louver';
-  else if ((ctx.doorRegions || []).some(d => midX >= d.minX - 3 && midX <= d.maxX + 3 && midY <= d.headY)) borders = 'door';
-  return { system: ctx.system, orientation, sizeClass, band, borders };
-}
-function roleSigKey(sig) { return sig ? [sig.system, sig.orientation, sig.sizeClass, sig.band, sig.borders].join('|') : null; }
-function persistRoleRule(system, signature, role) {
-  if (!signature || !system || !role) return;
-  const key = roleSigKey(signature);
-  state.roleRules = state.roleRules || {};
-  const list = state.roleRules[system] = state.roleRules[system] || [];
-  const existing = list.find(r => roleSigKey(r.signature) === key);
-  if (existing) { existing.role = role; existing.updatedAt = Date.now(); }
-  else list.push({ signature, role, updatedAt: Date.now() });
-  save();
-  const fb = window.__fb;
-  if (fb && fb.setDoc) {
-    try {
-      fb.setDoc(fb.doc(fb.elevDb || fb.db, 'roleRules', String(system)),
-        { rules: list, updatedAt: fb.serverTimestamp() }, { merge: true })
-        .catch(err => console.warn('[roleRules] push failed:', err));
-    } catch (err) { console.warn('[roleRules] push failed:', err); }
-  }
-}
+// (#LayerB learned-role propagation removed 2026-07-20 — Leo's call, error rate too high.
+//  computeOpeningZones/zoneShapeOf/computeRoleSignature/roleSigKey/persistRoleRule/
+//  applyLearnedRoleRules/loadRoleRulesFromCloud all deleted; state.roleRules no longer used.
+//  Layer A geometric classification below is unchanged. See PROPAGATION-DESIGN.md §3/§9/§9b
+//  (marked ABANDONED) and the template-based approach in §16.)
 // #fix (2026-07-18): IMP-1 base role ↔ IMP-1-variant role mapping, shared by both classification
 // stages below. Keeping this as the single source of truth means "which family is this
 // member" (Jamb vs Vertical vs Vertical (wide)) is never lost, even after normalizing an
@@ -618,8 +658,6 @@ function classifyRoles(cuts, ctx) {
   }
   // #whitelist (#2): constrain roles to those that belong to this system.
   applyRoleWhitelist(cuts, system);
-  // #LayerB (2026-07-17): apply any of Leo's learned per-signature corrections for this system.
-  applyLearnedRoleRules(cuts, { system, bbox, imp1Bands, louverBand, doorRegions });
   // #fix (2026-07-19, Leo — SF01 data loss): a piece the user has EXPLICITLY assigned a role to
   // via the elevation viewer's Position dropdown (state.roleEdits[mark][srcKey]) must never be
   // silently overridden by the automatic Stage 1/2 IMP-1 geometry reclassification above — that
@@ -628,41 +666,237 @@ function classifyRoles(cuts, ctx) {
   // LAST, after every automatic step, so an explicit per-piece pin always wins. Only covers
   // pieces pinned via the dropdown (state.roleEdits) — see the "changed vs. saved" detection at
   // the elevEdits restore call site for a broader safety net that also catches non-pinned drift.
-  if (mark && typeof state !== 'undefined' && state.roleEdits && state.roleEdits[mark]) {
-    const pins = state.roleEdits[mark];
-    for (const cut of cuts) {
-      if (!cut.src) continue;
-      const pinned = pins[srcKey(cut.src)];
-      if (pinned != null) cut.position = pinned;
+  applyRolePins(cuts, mark, system);
+}
+// #recognized-roles (#2, 2026-07-20, Opus): re-apply the viewer Position-dropdown pins
+// (state.roleEdits[mark]), EXCEPT any pin whose role Leo has since retired from this system's
+// recognized list — those pins are deleted outright so they can never resurrect the retired role
+// on a future re-import (the exact "stale role keeps coming back" symptom from HANDOFF Task 2).
+// Factored out of classifyRoles so the sidebar's reapply pass (applyRecognizedRolesToAll) shares
+// identical logic. When a system has NO manual recognized list, `recognized` is null and this is
+// byte-for-byte the old behaviour — every pin re-applied — so the SF01 pin-protection guarantee is
+// fully preserved for un-curated systems. Dropping a pin only happens after Leo has explicitly
+// retired that role from the list, which is his deliberate instruction, not a silent override.
+function applyRolePins(cuts, mark, system) {
+  if (!(mark && typeof state !== 'undefined' && state.roleEdits && state.roleEdits[mark])) return;
+  const pins = state.roleEdits[mark];
+  const recognized = hasManualRecognizedList(system) ? recognizedRolesForSystem(system) : null;
+  for (const cut of cuts) {
+    if (!cut.src) continue;
+    const k = srcKey(cut.src);
+    const pinned = pins[k];
+    if (pinned == null) continue;
+    if (recognized && !recognized.has(pinned)) { delete pins[k]; continue; }  // retired role → drop stale pin
+    cut.position = pinned;
+  }
+}
+// #recognized-roles (#2): re-run the whitelist gate + pin pass over EVERY existing opening, so a
+// change to a system's recognized list takes effect immediately on the openings already parsed
+// (not only on the next DXF import). Deliberately does NOT re-run the geometric Stage 1/2 split
+// (that's only needed when the DXF geometry itself changes) — it just re-gates roles and drops any
+// now-retired pins. Net effect of removing a role R from system S: any cut still holding R is
+// remapped via ROLE_REMAP if a chain lands in the recognized set (cascade step a); otherwise R
+// stays visible as a one-time flag for manual fix (step c) but is now unpinned, so it will not
+// resurface after the next re-import. (Live geometric re-derivation — cascade step b — is left to
+// the next DXF re-import to avoid re-running the unverified-here split logic on live data.)
+function applyRecognizedRolesToAll() {
+  for (const o of (state.openings || [])) {
+    if (!Array.isArray(o.cuts)) continue;
+    applyRoleWhitelist(o.cuts, o.system);
+    applyRolePins(o.cuts, o.mark, o.system);
+  }
+  save();
+  if (typeof renderAll === 'function') renderAll();
+}
+// Programmatic curation API (also used by the sidebar UI). Pass a role array to set/replace the
+// list for a system, or null to clear it (revert that system to the SYSTEM_DEFS-derived default).
+function setRecognizedRoles(system, roles) {
+  if (!system) return;
+  state.recognizedRoles = state.recognizedRoles || {};
+  if (roles == null) delete state.recognizedRoles[system];
+  else state.recognizedRoles[system] = Array.from(new Set(roles.filter(Boolean)));
+  applyRecognizedRolesToAll();
+}
+if (typeof window !== 'undefined') window.setRecognizedRoles = setRecognizedRoles;
+
+// ============================================================
+//  #template (2026-07-20, Opus — PROPAGATION-DESIGN.md §16): teach-by-example classification.
+//  Leo builds a template from ONE correct reference elevation (its fill stack + the role of every
+//  member), then applies it to future imports of the SAME fill layout. Matching is fill-order ONLY
+//  (top→bottom sequence of louver/imp-1/glass/door), per Leo — no proportion or bay-count checks.
+//  Apply is MANUAL (pick → preview → confirm) and LAYERS ON TOP of Layer A: Layer A still finds the
+//  fills + members geometrically; the template only overrides ROLE labels. Templates persist in
+//  state.roleTemplates + Firestore `roleTemplates` (one doc per template, same fetch-all/merge
+//  pattern as elevEdits; deletion via a {deleted:true} tombstone since the fb wrapper has no
+//  deleteDoc). Reuses _bands (kept on each opening) as the geometric source — the deleted Layer B
+//  is NOT resurrected: matching here is a strict per-opening fill-sequence equality, not a loose
+//  system-wide learned signature.
+// ============================================================
+// Fill stack for one opening, ordered TOP→BOTTOM. Full-width Y-bands only (louver/imp-1/glass);
+// a door region contributes a 'door' band over its Y-extent. Contiguous glass merges.
+function computeFillStack(bands) {
+  if (!bands || !bands.bbox) return [];
+  const bbox = bands.bbox, imp1Bands = bands.imp1Bands || [], louverBand = bands.louverBand, doorRegions = bands.doorRegions || [];
+  const hard = [];
+  if (louverBand) hard.push({ type: 'louver', minY: louverBand.minY, maxY: louverBand.maxY });
+  for (const b of imp1Bands) hard.push({ type: 'imp-1', minY: b.minY, maxY: b.maxY });
+  if (doorRegions.length) hard.push({ type: 'door', minY: bbox.minY, maxY: Math.max(...doorRegions.map(d => d.headY)) });
+  hard.sort((a, b) => a.minY - b.minY);
+  const zones = [];
+  let cursor = bbox.minY;
+  for (const b of hard) {
+    if (b.minY - cursor > 2) zones.push({ type: 'glass', minY: cursor, maxY: b.minY });
+    zones.push(b);
+    cursor = Math.max(cursor, b.maxY);
+  }
+  if (bbox.maxY - cursor > 2) zones.push({ type: 'glass', minY: cursor, maxY: bbox.maxY });
+  if (!zones.length) zones.push({ type: 'glass', minY: bbox.minY, maxY: bbox.maxY });
+  return zones.slice().reverse();  // reverse bottom→top to Leo's top→bottom convention
+}
+function fillSequenceOf(fillStack) {
+  return (fillStack || []).map(z => z.type).join('>');
+}
+// Auto-detected fill sequence for an opening, with dead-space glass removed: a 'glass' zone that
+// contains NO framing member is empty space between/around storefronts, not a real fill. (This is
+// what produced the bogus "glass>louver>glass>imp-1>glass" on SF02's stacked louver+main layout —
+// the top gap and the gap between the two storefronts were counted as glass.) louver/imp-1/door
+// are always kept. NOTE: auto-detect still can't know intent (e.g. whether one glass area is one
+// fill or two split by a transom) — that's why the layout is manually overridable below.
+function detectFillSequence(o) {
+  if (!o || !o._bands) return '';
+  const stack = computeFillStack(o._bands);
+  const members = (o.cuts || []).filter(c => c.src);
+  const kept = stack.filter(z => z.type !== 'glass' || members.some(c => { const my = c.src.y + c.src.h / 2; return my >= z.minY && my <= z.maxY; }));
+  return fillSequenceOf(kept.length ? kept : stack);
+}
+// The fill sequence used for matching + saved on a template: Leo's MANUAL override (o.fillLayout,
+// an ordered array of fill types top→bottom) if set, else the auto-detected one. Manual always
+// wins — per project rule, every function must stay hand-adjustable.
+function openingFillSequence(o) {
+  if (o && Array.isArray(o.fillLayout) && o.fillLayout.length) return o.fillLayout.join('>');
+  return detectFillSequence(o);
+}
+function setOpeningFillLayout(o, seqStr) {
+  if (!o) return;
+  const parts = String(seqStr || '').split('>').map(s => s.trim()).filter(Boolean);
+  if (parts.length) o.fillLayout = parts; else delete o.fillLayout;
+  save();
+}
+// A member's slot within a specific opening's fill stack: orientation + width class + whether it
+// sits on the opening perimeter + which fill it's in + where in that fill. Scoped to ONE opening
+// (not a system-wide key), so it's used only to transfer roles between same-layout elevations under
+// an explicit template — never to auto-generalize (that looseness is what killed Layer B).
+function memberKeyOf(cut, fillStack, bbox) {
+  const s = cut && cut.src;
+  if (!s || !bbox) return null;
+  const orient = s.w > s.h ? 'H' : 'V';
+  const widthClass = (orient === 'V' && s.w >= 3.5) ? 'wide' : 'narrow';
+  const midY = s.y + s.h / 2, tol = 3;
+  const atEdge = (v, e) => e != null && Math.abs(v - e) < tol;
+  let region = 'interior';
+  if (orient === 'H' && (atEdge(s.y, bbox.minY) || atEdge(s.y + s.h, bbox.maxY))) region = 'perimeter';
+  else if (orient === 'V' && (atEdge(s.x, bbox.minX) || atEdge(s.x + s.w, bbox.maxX))) region = 'perimeter';
+  const zones = fillStack || [];
+  let zone = zones.find(z => midY >= z.minY && midY <= z.maxY);
+  if (!zone && zones.length) zone = zones.reduce((best, z) => { const d = midY < z.minY ? z.minY - midY : midY - z.maxY; return (!best || d < best.d) ? { z, d } : best; }, null).z;
+  const regionType = zone ? zone.type : 'glass';
+  let regionEdge = 'through';
+  if (zone) {
+    if (orient === 'H') {
+      const nearTop = Math.abs((s.y + s.h) - zone.maxY) < tol || Math.abs(s.y - zone.maxY) < tol;
+      const nearBottom = Math.abs(s.y - zone.minY) < tol || Math.abs((s.y + s.h) - zone.minY) < tol;
+      regionEdge = nearTop ? 'top' : nearBottom ? 'bottom' : 'through';
+    } else {
+      const overlap = Math.max(0, Math.min(s.y + s.h, zone.maxY) - Math.max(s.y, zone.minY));
+      const frac = s.h > 0 ? overlap / s.h : 0;
+      regionEdge = frac > 0.5 ? 'through' : (Math.abs((s.y + s.h) - zone.maxY) < Math.abs(s.y - zone.minY) ? 'top' : 'bottom');
     }
   }
+  return [orient, widthClass, region, regionType, regionEdge].join('|');
 }
-function applyLearnedRoleRules(cuts, ctx) {
-  const rules = (state.roleRules && state.roleRules[ctx.system]) || [];
-  if (!rules.length) return;
-  const bySig = new Map(rules.map(r => [roleSigKey(r.signature), r]));
-  for (const cut of cuts) {
-    const sig = computeRoleSignature(cut, ctx);
-    const key = sig && roleSigKey(sig);
-    const rule = key && bySig.get(key);
-    if (rule && rule.role && rule.role !== cut.position) cut.position = rule.role;
+// Build a template from a fully-correct opening: its fill sequence + one role per distinct member
+// slot (first-wins; same-slot members in a valid storefront share a role, per Leo's simple model).
+function buildTemplateFromOpening(o, name) {
+  if (!o || !o._bands) return null;
+  const fillStack = computeFillStack(o._bands), bbox = o._bands.bbox, members = [], seen = new Set();
+  for (const c of (o.cuts || [])) {
+    if (!c.src) continue;
+    const key = memberKeyOf(c, fillStack, bbox);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    members.push({ key, role: c.position });
+  }
+  return { id: uid(), name: String(name || o.mark || 'Template').trim(), system: o.system || '',
+    fillSequence: openingFillSequence(o), members, createdAt: Date.now(), updatedAt: Date.now() };
+}
+// Templates that could apply to this opening: same system AND identical top→bottom fill sequence.
+function templatesMatchingOpening(o) {
+  if (!o || !o._bands) return [];
+  const seq = openingFillSequence(o);
+  return (state.roleTemplates || []).filter(t => t.system === o.system && t.fillSequence === seq);
+}
+// Compute (and optionally commit) the role changes a template would make to an opening. Never
+// silent — the UI previews `changes` and only calls again with {commit:true} on confirm. Committing
+// also pins each changed role into state.roleEdits so it survives a future re-import (reuses the #1
+// pin machinery; those pins are Leo's chosen roles, so the recognized-roles gate keeps them).
+function applyTemplateToOpening(o, templateId, opts) {
+  opts = opts || {};
+  const t = (state.roleTemplates || []).find(x => x.id === templateId);
+  if (!t || !o || !o._bands) return { changes: [], applied: false };
+  const fillStack = computeFillStack(o._bands), bbox = o._bands.bbox;
+  const byKey = new Map(t.members.map(m => [m.key, m.role]));
+  const changes = [];
+  for (const c of (o.cuts || [])) {
+    if (!c.src) continue;
+    const role = byKey.get(memberKeyOf(c, fillStack, bbox));
+    if (role && role !== c.position) changes.push({ cut: c, from: c.position, to: role });
+  }
+  if (opts.commit) {
+    for (const ch of changes) {
+      ch.cut.position = ch.to;
+      if (o.mark && ch.cut.src) { state.roleEdits = state.roleEdits || {}; (state.roleEdits[o.mark] = state.roleEdits[o.mark] || {})[srcKey(ch.cut.src)] = ch.to; }
+    }
+    o.appliedTemplate = t.id;
+    if (typeof persistElevEdits === 'function') persistElevEdits(o);
+    save();
+  }
+  return { changes, applied: !!opts.commit };
+}
+// ---- template persistence (local + Firestore `roleTemplates`) ----
+function saveRoleTemplate(t) {
+  if (!t || !t.id) return;
+  state.roleTemplates = state.roleTemplates || [];
+  const i = state.roleTemplates.findIndex(x => x.id === t.id);
+  if (i >= 0) state.roleTemplates[i] = t; else state.roleTemplates.push(t);
+  save();
+  const fb = window.__fb;
+  if (fb && fb.setDoc) {
+    try { fb.setDoc(fb.doc(fb.elevDb || fb.db, 'roleTemplates', String(t.id)), Object.assign({}, t, { updatedAt: fb.serverTimestamp() }), { merge: true }).catch(err => console.warn('[roleTemplates] push failed:', err)); }
+    catch (err) { console.warn('[roleTemplates] push failed:', err); }
   }
 }
-function loadRoleRulesFromCloud() {
+function deleteRoleTemplate(id) {
+  state.roleTemplates = (state.roleTemplates || []).filter(t => t.id !== id);
+  save();
+  const fb = window.__fb;
+  if (fb && fb.setDoc) {   // tombstone (fb wrapper has no deleteDoc) — loader skips deleted docs
+    try { fb.setDoc(fb.doc(fb.elevDb || fb.db, 'roleTemplates', String(id)), { deleted: true, members: [], updatedAt: fb.serverTimestamp() }, { merge: true }).catch(() => {}); } catch (_) {}
+  }
+}
+function loadRoleTemplatesFromCloud() {
   const fb = window.__fb;
   if (!fb || !fb.getDocs || !fb.collection) return;
-  fb.getDocs(fb.collection(fb.elevDb || fb.db, 'roleRules')).then(snap => {
-    state.roleRules = state.roleRules || {};
-    snap.forEach(d => {
-      const data = d.data() || {};
-      if (Array.isArray(data.rules)) state.roleRules[d.id] = data.rules;
-    });
+  fb.getDocs(fb.collection(fb.elevDb || fb.db, 'roleTemplates')).then(snap => {
+    const cloud = [];
+    snap.forEach(d => { const data = d.data() || {}; if (data && !data.deleted && Array.isArray(data.members)) cloud.push(Object.assign({}, data, { id: d.id })); });
+    state.roleTemplates = cloud;
     save();
-  }).catch(err => console.warn('[roleRules] load failed:', err));
+    if (typeof renderRoleTemplates === 'function') renderRoleTemplates();
+  }).catch(err => console.warn('[roleTemplates] load failed:', err));
 }
 if (typeof window !== 'undefined') {
-  if (window.__fb) loadRoleRulesFromCloud();
-  else window.addEventListener('fb-ready', loadRoleRulesFromCloud, { once: true });
+  if (window.__fb) loadRoleTemplatesFromCloud();
+  else window.addEventListener('fb-ready', loadRoleTemplatesFromCloud, { once: true });
 }
 
 // 手动修改识别: 点立面图色块/底部 chip 选中某根料 → 内联编辑器(位置/长度/数量/删除); "+ Add cut" 新增。
@@ -671,6 +905,7 @@ let viewerEditIdx = null;
 let _viewerGeom = null;      // #2: {minX,maxY} to map a click back to src coords
 let viewerSplitSrc = null;   // #2: src-coord point where the user last clicked (for precise split)
 let viewerShowGasket = false;  // #gasket-viz (2026-07-19): toggle framing view ↔ gasket diagram
+let viewerShowCutting = false; // #cutting-diagram (2026-07-20): toggle framing view ↔ per-elevation cutting diagram
 // #5: floating tooltip showing a role's section drawing (from role-sections.js) on hover.
 function _ensureRoleTip() {
   let t = document.getElementById('role-tip');
@@ -722,9 +957,10 @@ function renderViewer(openingId) {
   // (infill cells colored by type + both infill gasket loops + the perimeter loop(s)) without
   // needing Firestore — this is exactly the geometry the gasketLF numbers are computed from.
   const _exExport = ELEV_EXPORTS.get(o.mark);
-  const toggleHtml = _exExport
-    ? `<button class="tk-btn tk-btn--ghost tk-btn--sm" id="vc-toggle-gasket" style="float:right;">${viewerShowGasket ? '📐 Framing view' : '🧵 Gasket diagram'}</button>`
-    : '';
+  const _cutGroups = viewerShowCutting ? buildOpeningPacking(o) : null;
+  const toggleHtml =
+    (_exExport ? `<button class="tk-btn tk-btn--ghost tk-btn--sm" id="vc-toggle-gasket" style="float:right;margin-left:6px;">${viewerShowGasket ? '📐 Framing view' : '🧵 Gasket diagram'}</button>` : '') +
+    `<button class="tk-btn tk-btn--ghost tk-btn--sm" id="vc-toggle-cutting" style="float:right;">${viewerShowCutting ? '📐 Framing view' : '📏 Cutting diagram'}</button>`;
   const subEl = document.getElementById('viewer-sub');
   if (subEl && subEl.parentElement) {
     let btnHost = document.getElementById('viewer-gasket-toggle-host');
@@ -734,6 +970,27 @@ function renderViewer(openingId) {
       subEl.parentElement.appendChild(btnHost);
     }
     btnHost.innerHTML = toggleHtml;
+  }
+  // #cutting-diagram (2026-07-20, Leo: "show me how pieces for each part align on a 24' line...
+  // do this for each elevation separately... export in cad/dxf"): pure-line preview (no per-piece
+  // color/label, just baseline + cut ticks — packFFDLayout/stickTickPositions are the single
+  // source of truth shared with the DXF export below) scoped to THIS opening only, plus a
+  // one-click DXF download for this elevation.
+  if (viewerShowCutting) {
+    if (!_cutGroups.length) {
+      box.innerHTML = `<div style="padding:18px;color:#888;font-size:13px;">No parts with stock cuts for ${escHtml(o.mark)} yet.</div>`;
+    } else {
+      box.innerHTML = renderCuttingSvg(_cutGroups, o.mark);
+    }
+    box.onmouseover = null; box.onmousemove = null; box.onmouseout = null;
+    legend.innerHTML = `
+      <div style="display:flex;flex-wrap:wrap;gap:14px;font-size:12px;align-items:center;">
+        ${_cutGroups.map(g => `<span>${escHtml(g.partNumber)} · ${g.sticks.length} stick${g.sticks.length === 1 ? '' : 's'}</span>`).join('')}
+        ${_cutGroups.length ? `<button class="tk-btn tk-btn--ghost tk-btn--sm" id="vc-export-cutting-dxf">⬇ Export DXF (this elevation)</button>` : ''}
+      </div>
+      <div style="margin-top:6px;font-size:11px;color:#999;">One bar per 24′ stick with a tick line at each cut — open on the right unless the stick is fully used (leftover length labeled). Part name to the left of each pile, stick number per row, elevation mark as the header. Layer per part number in the DXF.</div>`;
+    if (editBox) editBox.innerHTML = '';
+    return;
   }
   if (viewerShowGasket && _exExport) {
     const d = _exExport.data;
@@ -803,6 +1060,7 @@ function renderViewer(openingId) {
     const _label = _sev ? `Saved manual edits on ${escHtml(o.mark)}: ${_n} pieces · synced` : `Manual role overrides on ${escHtml(o.mark)}: ${_n} remembered`;
     html += `<div style="margin:6px 0;font-size:11px;color:#999;">${_label} · <button class="tk-btn tk-btn--ghost tk-btn--sm" id="vc-clear-ov" title="Forget saved edits for this mark (next import reverts to pure auto-detection)">× clear</button></div>`;
   }
+  html += templateControlsHtml(o);   // #template (2026-07-20): Save-as / Apply template row
   // #history (2026-07-19, Leo — SF01 data loss): show the last N saved versions for this mark
   // with a one-click Restore, so an overwrite (auto-reclassification, a bad manual edit, etc.)
   // is always recoverable from inside the app — there is no external backup for this data.
@@ -879,8 +1137,58 @@ document.addEventListener('click', e => {
   if (!e.target || !e.target.closest) return;
   if (e.target.closest('#vc-toggle-gasket') && viewerOpeningId != null) {   // #gasket-viz: framing ↔ gasket diagram toggle
     viewerShowGasket = !viewerShowGasket;
+    if (viewerShowGasket) viewerShowCutting = false;
     renderViewer(viewerOpeningId);
     return;
+  }
+  if (e.target.closest('#vc-toggle-cutting') && viewerOpeningId != null) {   // #cutting-diagram: framing ↔ cutting diagram toggle
+    viewerShowCutting = !viewerShowCutting;
+    if (viewerShowCutting) viewerShowGasket = false;
+    renderViewer(viewerOpeningId);
+    return;
+  }
+  if (e.target.closest('#vc-export-cutting-dxf') && viewerOpeningId != null) {   // #cutting-diagram: export this elevation's DXF
+    const o = state.openings.find(x => x.id === viewerOpeningId);
+    if (o) downloadCuttingDxf(o);
+    return;
+  }
+  if (e.target.closest('#vc-fill-auto') && viewerOpeningId != null) {   // #template: reset fill layout to auto-detected
+    const o = state.openings.find(x => x.id === viewerOpeningId);
+    if (o) { delete o.fillLayout; save(); renderViewer(viewerOpeningId); }
+    return;
+  }
+  if (e.target.closest('#vc-save-template') && viewerOpeningId != null) {   // #template: save this elevation as a reusable template
+    const o = state.openings.find(x => x.id === viewerOpeningId);
+    if (o && o._bands) {
+      const name = prompt('Template name:', o.mark || 'Template');
+      if (name) { const t = buildTemplateFromOpening(o, name); if (t) { saveRoleTemplate(t); renderRoleTemplates(); renderViewer(viewerOpeningId); } }
+    } else if (o) { alert('This opening has no parsed geometry — templates need a DXF-imported elevation.'); }
+    return;
+  }
+  if (e.target.closest('#vc-apply-template') && viewerOpeningId != null) {   // #template: preview then apply
+    const o = state.openings.find(x => x.id === viewerOpeningId);
+    const pick = document.getElementById('vc-template-pick');
+    const id = pick && pick.value;
+    if (o && id) {
+      const prev = applyTemplateToOpening(o, id, { commit: false });
+      if (!prev.changes.length) { alert('This template would not change any roles on this elevation.'); return; }
+      const summary = prev.changes.slice(0, 12).map(c => `• ${c.from} → ${c.to}`).join('\n');
+      const more = prev.changes.length > 12 ? `\n…and ${prev.changes.length - 12} more` : '';
+      if (confirm(`Apply template — ${prev.changes.length} role change(s):\n\n${summary}${more}`)) {
+        applyTemplateToOpening(o, id, { commit: true });
+        refreshAfterCutEdit();
+      }
+    }
+    return;
+  }
+  { // #template: delete a saved template from the sidebar list
+    const delBtn = e.target.closest('.tmpl-del');
+    if (delBtn) {
+      const id = delBtn.getAttribute('data-tmpl');
+      const t = (state.roleTemplates || []).find(x => x.id === id);
+      if (t && confirm(`Delete template "${t.name}"?`)) { deleteRoleTemplate(id); renderRoleTemplates(); }
+      return;
+    }
   }
   if (e.target.closest('#viewer-close')) {
     document.getElementById('viewer-section').style.display = 'none';
@@ -960,6 +1268,11 @@ document.addEventListener('click', e => {
 
 // 编辑器字段改动(位置/长度/数量)
 document.addEventListener('change', e => {
+  if (e.target && e.target.id === 'vc-fill-layout' && viewerOpeningId != null) {   // #template: manual fill-layout override
+    const o = state.openings.find(x => x.id === viewerOpeningId);
+    if (o) { setOpeningFillLayout(o, e.target.value); renderViewer(viewerOpeningId); }
+    return;
+  }
   if (viewerOpeningId == null || viewerEditIdx == null) return;
   if (!e.target.closest || !e.target.closest('#viewer-edit')) return;
   const o = state.openings.find(x => x.id === viewerOpeningId);
@@ -970,12 +1283,6 @@ document.addEventListener('change', e => {
     if (c.src && o.mark) {   // T3: remember this manual role override (survives DXF re-import)
       state.roleEdits = state.roleEdits || {};
       (state.roleEdits[o.mark] = state.roleEdits[o.mark] || {})[srcKey(c.src)] = c.position;
-    }
-    // #LayerB: also learn a general signature→role rule from this correction, so future
-    // imports (ANY mark, this system) with the same geometric signature get it automatically.
-    if (c.src && o.system) {
-      const sig = computeRoleSignature(c, Object.assign({ system: o.system }, o._bands || {}));
-      if (sig) persistRoleRule(o.system, sig, c.position);
     }
   }
   else if (e.target.id === 'vc-len') c.length = parseFloat(e.target.value) || 0;
@@ -1214,86 +1521,332 @@ function packFFD(pieces, stock, eps = 1e-6) {
   return { sticks: fullSticks + rema.length, over: over.sort((a, b) => b - a) };
 }
 
+// #cutting-diagram (2026-07-20): same FFD algorithm as packFFD() above (identical sort order,
+// identical first-fit loop) but keeps the actual piece-to-stick assignment instead of just a
+// count, so the on-screen diagram and the DXF export always match the stock numbers already
+// shown in the report — never a second, diverging calculation.
+// Spliced/oversize pieces (single piece > stock) are handled silently, per Leo's instruction not
+// to call them out visually: each full stock consumed by the splice comes back as one stick whose
+// only "piece" is the full stock length itself (no internal cut), so it just renders as a plain,
+// uncut 24' line — indistinguishable from an ordinary unused stock until you look closely. Its
+// leftover remainder is folded back into the normal FFD pool exactly like packFFD does.
+// Returns: array of { pieces:[len,...], remaining } — one entry per stick, in the same total
+// count packFFD(pieces, stock) would report.
+function packFFDLayout(pieces, stock, eps = 1e-6) {
+  const sticks = [];
+  const fit = [];
+  for (const p of pieces) {
+    if (p > stock + eps) {
+      const nFull = Math.floor((p + eps) / stock);
+      for (let i = 0; i < nFull; i++) sticks.push({ pieces: [stock], remaining: 0 });
+      const rem = p - nFull * stock;
+      if (rem > eps) fit.push(rem);
+    } else if (p > 0) {
+      fit.push(p);
+    }
+  }
+  fit.sort((a, b) => b - a); // 长 → 短, same order as packFFD
+  for (const p of fit) {
+    let placed = false;
+    for (let i = 0; i < sticks.length; i++) {
+      if (sticks[i].remaining + eps >= p) { sticks[i].remaining -= p; sticks[i].pieces.push(p); placed = true; break; }
+    }
+    if (!placed) sticks.push({ pieces: [p], remaining: stock - p });
+  }
+  return sticks;
+}
+
+// #cutting-diagram: pack ONE elevation's own pieces per part (not pooled across the whole
+// project — Leo asked for the diagram/export scoped per elevation). Reuses the identical
+// matching logic as buildReport() via collectOpeningIntoBuckets, so "what part does this cut
+// belong to" never drifts between the order list and the per-elevation diagram.
+// Returns: [{ system, partNumber, description, stock, sticks: [{pieces, remaining}] }]
+function buildOpeningPacking(o) {
+  const buckets = new Map();
+  collectOpeningIntoBuckets(o, buckets, null, null);
+  return [...buckets.values()]
+    .filter(b => b.pieces.length)
+    .map(b => {
+      const stock = b.stockInches || STOCK_INCHES;
+      return {
+        system: b.system,
+        partNumber: b.partNumber,
+        description: b.description,
+        stock,
+        sticks: packFFDLayout(b.pieces, stock),
+      };
+    })
+    .sort((a, b) => a.partNumber.localeCompare(b.partNumber, undefined, { numeric: true }));
+}
+
+// #cutting-diagram: shared cut-boundary geometry so the on-screen SVG preview and the DXF
+// export always draw identical cuts. A boundary lands only strictly before the stock's far end,
+// so a spliced full-length stick (one piece == stock) draws with zero boundary markers — a
+// plain uncut line, per the "don't show the splice" treatment above.
+function stickTickPositions(stick, stock, eps = 1e-6) {
+  const ticks = [];
+  let cum = 0;
+  for (const len of stick.pieces) {
+    cum += len;
+    if (cum < stock - eps) ticks.push(cum);
+  }
+  return ticks;
+}
+
+// #cutting-diagram (2026-07-20 rev2, Leo: revert the 2.5" open-box markers back to a bordered
+// bar for the whole stick + plain tick lines at each cut boundary (pic2 reference), keep the
+// part-name/stick-number labels, add the elevation mark as a header on the diagram. Bar height
+// unchanged from the box-marker revision (STOCK_BAR_HEIGHT, was CUT_RECT_HEIGHT). Tick x-positions
+// are stickTickPositions() directly — no more per-tick rectangle.
+// #cutting-diagram (2026-07-20 rev3, Leo: "最后一段不要闭合...显示最后一段上哪里用到了,还有会剩
+// 多长" — don't close the last segment; show where it's used to and how much is left): a stick
+// with real leftover (remaining > 0) no longer draws a closing right-side border — the bar is
+// only closed left/top/bottom, left open on the right, because that far end isn't a real cut, it's
+// undetermined offcut. The existing tick at the used/remaining boundary (stickTickPositions
+// already includes it) still marks exactly where real material stops. A text label states the
+// leftover length. A stick with zero leftover (exact/spliced fill) is still drawn fully closed.
+const STOCK_BAR_HEIGHT = 8;    // inches, the outlined stick bar straddles the baseline (±4)
+const REMAINDER_EPS = 1e-6;
+
+// #cutting-diagram: render one part's stack of sticks as plain SVG lines (no fill, no per-piece
+// label) — one bar per stick (full stock length, closed left/top/bottom, right edge open unless
+// fully used) with a tick line at each cut boundary, part name label to the left of each pile
+// (group), stick number to the left of each row, leftover length labeled past the open end, and
+// the elevation mark as a header above the whole diagram.
+function renderCuttingSvg(groups, mark) {
+  const stockMax = Math.max(...groups.map(g => g.stock), STOCK_INCHES);
+  const rowH = 18, halfH = STOCK_BAR_HEIGHT / 2, padT = 10;
+  const xStickNum = 26, xPartLabel = 2, xLineStart = 96; // left-side label columns, then the line
+  const headH = mark ? 22 : 0;
+  let y = padT + headH;
+  let body = '';
+  if (mark) body += `<text x="${xPartLabel}" y="${(padT + 8).toFixed(2)}" font-size="13" font-weight="600" fill="currentColor">${escHtml(mark)}</text>`;
+  for (const g of groups) {
+    const yFirst = y;
+    let stickIdx = 0;
+    for (const s of g.sticks) {
+      stickIdx++;
+      const ticks = stickTickPositions(s, g.stock);
+      const remaining = s.remaining || 0;
+      const hasWaste = remaining > REMAINDER_EPS;
+      const barTop = y - halfH, barBot = y + halfH;
+      const xEnd = (xLineStart + g.stock).toFixed(2);
+      body += `<text x="${xStickNum}" y="${(y + 3.5).toFixed(2)}" font-size="7" fill="currentColor" text-anchor="end">${stickIdx}</text>`;
+      body += `<line x1="${xLineStart}" y1="${barTop.toFixed(2)}" x2="${xLineStart}" y2="${barBot.toFixed(2)}" stroke="currentColor" stroke-width="1.1"/>`;
+      body += `<line x1="${xLineStart}" y1="${barTop.toFixed(2)}" x2="${xEnd}" y2="${barTop.toFixed(2)}" stroke="currentColor" stroke-width="1.1"/>`;
+      body += `<line x1="${xLineStart}" y1="${barBot.toFixed(2)}" x2="${xEnd}" y2="${barBot.toFixed(2)}" stroke="currentColor" stroke-width="1.1"/>`;
+      if (!hasWaste) body += `<line x1="${xEnd}" y1="${barTop.toFixed(2)}" x2="${xEnd}" y2="${barBot.toFixed(2)}" stroke="currentColor" stroke-width="1.1"/>`;
+      body += ticks.map(t => {
+        const x = (xLineStart + t).toFixed(2);
+        return `<line x1="${x}" y1="${barTop.toFixed(2)}" x2="${x}" y2="${barBot.toFixed(2)}" stroke="currentColor" stroke-width="1"/>`;
+      }).join('');
+      if (hasWaste) body += `<text x="${(xLineStart + g.stock + 4).toFixed(2)}" y="${(y + 3.5).toFixed(2)}" font-size="7" fill="currentColor">${formatNumber(remaining)}" left</text>`;
+      y += rowH;
+    }
+    const yLast = y - rowH;
+    body += `<text x="${xPartLabel}" y="${((yFirst + yLast) / 2 + 3.5).toFixed(2)}" font-size="8" fill="currentColor">${escHtml(g.partNumber)}</text>`;
+    y += rowH * 0.6; // group gap between parts
+  }
+  const totalH = y + padT;
+  return `<svg viewBox="0 0 ${(xLineStart + stockMax + 60).toFixed(2)} ${totalH.toFixed(2)}" style="width:100%;max-height:520px;display:block;color:#333;" preserveAspectRatio="xMinYMin meet">${body}</svg>`;
+}
+
+// #cutting-diagram: minimal ASCII DXF (R12-compatible, LINE + TEXT entities, inches). One layer
+// per part number so AutoCAD's layer panel groups the sticks; part-name/stick-number TEXT sits
+// to the left of each pile/row (same layout as the SVG preview above).
+function sanitizeDxfLayer(name) {
+  const s = String(name || 'PART').replace(/[^A-Za-z0-9_\-.]/g, '_');
+  return s || 'PART';
+}
+function dxfLine(x1, y1, x2, y2, layer) {
+  return `0\nLINE\n8\n${layer}\n10\n${x1.toFixed(4)}\n20\n${y1.toFixed(4)}\n30\n0\n11\n${x2.toFixed(4)}\n21\n${y2.toFixed(4)}\n31\n0\n`;
+}
+function dxfRect(x1, y1, x2, y2, layer) {
+  return dxfLine(x1, y1, x2, y1, layer) + dxfLine(x2, y1, x2, y2, layer) + dxfLine(x2, y2, x1, y2, layer) + dxfLine(x1, y2, x1, y1, layer);
+}
+function dxfText(x, y, height, value, layer) {
+  return `0\nTEXT\n8\n${layer}\n10\n${x.toFixed(4)}\n20\n${y.toFixed(4)}\n30\n0\n40\n${height}\n1\n${String(value).replace(/[\r\n]/g, ' ')}\n`;
+}
+// #cutting-diagram: shared entity-body builder so a single-elevation DXF and the combined
+// all-elevations DXF (buildCombinedCuttingDxf) draw identical geometry — bordered bar per stick
+// (full stock length) + tick line per cut boundary, part/stick labels, elevation mark as a header
+// above the section. yOffset lets the combined export stack sections vertically; returns where
+// the next section should start (endY) so sections never overlap.
+function buildCuttingDxfBody(groups, mark, yOffset) {
+  const rowGap = 8, groupGap = 24, halfH = STOCK_BAR_HEIGHT / 2;
+  const xStickNum = -14, xPartLabel = -90, textH = 5;
+  let y = yOffset;
+  let body = '';
+  if (mark) {
+    body += dxfText(0, y + textH * 1.6, textH * 1.4, mark, 'ELEVATION');
+    y -= textH * 2.6; // drop below the header before the first stick row
+  }
+  for (const g of groups) {
+    const layer = sanitizeDxfLayer(g.partNumber);
+    const yFirst = y;
+    let stickIdx = 0;
+    for (const s of g.sticks) {
+      stickIdx++;
+      const remaining = s.remaining || 0;
+      const hasWaste = remaining > REMAINDER_EPS;
+      const barTop = y - halfH, barBot = y + halfH;
+      body += dxfText(xStickNum, y - textH / 3, textH, stickIdx, layer);
+      body += dxfLine(0, barTop, 0, barBot, layer);         // left edge
+      body += dxfLine(0, barTop, g.stock, barTop, layer);   // top
+      body += dxfLine(0, barBot, g.stock, barBot, layer);   // bottom
+      if (!hasWaste) body += dxfLine(g.stock, barTop, g.stock, barBot, layer); // right edge only if fully used
+      for (const t of stickTickPositions(s, g.stock)) body += dxfLine(t, barTop, t, barBot, layer);
+      if (hasWaste) body += dxfText(g.stock + 3, y - textH / 3, textH, formatNumber(remaining) + '" left', layer);
+      y -= rowGap;
+    }
+    const yLast = y + rowGap;
+    body += dxfText(xPartLabel, (yFirst + yLast) / 2 - textH / 3, textH, g.partNumber, layer);
+    y -= groupGap;
+  }
+  return { body, endY: y };
+}
+function buildCuttingDxf(groups, mark) {
+  const { body } = buildCuttingDxfBody(groups, mark, 0);
+  const header = '0\nSECTION\n2\nHEADER\n9\n$INSUNITS\n70\n1\n0\nENDSEC\n'; // 1 = inches
+  const entities = '0\nSECTION\n2\nENTITIES\n' + body + '0\nENDSEC\n';
+  return header + entities + '0\nEOF\n';
+}
+// #cutting-diagram (2026-07-20 rev2, Leo: "export all elevations in one dxf"): every elevation's
+// section stacked in a single file, each headed by its own mark label, using the same
+// buildCuttingDxfBody as the single-elevation export so the geometry never diverges.
+function buildCombinedCuttingDxf(list) {
+  const sectionGap = 40;
+  let y = 0, body = '';
+  for (const { mark, groups } of list) {
+    const r = buildCuttingDxfBody(groups, mark, y);
+    body += r.body;
+    y = r.endY - sectionGap;
+  }
+  const header = '0\nSECTION\n2\nHEADER\n9\n$INSUNITS\n70\n1\n0\nENDSEC\n';
+  const entities = '0\nSECTION\n2\nENTITIES\n' + body + '0\nENDSEC\n';
+  return header + entities + '0\nEOF\n';
+}
+function downloadCuttingDxf(o) {
+  const groups = buildOpeningPacking(o);
+  if (!groups.length) { alert('No parts with stock cuts for ' + (o.mark || 'this elevation') + '.'); return; }
+  const dxf = buildCuttingDxf(groups, o.mark);
+  const blob = new Blob([dxf], { type: 'application/dxf' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = (o.mark || 'elevation') + '-cutting.dxf';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+function downloadAllCuttingDxf() {
+  const opens = state.openings.filter(o => buildOpeningPacking(o).length);
+  if (!opens.length) { alert('No openings with stock cuts to export.'); return; }
+  let i = 0;
+  const next = () => { if (i >= opens.length) return; downloadCuttingDxf(opens[i]); i++; setTimeout(next, 350); };
+  next();
+}
+// #cutting-diagram (2026-07-20 rev2): single combined DXF, all elevations stacked in one file —
+// separate button/action from downloadAllCuttingDxf (which still downloads one file per elevation).
+function downloadCombinedCuttingDxf() {
+  const list = state.openings
+    .map(o => ({ mark: o.mark, groups: buildOpeningPacking(o) }))
+    .filter(x => x.groups.length);
+  if (!list.length) { alert('No openings with stock cuts to export.'); return; }
+  const dxf = buildCombinedCuttingDxf(list);
+  const blob = new Blob([dxf], { type: 'application/dxf' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'all-elevations-cutting-combined.dxf';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+// #cutting-diagram: factored out of buildReport() so a single opening can be
+// packed on its own (per-elevation diagram/DXF export) using the exact same matching rules
+// as the project-wide order list — never a second, diverging implementation.
+function collectOpeningIntoBuckets(o, buckets, posTotals, unresolved) {
+  const cuts = expandOpeningCuts(o);
+  // 连续件跑长(如 750XT 的 C Face Cover 连续覆盖 sill,不被竖梃打断——subsill 同逻辑):
+  // 同 position 同一行的相邻段合并(缝隙≤8" 即竖梃宽),跑长 = 合并后的整段跨度。
+  const contRuns = pos => {
+    const segs = cuts.filter(c => c.position === pos && c.src && c.src.w >= c.src.h)
+      .map(c => ({ row: Math.round(c.src.y * 10) / 10, x1: c.src.x, x2: c.src.x + c.src.w }))
+      .sort((a, b) => a.row - b.row || a.x1 - b.x1);
+    const runs = []; let cur = null;
+    for (const s of segs) {
+      if (cur && s.row === cur.row && s.x1 - cur.x2 <= 8) { cur.x2 = Math.max(cur.x2, s.x2); }
+      else { if (cur) runs.push(cur.x2 - cur.x1); cur = { row: s.row, x1: s.x1, x2: s.x2 }; }
+    }
+    if (cur) runs.push(cur.x2 - cur.x1);
+    return runs;
+  };
+  for (const c of cuts) {
+    // Every part assigned to this position needs the same cut length.
+    const allMatches = state.parts.filter(p =>
+      p.system === o.system &&
+      Array.isArray(p.roles) &&
+      p.roles.includes(c.position)
+    );
+    // 连续件不按单段计——除非该 cut 没有几何(手工行),才退回逐段
+    const matches = allMatches.filter(p => !p.continuous || !c.src);
+    const nPieces = c.count * (o.qty || 1);
+    const totalLen = c.length * nPieces;
+    if (!allMatches.length) {
+      if (unresolved) unresolved.push({ mark: o.mark, system: o.system, position: c.position, totalInches: totalLen });
+      continue;
+    }
+    if (posTotals) {
+      const pt = posTotals[o.system] || (posTotals[o.system] = {});
+      pt[c.position] = (pt[c.position] || 0) + totalLen;
+    }
+    for (const match of matches) {
+      const key = match.system + '|' + match.partNumber;
+      if (!buckets.has(key)) {
+        buckets.set(key, {
+          system: match.system,
+          partNumber: match.partNumber,
+          description: match.description,
+          rolesUsed: new Set(),
+          totalInches: 0,
+          pieces: [],   // 单件长度清单,给摆料用
+          stockInches: match.stockInches || STOCK_INCHES,
+        });
+      }
+      const b = buckets.get(key);
+      const q = (match.roleQty && +match.roleQty[c.position] > 0) ? +match.roleQty[c.position] : 1;   // #4: per-role part quantity
+      b.totalInches += totalLen * q;
+      for (let i = 0; i < nPieces * q; i++) b.pieces.push(c.length);
+      b.rolesUsed.add(c.position);
+    }
+  }
+  // 连续件(continuous: true, 如 C Face Cover): 每个角色按跑长出料
+  for (const match of state.parts.filter(p => p.system === o.system && p.continuous && Array.isArray(p.roles))) {
+    for (const role of match.roles) {
+      const runs = contRuns(role);
+      if (!runs.length) continue;
+      const key = match.system + '|' + match.partNumber;
+      if (!buckets.has(key)) {
+        buckets.set(key, {
+          system: match.system, partNumber: match.partNumber, description: match.description,
+          rolesUsed: new Set(), totalInches: 0, pieces: [],
+          stockInches: match.stockInches || STOCK_INCHES,
+        });
+      }
+      const b = buckets.get(key);
+      const q = (match.roleQty && +match.roleQty[role] > 0) ? +match.roleQty[role] : 1;   // #4: per-role part quantity
+      const n = (o.qty || 1) * q;
+      for (const rl of runs) { b.totalInches += rl * n; for (let i = 0; i < n; i++) b.pieces.push(rl); }
+      b.rolesUsed.add(role + ' (run)');
+    }
+  }
+}
+
 function buildReport() {
   // Bucket: key = system + '|' + partNumber → { system, partNumber, description, roles:Set, totalInches }
   const buckets = new Map();
   const unresolved = []; // {opening, position, length}
   const posTotals = {};  // { system: { position: 总下料长(in) } } —— 角色层用
 
-  for (const o of state.openings) {
-    const cuts = expandOpeningCuts(o);
-    // 连续件跑长(如 750XT 的 C Face Cover 连续覆盖 sill,不被竖梃打断——subsill 同逻辑):
-    // 同 position 同一行的相邻段合并(缝隙≤8" 即竖梃宽),跑长 = 合并后的整段跨度。
-    const contRuns = pos => {
-      const segs = cuts.filter(c => c.position === pos && c.src && c.src.w >= c.src.h)
-        .map(c => ({ row: Math.round(c.src.y * 10) / 10, x1: c.src.x, x2: c.src.x + c.src.w }))
-        .sort((a, b) => a.row - b.row || a.x1 - b.x1);
-      const runs = []; let cur = null;
-      for (const s of segs) {
-        if (cur && s.row === cur.row && s.x1 - cur.x2 <= 8) { cur.x2 = Math.max(cur.x2, s.x2); }
-        else { if (cur) runs.push(cur.x2 - cur.x1); cur = { row: s.row, x1: s.x1, x2: s.x2 }; }
-      }
-      if (cur) runs.push(cur.x2 - cur.x1);
-      return runs;
-    };
-    for (const c of cuts) {
-      // Every part assigned to this position needs the same cut length.
-      const allMatches = state.parts.filter(p =>
-        p.system === o.system &&
-        Array.isArray(p.roles) &&
-        p.roles.includes(c.position)
-      );
-      // 连续件不按单段计——除非该 cut 没有几何(手工行),才退回逐段
-      const matches = allMatches.filter(p => !p.continuous || !c.src);
-      const nPieces = c.count * (o.qty || 1);
-      const totalLen = c.length * nPieces;
-      if (!allMatches.length) {
-        unresolved.push({ mark: o.mark, system: o.system, position: c.position, totalInches: totalLen });
-        continue;
-      }
-      const pt = posTotals[o.system] || (posTotals[o.system] = {});
-      pt[c.position] = (pt[c.position] || 0) + totalLen;
-      for (const match of matches) {
-        const key = match.system + '|' + match.partNumber;
-        if (!buckets.has(key)) {
-          buckets.set(key, {
-            system: match.system,
-            partNumber: match.partNumber,
-            description: match.description,
-            rolesUsed: new Set(),
-            totalInches: 0,
-            pieces: [],   // 单件长度清单,给摆料用
-            stockInches: match.stockInches || STOCK_INCHES,
-          });
-        }
-        const b = buckets.get(key);
-        const q = (match.roleQty && +match.roleQty[c.position] > 0) ? +match.roleQty[c.position] : 1;   // #4: per-role part quantity
-        b.totalInches += totalLen * q;
-        for (let i = 0; i < nPieces * q; i++) b.pieces.push(c.length);
-        b.rolesUsed.add(c.position);
-      }
-    }
-    // 连续件(continuous: true, 如 C Face Cover): 每个角色按跑长出料
-    for (const match of state.parts.filter(p => p.system === o.system && p.continuous && Array.isArray(p.roles))) {
-      for (const role of match.roles) {
-        const runs = contRuns(role);
-        if (!runs.length) continue;
-        const key = match.system + '|' + match.partNumber;
-        if (!buckets.has(key)) {
-          buckets.set(key, {
-            system: match.system, partNumber: match.partNumber, description: match.description,
-            rolesUsed: new Set(), totalInches: 0, pieces: [],
-            stockInches: match.stockInches || STOCK_INCHES,
-          });
-        }
-        const b = buckets.get(key);
-        const q = (match.roleQty && +match.roleQty[role] > 0) ? +match.roleQty[role] : 1;   // #4: per-role part quantity
-        const n = (o.qty || 1) * q;
-        for (const rl of runs) { b.totalInches += rl * n; for (let i = 0; i < n; i++) b.pieces.push(rl); }
-        b.rolesUsed.add(role + ' (run)');
-      }
-    }
-  }
+  for (const o of state.openings) collectOpeningIntoBuckets(o, buckets, posTotals, unresolved);
 
   const rows = [...buckets.values()].map(b => {
     const stock = b.stockInches || STOCK_INCHES;
@@ -2183,7 +2736,7 @@ function parseRawDxfOpenings(text, opts) {
     // band-split, which used the wrong AF_HATCH/AF_GENERAL hatch signal — see memory.md "S3".)
     // Adjacent panel strips with overlapping Y merge into one band (a single physical panel is
     // often several small hatch entities side by side at the same height). Computed even when
-    // empty so later steps (Horizontal Glass&Glass, Layer B signatures) can rely on it.
+    // empty so later steps (Horizontal Glass&Glass) can rely on it.
     const imp1Bands = [];
     for (const s of panelStrips.slice().sort((a, b) => a.minY - b.minY)) {
       const b = imp1Bands.find(bb => s.minY <= bb.maxY + 1 && s.maxY >= bb.minY - 1);
@@ -2234,9 +2787,11 @@ function parseRawDxfOpenings(text, opts) {
       horiz: cuts.filter(c => c.position === 'Horizontal').reduce((a,c) => a + c.count, 0),
       vert: cuts.filter(c => c.position === 'Vertical').reduce((a,c) => a + c.count, 0),
       cuts, geoSig: _freshSig,
-      // #LayerB: geometric context for this opening, kept so a later MANUAL correction (viewer
-      // "Position" dropdown) can compute the same signature used during parsing. Local-only
-      // (not part of the elevGeo/elevEdits schema pushed to the tracker/Firestore).
+      // Per-opening geometric context (bbox + detected IMP-1/louver/door bands). Local-only
+      // (not part of the elevGeo/elevEdits schema pushed to the tracker/Firestore). Layer B
+      // used this to recompute a signature on manual edit; that's gone (2026-07-20), but the
+      // context is retained here — it's the natural input for the template-matching feature
+      // (PROPAGATION-DESIGN.md §16).
       _bands: { bbox: { minX: c.bbox.minX, minY: c.bbox.minY, maxX: c.bbox.maxX, maxY: c.bbox.maxY }, imp1Bands, louverBand, doorRegions },
       // #fix (2026-07-19): non-null when reclassifying a restored saved snapshot changed a piece
       // that wasn't pinned via the dropdown — surfaced as a warning banner in the viewer instead
@@ -3185,8 +3740,40 @@ function init() {
 
   // Export
   document.getElementById('export-csv').addEventListener('click', exportCsv);
+  const exportCuttingAllBtn = document.getElementById('export-cutting-dxf-all');
+  if (exportCuttingAllBtn) exportCuttingAllBtn.addEventListener('click', downloadAllCuttingDxf);
+  const exportCuttingCombinedBtn = document.getElementById('export-cutting-dxf-combined');
+  if (exportCuttingCombinedBtn) exportCuttingCombinedBtn.addEventListener('click', downloadCombinedCuttingDxf);
   document.getElementById('copy-report').addEventListener('click', copyReport);
   document.getElementById('reset-all').addEventListener('click', resetAll);
+
+  // Recognized Roles panel (#2, 2026-07-20 Opus)
+  const rrSystemSel = document.getElementById('rr-system');
+  if (rrSystemSel) rrSystemSel.addEventListener('change', e => { _rrSystem = e.target.value; renderRecognizedRoles(); });
+  const rrBody = document.getElementById('rr-body');
+  if (rrBody) {
+    rrBody.addEventListener('click', e => {
+      if (!_rrSystem) return;
+      const del = e.target.closest('.rr-del');
+      if (del) {
+        const cur = (state.recognizedRoles && state.recognizedRoles[_rrSystem]) || [];
+        setRecognizedRoles(_rrSystem, cur.filter(r => r !== del.dataset.role));
+        return;
+      }
+      if (e.target.closest('#rr-curate')) { setRecognizedRoles(_rrSystem, Array.from(allowedRolesForSystem(_rrSystem))); return; }
+      if (e.target.closest('#rr-reset'))  { setRecognizedRoles(_rrSystem, null); return; }
+      if (e.target.closest('#rr-add-btn')) {
+        const inp = document.getElementById('rr-add');
+        const v = inp && inp.value.trim();
+        if (!v) return;
+        const cur = (state.recognizedRoles && state.recognizedRoles[_rrSystem]) || [];
+        setRecognizedRoles(_rrSystem, [...cur, v]);
+      }
+    });
+    rrBody.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && e.target.id === 'rr-add') { e.preventDefault(); document.getElementById('rr-add-btn')?.click(); }
+    });
+  }
 
   renderAll();
 }

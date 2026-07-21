@@ -105,6 +105,41 @@
       </div>
     </section>
 
+    <!-- ===== 01b — RECOGNIZED ROLES (manual per-system allow-list, #2 2026-07-20) ===== -->
+    <section class="tk-section">
+      <header class="tk-section__head">
+        <div class="tk-section__title">
+          <span class="tk-section__num">01b</span>
+          <div>
+            <h2 class="tk-section__h">Recognized Roles</h2>
+            <p class="tk-section__sub">Curate which roles the auto-classifier may output for a system. Remove a role you've retired and it stops being produced — and stale pins holding it are dropped, so it won't resurface on re-import. Leave a system uncurated to use its full parts-derived set.</p>
+          </div>
+        </div>
+        <div class="tk-section__actions">
+          <select id="rr-system" class="tk-input tk-input--sm" title="Choose the system to curate"></select>
+        </div>
+      </header>
+      <div class="tk-section__body">
+        <div id="rr-body"></div>
+      </div>
+    </section>
+
+    <!-- ===== 01c — TEMPLATES (teach-by-example classification, §16, 2026-07-20) ===== -->
+    <section class="tk-section">
+      <header class="tk-section__head">
+        <div class="tk-section__title">
+          <span class="tk-section__num">01c</span>
+          <div>
+            <h2 class="tk-section__h">Templates</h2>
+            <p class="tk-section__sub">Teach the tool by example: open a correctly-classified elevation in the viewer below and click "Save as Template". On a future import with the same top-to-bottom fill layout, pick the template in the viewer and it assigns the roles for you — no Claude needed.</p>
+          </div>
+        </div>
+      </header>
+      <div class="tk-section__body">
+        <div id="tmpl-list"></div>
+      </div>
+    </section>
+
     <!-- ===== 02 — OPENINGS / CUT SCHEDULE ===== -->
     <section class="tk-section">
       <header class="tk-section__head">
@@ -273,6 +308,14 @@ ENT-1   IR501T   84&quot; x 108&quot;   x1"></textarea>
             <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
             Export CSV
           </button>
+          <button class="tk-btn tk-btn--ghost tk-btn--sm" id="export-cutting-dxf-all" title="One DXF per elevation (separate downloads) — bordered stick bars with cut ticks, layer per part number">
+            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+            Cutting DXF (all elevations)
+          </button>
+          <button class="tk-btn tk-btn--ghost tk-btn--sm" id="export-cutting-dxf-combined" title="One single DXF with every elevation's cutting diagram stacked, each headed by its mark">
+            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+            Cutting DXF (combined, one file)
+          </button>
         </div>
       </div>
     </section>
@@ -357,7 +400,7 @@ ENT-1   IR501T   84&quot; x 108&quot;   x1"></textarea>
 <script src="firebase-init.js?v=20260713g"></script>
 <script src="systems.js?v=20260713j"></script>
 <script src="role-sections.js?v=20260713f"></script>
-<script src="app.js?v=20260719c"></script>
+<script src="app.js?v=20260720h"></script>
 <script src="cloud-sync.js?v=20260713h"></script>
 <script src="tracker-bridge.js?v=20260716c"></script>
 </body>
