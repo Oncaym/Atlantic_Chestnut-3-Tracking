@@ -30,7 +30,7 @@ const ROLE_REMAP = {
   'Jamb (IMP-1)':         ['Jamb (IMP-1)', 'Jamb (X)', 'Jamb'],
   'Vertical (IMP-1)':     ['Vertical (IMP-1)', 'Vertical (X)', 'Vertical'],
   'Vertical (wide IMP-1)':['Vertical (wide IMP-1)', 'Vertical (wide X)', 'Vertical (wide)'],
-  'Horizontal (Glass&Glass)': ['Horizontal (Glass&Glass)', 'Horizontal'],
+  'Horizontal (Glass & Glass)': ['Horizontal (Glass & Glass)', 'Horizontal'],
 };
 const _allowedRolesCache = new Map();
 function allowedRolesForSystem(system) {
@@ -653,7 +653,7 @@ function classifyRoles(cuts, ctx) {
       const midX = s.x + s.w / 2;
       const bordersImp1 = imp1Bands.some(b => inX(b, midX) &&
         (Math.abs(s.y - b.maxY) < 3 || Math.abs((s.y + s.h) - b.minY) < 3 || (s.y < b.maxY && (s.y + s.h) > b.minY)));
-      if (!bordersImp1) cut.position = 'Horizontal (Glass&Glass)';
+      if (!bordersImp1) cut.position = 'Horizontal (Glass & Glass)';
     }
   }
   // #whitelist (#2): constrain roles to those that belong to this system.
