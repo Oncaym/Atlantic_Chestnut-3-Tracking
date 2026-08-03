@@ -75,7 +75,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-storage-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 <script src="firebase-config.js"></script>
-<script src="project-config.js"></script>
+<script src="project-config.js?v=20260803a"></script>
 <script src="cloud-sync.js"></script>
 <script src="elev-cloud.js?v=20260710"></script>
 
@@ -735,6 +735,21 @@
     max-width: 420px;
   }
   .modal h3 { margin-bottom: 16px; font-size: 16px; }
+  /* Submittal modal carries the per-reviewer response matrix — wider + scrollable */
+  #submittalModal .modal { max-width: 560px; max-height: 88vh; overflow-y: auto; }
+  /* Drag handle for reordering submittal rows */
+  .drag-grip {
+    cursor: grab;
+    text-align: center;
+    font-size: 13px;
+    line-height: 1;
+    color: var(--text-dim);
+    padding: 3px 0;
+    border-radius: 4px;
+    user-select: none;
+  }
+  .drag-grip:hover { color: var(--text); background: var(--bg); }
+  .drag-grip:active { cursor: grabbing; }
   .form-row { margin-bottom: 14px; }
   .form-row label {
     display: block;
@@ -3179,15 +3194,15 @@ function importDxfInTracker(e){
     </div>
     <div class="form-row">
       <label>Revision</label>
-      <input type="text" id="sub-rev" placeholder="e.g. Rev 0">
+      <input type="text" id="sub-rev" placeholder="e.g. Rev0" onchange="onSubRevChange()">
     </div>
     <div class="form-row">
       <label>Returned date</label>
       <input type="date" id="sub-returned">
     </div>
     <div class="form-row">
-      <label>Ball in court</label>
-      <input type="text" id="sub-ball" placeholder="e.g. GC / Architect / AC3">
+      <label>Ball in court &amp; responses</label>
+      <div id="sub-reviews"></div>
     </div>
     <div class="form-row">
       <label>Note</label>
@@ -3251,7 +3266,7 @@ function importDxfInTracker(e){
 <script src="app-log.js?v=20260716a"></script>
 <script src="elevations.js?v=20260716a"></script>
 <script src="dxf-elevations.js?v=20260716a"></script>
-<script src="app.js?v=20260720a"></script>
+<script src="app.js?v=20260803b"></script>
 <!-- boot handled inside app.js (core) -->
 </body>
 </html>

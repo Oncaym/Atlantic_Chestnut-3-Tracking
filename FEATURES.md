@@ -35,6 +35,8 @@ Status: ✅ live · ⬜ not enabled · ⚠ diverged (see note)
 | F-027 | Project Sync 同步"工具/文档文件"（project-sync.html/SYNC.md/FEATURES.md/HUB-SETUP.md 可从 Hub 拉取，🔧 标记）+ 旧文件清理（sync.html/new-project.html 若残留可一键 🗑 删除） | ✅ | ⬜ | 让工具能自我分发；contribDiffFiles 限定 core，不误报"贡献" |
 | F-029 | Tracker 内嵌 Takeoff Tool（header "🛠 Takeoff Tool" 直跳 `takeoff/`，import DXF 在 takeoff 页做） | ✅ | ⬜ | **非 core**：`takeoff/` = Downloads takeoff tool 的镜像拷贝（改一边要同步另一边）；零件库共享 Firestore 挂 atlantic-chestnut-3 项目 |
 | F-030 | **Elevation 入云**：takeoff 页 "→ Tracker" 按钮把每个 unit 的立面几何（glass/louver/door/panel 元素+框线 base）写入 Firestore `elevGeo`；tracker 端 `elev-cloud.js` 实时订阅合并进 `window.ELEVATIONS`（云端覆盖 elevations.js 同名静态条目）→ 导入新 DXF 不用改文件不用重部署 | ✅ | ⬜ | 非 core（elev-cloud.js + index.html 两个 script 标签）；需 Firestore 开通+规则（takeoff tool/`FIRESTORE-SETUP.md`）；unit 显示 id 必须与 mark 一致（如 SF04.1） |
+| F-031 | **Submittal 逐家回复（按 Rev 分组）**：BIC 不再是一行文本，改成每个审核方一行（状态 + Procore 回复原文 + 回复日期），默认按固定顺序自动带出、可增删改；改 Revision 自动开新一轮，旧 Rev 存为历史；表格 BIC 列显示 `Rev0 · 2/4 responded` + 每家色标 + **回复原文直接显示在对应审核方右侧** | ✅ | ⬜ | **core（app.js）**，需同步 CP2；名单是项目数据 `PROJECT.submittalReviewers`（CP2 要填自己的审核方，留空则不预填）；`s.reviews={Rev0:[{party,status,response,date}]}`，`s.ballInCourt` 变成派生字符串（向后兼容，旧数据渲染/首次保存时自动升级） |
+| F-032 | **Submittal 行拖拽排序**：⠿ 手柄拖到任意位置（上半格插上方/下半格插下方，蓝线预览），不用一格格点；▲▼ 保留作触屏回退 | ✅ | ⬜ | **core（app.js）**，需同步 CP2；只有手柄 `draggable`，点行仍然打开编辑；`reorderSubmittal()` 按对象identity移动 → 带筛选时排序仍正确；HTML5 DnD 手机不触发，故留 ▲▼ |
 
 ## Divergence watchlist
 - **F-021 (app.js 数据驱动楼层, 2026-07-07)**: AC3 的 app.js 已加 getFloors/renderFloorControls，CP2 尚未同步。改动向后兼容（无 `PROJECT.floors` 时零行为变化），所以 CP2 现状不受影响；但下次改 core 前应把 app.js 原样复制到 CP2 并 md5 校验，避免漂移。

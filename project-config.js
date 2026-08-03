@@ -24,6 +24,15 @@ window.PROJECT = {
   // true → only markers explicitly placed via Place mode render on the plan
   requirePlacedMarkers: true,
 
+  // Submittal ball-in-court reviewers — Procore review chain, FIXED ORDER.
+  // Seeded into every new submittal / new revision; always hand-editable per row.
+  submittalReviewers: [
+    'AKRF Inc.(Consulting)',
+    'Bright Power, Inc.(Energy Efficiency)',
+    'Dattner Architects',
+    'Monadnock Construction'
+  ],
+
   // Project strings that override the core i18n table
   i18n: {
     en: { header_sub: "Monadnock · Ground Floor · Storefront Install & Glass Tracking", img_alt_gf: "Atlantic-Chestnut Building 3 — Ground Floor Plan" },

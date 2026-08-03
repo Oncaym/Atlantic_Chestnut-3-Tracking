@@ -2867,6 +2867,55 @@ const SUBMITTAL_STATUS_LABEL = {
   'revise-resubmit': 'Revise & Resubmit', 'rejected': 'Rejected'
 };
 function setSubmittalFilter(v) { _submittalFilter = v || 'all'; renderSubmittals(); }
+
+/* -------- Ball-in-court reviews, grouped by revision (Leo, 2026-08-03) --------
+   Procore replies are recorded per reviewer, per Rev:
+     s.reviews = { Rev0:[{party,status,response,date},…], Rev1:[…] }
+   `s.ballInCourt` stays as a derived "A / B / C" string so legacy rows, exports and
+   anything still reading the old field keep working. The default party list + order is
+   PROJECT data (window.PROJECT.submittalReviewers) — core code never hardcodes names.
+   Every seeded row is hand-editable / removable (constitution §4.8). */
+const REVIEW_STATUS = {
+  'pending':         { label: 'Awaiting response',  color: '#4d5764' },
+  'no-exception':    { label: 'No Exception Taken', color: 'var(--green)' },
+  'reviewed':        { label: 'Reviewed',           color: 'var(--green)' },
+  'note':            { label: 'Action Required',    color: 'var(--yellow)' },
+  'revise-resubmit': { label: 'Revise & Resubmit',  color: 'var(--red)' },
+  'rejected':        { label: 'Rejected',           color: 'var(--red)' },
+  'na':              { label: 'Review Not Required',color: '#4d5764' }
+};
+function projectReviewers() { return ((window.PROJECT && window.PROJECT.submittalReviewers) || []).slice(); }
+function defaultReviewRows() { return projectReviewers().map(p => ({ party: p, status: 'pending', response: '', date: '' })); }
+function revKey(rev) { return String(rev == null ? '' : rev).trim() || 'Rev0'; }
+// Read-only accessor: never mutates/persists. Legacy rows (ballInCourt string only) are
+// projected into rows on the fly so they render before anyone opens/saves them.
+function reviewsFor(s, k) {
+  const R = (s && s.reviews && typeof s.reviews === 'object' && !Array.isArray(s.reviews)) ? s.reviews : {};
+  if (Array.isArray(R[k])) return R[k];
+  return String((s && s.ballInCourt) || '').split('/').map(x => x.trim()).filter(Boolean)
+    .map(p => ({ party: p, status: 'pending', response: '', date: '' }));
+}
+// Two-column grid: reviewer on the left, that reviewer's response text directly to its right
+// (Leo, 2026-08-03 — replaced the 💬 tooltip; the reply has to be readable from the list).
+function renderBicCell(s) {
+  const esc = v => String(v == null ? '' : v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  const k = revKey(s.rev);
+  const rows = reviewsFor(s, k);
+  if (!rows.length) return '<span style="color:var(--text-dim)">—</span>';
+  const done = rows.filter(r => r.status && r.status !== 'pending').length;
+  return `<div style="font-size:10px;color:var(--text-dim);margin-bottom:3px">${esc(k)} · ${done}/${rows.length} responded</div>` +
+    '<div style="display:grid;grid-template-columns:max-content 1fr;gap:3px 10px;align-items:start">' +
+    rows.map(r => {
+      const st = REVIEW_STATUS[r.status] || REVIEW_STATUS.pending;
+      const date = r.date ? `<span style="opacity:.55"> · ${esc(r.date)}</span>` : '';
+      const reply = r.response
+        ? esc(r.response) + date
+        : (r.status && r.status !== 'pending' ? `<em style="opacity:.7">${esc(st.label)}</em>${date}` : '');
+      return `<div style="font-size:11px;line-height:1.5;white-space:nowrap" title="${esc(st.label)}">` +
+          `<span class="status-dot" style="background:${st.color}"></span>${esc(r.party)}</div>` +
+        `<div style="font-size:11px;line-height:1.5;color:var(--text-dim);min-width:0">${reply}</div>`;
+    }).join('') + '</div>';
+}
 function renderSubmittals() {
   if (!Array.isArray(state.submittals)) state.submittals = [];
   const body = document.getElementById('submittalsBody');
@@ -2876,10 +2925,13 @@ function renderSubmittals() {
     .map((s, i) => ({ s, i }))
     .filter(({ s }) => _submittalFilter === 'all' || s.status === _submittalFilter);
   body.innerHTML = rows.map(({ s, i }, p) => `
-    <tr style="cursor:pointer">
+    <tr style="cursor:pointer" data-sub="${i}" ondragover="onSubDragOver(event,${i})" ondragleave="onSubDragLeave(event)" ondrop="onSubDrop(event,${i})">
       <td style="white-space:nowrap" onclick="event.stopPropagation()">
-        <button class="btn" style="padding:2px 6px;font-size:11px;line-height:1;min-height:0" title="Move up" ${p === 0 ? 'disabled' : ''} onclick="moveSubmittal(${i},-1)">&#9650;</button>
-        <button class="btn" style="padding:2px 6px;font-size:11px;line-height:1;min-height:0" title="Move down" ${p === rows.length - 1 ? 'disabled' : ''} onclick="moveSubmittal(${i},1)">&#9660;</button>
+        <div class="drag-grip" draggable="true" title="Drag to reorder" ondragstart="onSubDragStart(event,${i})" ondragend="onSubDragEnd(event)">&#10303;</div>
+        <div style="white-space:nowrap;margin-top:2px">
+          <button class="btn" style="padding:1px 5px;font-size:10px;line-height:1;min-height:0" title="Move up" ${p === 0 ? 'disabled' : ''} onclick="moveSubmittal(${i},-1)">&#9650;</button>
+          <button class="btn" style="padding:1px 5px;font-size:10px;line-height:1;min-height:0" title="Move down" ${p === rows.length - 1 ? 'disabled' : ''} onclick="moveSubmittal(${i},1)">&#9660;</button>
+        </div>
       </td>
       <td onclick="editSubmittal(${i})"><strong>${esc(s.number)}</strong></td>
       <td onclick="editSubmittal(${i})">${esc(s.title)}</td>
@@ -2889,7 +2941,7 @@ function renderSubmittals() {
       <td onclick="editSubmittal(${i})">${esc(SUBMITTAL_STATUS_LABEL[s.status] || s.status || '')}</td>
       <td onclick="editSubmittal(${i})">${esc(s.rev)}</td>
       <td onclick="editSubmittal(${i})">${s.returnedDate ? formatDate(s.returnedDate) : '<span style="color:var(--text-dim)">—</span>'}</td>
-      <td onclick="editSubmittal(${i})">${esc(s.ballInCourt)}</td>
+      <td onclick="editSubmittal(${i})" style="min-width:340px;max-width:520px">${renderBicCell(s)}</td>
       <td onclick="editSubmittal(${i})" style="font-size:12px;color:var(--text-dim);max-width:200px">${esc(s.note)}</td>
     </tr>`).join('') || `<tr><td colspan="11" style="text-align:center;color:var(--text-dim);padding:24px">No submittals${_submittalFilter !== 'all' ? ' match this filter' : ' yet'}</td></tr>`;
 }
@@ -2907,12 +2959,147 @@ function moveSubmittal(idx, dir) {
   const tmp = state.submittals[a]; state.submittals[a] = state.submittals[b]; state.submittals[b] = tmp;
   saveState(false);
 }
+/* Working copy of the review matrix while the modal is open — Cancel discards it. */
+let _subReviews = {};
+let _subReviewsRev = 'Rev0';
+function setReviewField(i, field, val) {
+  const rows = _subReviews[_subReviewsRev];
+  if (!rows || !rows[i]) return;
+  rows[i][field] = val;
+  // First real response auto-stamps today's date (still editable / clearable by hand).
+  if (field === 'status' && val !== 'pending' && !rows[i].date) {
+    rows[i].date = new Date().toISOString().slice(0, 10);
+    renderReviewEditor();
+  }
+}
+function addReviewRow() {
+  (_subReviews[_subReviewsRev] = _subReviews[_subReviewsRev] || []).push({ party: '', status: 'pending', response: '', date: '' });
+  renderReviewEditor();
+}
+function removeReviewRow(i) {
+  const rows = _subReviews[_subReviewsRev];
+  if (!rows) return;
+  rows.splice(i, 1);
+  renderReviewEditor();
+}
+function resetReviewRows() {
+  const rows = _subReviews[_subReviewsRev] || [];
+  const byParty = {}; rows.forEach(r => { if (r.party) byParty[r.party] = r; });
+  // Restore the project default list/order, keeping any response already typed for that party.
+  _subReviews[_subReviewsRev] = defaultReviewRows().map(d => byParty[d.party] || d);
+  renderReviewEditor();
+}
+// Typing a new Rev in the modal starts a fresh response set (previous Revs stay as history),
+// pre-seeded with the same party list so the chain carries forward.
+function onSubRevChange() {
+  const k = revKey(document.getElementById('sub-rev').value);
+  if (k === _subReviewsRev) return;
+  if (!Array.isArray(_subReviews[k]) || !_subReviews[k].length) {
+    const prev = _subReviews[_subReviewsRev] || [];
+    const base = prev.length ? prev : defaultReviewRows();
+    _subReviews[k] = base.map(r => ({ party: r.party, status: 'pending', response: '', date: '' }));
+  }
+  _subReviewsRev = k;
+  renderReviewEditor();
+}
+function renderReviewEditor() {
+  const wrap = document.getElementById('sub-reviews');
+  if (!wrap) return;
+  const esc = v => String(v == null ? '' : v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  const rows = _subReviews[_subReviewsRev] = _subReviews[_subReviewsRev] || [];
+  const opts = sel => Object.keys(REVIEW_STATUS)
+    .map(k => `<option value="${k}"${(sel || 'pending') === k ? ' selected' : ''}>${esc(REVIEW_STATUS[k].label)}</option>`).join('');
+  const editor = rows.map((r, i) => {
+    const st = REVIEW_STATUS[r.status] || REVIEW_STATUS.pending;
+    return `<div style="border:1px solid var(--border);border-left:3px solid ${st.color};border-radius:6px;padding:7px 8px;margin-bottom:6px">
+      <div style="display:flex;gap:5px;margin-bottom:5px">
+        <input type="text" value="${esc(r.party)}" placeholder="Reviewer" oninput="setReviewField(${i},'party',this.value)" style="flex:2 1 0;min-width:0;font-size:12px">
+        <select onchange="setReviewField(${i},'status',this.value)" style="flex:1.4 1 0;min-width:0;font-size:12px">${opts(r.status)}</select>
+        <input type="date" value="${esc(r.date)}" onchange="setReviewField(${i},'date',this.value)" style="flex:1 1 0;min-width:0;font-size:12px">
+        <button class="btn btn-danger" title="Remove reviewer" onclick="removeReviewRow(${i})" style="padding:2px 9px;min-height:0;line-height:1.2">×</button>
+      </div>
+      <textarea rows="2" placeholder="Paste the Procore response…" oninput="setReviewField(${i},'response',this.value)" style="width:100%;font-size:12px">${esc(r.response)}</textarea>
+    </div>`;
+  }).join('') || '<div style="color:var(--text-dim);font-size:12px;margin-bottom:6px">No reviewers on this revision.</div>';
+  const older = Object.keys(_subReviews).filter(k => k !== _subReviewsRev && (_subReviews[k] || []).length).sort();
+  const history = older.length ? `<details style="margin-top:8px">
+    <summary style="cursor:pointer;font-size:12px;color:var(--text-dim)">Previous revisions (${older.length})</summary>
+    ${older.map(k => `<div style="margin:6px 0 0 0">
+      <div style="font-size:11px;font-weight:600;margin-bottom:3px">${esc(k)}</div>
+      ${_subReviews[k].map(r => {
+        const st = REVIEW_STATUS[r.status] || REVIEW_STATUS.pending;
+        return `<div style="font-size:11px;line-height:1.5;padding-left:2px">
+          <span class="status-dot" style="background:${st.color}"></span><strong>${esc(r.party)}</strong>
+          <span style="color:var(--text-dim)"> · ${esc(st.label)}${r.date ? ' · ' + esc(r.date) : ''}</span>
+          ${r.response ? `<div style="color:var(--text-dim);padding-left:12px">${esc(r.response)}</div>` : ''}</div>`;
+      }).join('')}</div>`).join('')}
+  </details>` : '';
+  wrap.innerHTML = `<div style="font-size:11px;color:var(--text-dim);margin-bottom:5px">Responses for <strong>${esc(_subReviewsRev)}</strong> — change the Revision field above to start a new round.</div>
+    ${editor}
+    <div style="display:flex;gap:6px">
+      <button class="btn" onclick="addReviewRow()" style="font-size:11px;padding:4px 9px;min-height:0">+ Reviewer</button>
+      <button class="btn" onclick="resetReviewRows()" style="font-size:11px;padding:4px 9px;min-height:0">Restore default list</button>
+    </div>${history}`;
+}
+/* Drag-to-reorder (Leo, 2026-08-03): grip is the only draggable element, so plain row clicks
+   still open the editor. The row itself is the drop zone; dropping in a row's upper half inserts
+   above it, lower half below. Moves are resolved by object identity, not index, so reordering is
+   correct even while a status filter hides rows. Arrows stay as the touch/keyboard fallback. */
+let _dragSubIdx = null;
+let _dropBefore = true;
+function _clearDropMarks() {
+  const body = document.getElementById('submittalsBody');
+  if (body) Array.prototype.forEach.call(body.rows, tr => { tr.style.boxShadow = ''; });
+}
+function onSubDragStart(ev, idx) {
+  _dragSubIdx = idx;
+  try { ev.dataTransfer.effectAllowed = 'move'; ev.dataTransfer.setData('text/plain', String(idx)); } catch (e) {}
+  const tr = ev.target.closest && ev.target.closest('tr');
+  if (tr) tr.style.opacity = '.45';
+}
+function onSubDragEnd(ev) {
+  _dragSubIdx = null;
+  _clearDropMarks();
+  const tr = ev.target.closest && ev.target.closest('tr');
+  if (tr) tr.style.opacity = '';
+}
+function onSubDragOver(ev, idx) {
+  if (_dragSubIdx === null || _dragSubIdx === idx) return;
+  ev.preventDefault();
+  const tr = ev.currentTarget;
+  const r = tr.getBoundingClientRect();
+  _dropBefore = (ev.clientY - r.top) < r.height / 2;
+  tr.style.boxShadow = _dropBefore ? 'inset 0 2px 0 0 var(--accent)' : 'inset 0 -2px 0 0 var(--accent)';
+}
+function onSubDragLeave(ev) { ev.currentTarget.style.boxShadow = ''; }
+function onSubDrop(ev, idx) {
+  ev.preventDefault();
+  const from = _dragSubIdx;
+  _dragSubIdx = null;
+  _clearDropMarks();
+  if (from === null || from === idx) return;
+  reorderSubmittal(from, idx, _dropBefore);
+}
+function reorderSubmittal(from, target, before) {
+  const arr = state.submittals;
+  if (!Array.isArray(arr)) return;
+  const item = arr[from], tgt = arr[target];
+  if (!item || !tgt || item === tgt) return;
+  arr.splice(from, 1);
+  const ti = arr.indexOf(tgt);
+  arr.splice(before ? ti : ti + 1, 0, item);
+  saveState(false);
+}
 function openAddSubmittal() {
   editingSubmittalIdx = null;
   document.getElementById('submittalModalTitle').textContent = 'Add Submittal';
-  ['sub-number','sub-title','sub-spec','sub-scope','sub-submitted','sub-rev','sub-returned','sub-ball','sub-note']
+  ['sub-number','sub-title','sub-spec','sub-scope','sub-submitted','sub-returned','sub-note']
     .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
   document.getElementById('sub-status').value = 'draft';
+  document.getElementById('sub-rev').value = 'Rev0';
+  _subReviewsRev = 'Rev0';
+  _subReviews = { Rev0: defaultReviewRows() };
+  renderReviewEditor();
   document.getElementById('submittalDeleteBtn').style.display = 'none';
   document.getElementById('submittalModal').classList.add('show');
 }
@@ -2929,8 +3116,20 @@ function editSubmittal(idx) {
   document.getElementById('sub-status').value = s.status || 'draft';
   document.getElementById('sub-rev').value = s.rev || '';
   document.getElementById('sub-returned').value = s.returnedDate || '';
-  document.getElementById('sub-ball').value = s.ballInCourt || '';
   document.getElementById('sub-note').value = s.note || '';
+  _subReviewsRev = revKey(s.rev);
+  _subReviews = {};
+  if (s.reviews && typeof s.reviews === 'object' && !Array.isArray(s.reviews)) {
+    Object.keys(s.reviews).forEach(k => {
+      if (Array.isArray(s.reviews[k])) _subReviews[k] = s.reviews[k]
+        .map(r => ({ party: r.party || '', status: r.status || 'pending', response: r.response || '', date: r.date || '' }));
+    });
+  }
+  if (!Array.isArray(_subReviews[_subReviewsRev]) || !_subReviews[_subReviewsRev].length) {
+    const legacy = reviewsFor({ ballInCourt: s.ballInCourt }, '__none__');
+    _subReviews[_subReviewsRev] = legacy.length ? legacy : defaultReviewRows();
+  }
+  renderReviewEditor();
   document.getElementById('submittalDeleteBtn').style.display = '';
   document.getElementById('submittalModal').classList.add('show');
 }
@@ -2939,7 +3138,19 @@ function closeSubmittalModal() {
   editingSubmittalIdx = null;
 }
 function saveSubmittal() {
+  // Persist the review matrix: drop blank rows and empty revisions so Firebase stays clean.
+  const reviews = {};
+  Object.keys(_subReviews).forEach(k => {
+    const rows = (_subReviews[k] || [])
+      .filter(r => (r.party || '').trim() || (r.response || '').trim())
+      .map(r => ({ party: (r.party || '').trim(), status: r.status || 'pending', response: (r.response || '').trim(), date: r.date || '' }));
+    if (rows.length) reviews[k] = rows;
+  });
+  const curRev = revKey(document.getElementById('sub-rev').value);
   const entry = {
+    reviews,
+    // derived legacy string — current revision's party list
+    ballInCourt: (reviews[curRev] || []).map(r => r.party).filter(Boolean).join(' / '),
     number: document.getElementById('sub-number').value.trim(),
     title: document.getElementById('sub-title').value.trim(),
     spec: document.getElementById('sub-spec').value.trim(),
@@ -2948,7 +3159,6 @@ function saveSubmittal() {
     status: document.getElementById('sub-status').value,
     rev: document.getElementById('sub-rev').value.trim(),
     returnedDate: document.getElementById('sub-returned').value,
-    ballInCourt: document.getElementById('sub-ball').value.trim(),
     note: document.getElementById('sub-note').value.trim(),
   };
   if (!entry.number && !entry.title) { toast('Enter at least a number or title'); return; }

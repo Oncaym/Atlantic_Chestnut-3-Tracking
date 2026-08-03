@@ -11,6 +11,47 @@
 
 ## Current state / progress
 
+- **2026-08-03 — Submittal Log: per-reviewer ball-in-court responses, grouped by Rev (SHIPPED).**
+  Leo's ask: Procore replies must be logged per ball-in-court party; the parties are always the
+  same 4 in a fixed order, so seed them by default but keep them editable; keep history per Rev.
+  - Data: `s.reviews = { Rev0:[{party,status,response,date},…], Rev1:[…] }` keyed by
+    `revKey(s.rev)` (blank rev → `Rev0`). `s.ballInCourt` is now **derived** (current rev's
+    parties joined `" / "`) and kept only for back-compat — nothing writes it by hand anymore.
+    Legacy rows (string only, no `reviews`) are projected into rows at render time by
+    `reviewsFor()` **without mutating state**; they upgrade on first save.
+  - Party list is PROJECT data: `window.PROJECT.submittalReviewers` in `project-config.js`
+    (AKRF / Bright Power / Dattner / Monadnock — fixed order). `app.js` is CORE and never
+    hardcodes names; other trackers just supply their own list (or none → empty seed).
+  - Statuses `REVIEW_STATUS`: pending · no-exception · reviewed · note (Action Required) ·
+    revise-resubmit · rejected · na. First non-pending status auto-stamps today's date (editable).
+  - Modal: `#sub-reviews` renders one card per reviewer (party / status / date / response
+    textarea) + `+ Reviewer`, `Restore default list`, per-row `×`. Editing the **Revision** field
+    (`onchange="onSubRevChange()"`) opens a fresh round pre-seeded with the same parties, statuses
+    reset; earlier revs stay as read-only history in a `<details>` block. Working copy
+    `_subReviews` is a deep copy → Cancel discards. Blank rows/revs dropped on save (Firebase).
+  - Table BIC column: `renderBicCell()` — `Rev0 · 2/4 responded` header + a
+    `grid-template-columns:max-content 1fr` grid: reviewer (color dot + name) on the left, that
+    reviewer's **response text inline on the right** (+ dim date). No response but a real status →
+    dim italic status label. (Leo 2026-08-03 revision: the 💬-tooltip version was rejected, the
+    reply must be readable straight from the list.) `td` is `min-width:340px;max-width:520px`.
+  - **Drag-to-reorder** rows (replaces one-step-at-a-time clicking): `.drag-grip` (⠿) is the only
+    `draggable` element so plain row clicks still open the editor; the `<tr>` is the drop zone
+    (`onSubDragOver/Leave/Drop`), upper half = insert above, lower half = insert below, shown with
+    an `inset box-shadow` line. `reorderSubmittal(from,target,before)` splices by **object
+    identity** (`arr.indexOf(tgt)` after removal) so it is correct while a status filter hides
+    rows. ▲▼ kept as the touch/no-DnD fallback (touch devices don't fire HTML5 drag events).
+  - CSS: `#submittalModal .modal { max-width:560px; max-height:88vh; overflow-y:auto }`.
+    Bumped `app.js?v=20260803a` + added `project-config.js?v=20260803a` in `index.html`.
+  - **Verified**: 43-check jsdom harness (`test-submittal-reviews.cjs`, kept in the repo root —
+    `npm i jsdom` then `node test-submittal-reviews.cjs`; it slices the submittal block out of
+    `app.js` and evals it against the real DOM, so it stays valid as long as the
+    `/* -------- Submittal log (M4) -------- */` marker stands) against the real
+    `index.html` markup + `node --check` on both files. Covers default seeding/order, save shape,
+    Rev0→Rev1 history, legacy-string migration, row add/remove, derived string, HTML escaping,
+    inline reply pairing (party↔response grid cells), drag up/down/self/last + reorder under filter.
+    Not browser-tested — Leo eyeballs the UI. CORE change → `SYNC.md`/`FEATURES.md` propagation
+    to CP2 still owed (CP2 needs its own `submittalReviewers` list).
+
 - **2026-07-17 — Leo feedback after reviewing S3/M4/M5 (NOT yet acted on, recorded per his
   instruction — "you don't need to figure it out now"):**
   1. **New ask:** both Submittal Log (tracker) and Material Tracking (`warehouse.html`) list
@@ -138,6 +179,255 @@
      scripting is added later. Not applicable to the current DXF-parse-only stack. -->
 
 ## Open items / next actions
+
+### 2026-07-21 (Opus) — Pooled cutting-diagram DXF export (`app.js?v=20260720j`)
+Leo: new export — all openings' parts POOLED (not per-elevation) into one DXF. Built
+`buildPooledPacking()` (loops every opening through `collectOpeningIntoBuckets` into ONE bucket map,
+then `packFFDLayout` per part — same pooling `buildReport()` uses for order-list counts) +
+`downloadPooledCuttingDxf()` (wraps `buildCuttingDxf(groups,'ALL OPENINGS (pooled)')`, file
+`all-openings-pooled-cutting.dxf`). New sidebar button `#export-cutting-dxf-pooled` ("Cutting DXF
+(all openings pooled)"), wired in init(). Leo's choice: plain lines, NO per-piece source-mark
+labels. Keeps the existing per-elevation + per-elevation-combined exports. Verified: new functions
+pass isolated `node --check` (`outputs/pooled_syntax.js`); full-file check blocked by the workspace
+mount capping app.js at ~3423 of ~3800 lines (known env issue) — insertion is complete functions at
+clean boundaries in a file already fully node-checked at v i, so syntax is safe. Not browser-tested;
+not pushed to GitHub.
+
+### 2026-07-21 (Opus) — `Horizontal (Glass&Glass)` → `Horizontal (Glass & Glass)` rename
+(covered below in the role-name fix note.)
+
+### 2026-07-20 (evening, Opus) — Layer B DELETED (Task 1 of the Opus handoff done); `app.js?v=20260720f`
+Executed Task 1 of `HANDOFF-FOR-OPUS-20260720.md`. Deleted from `takeoff/app.js`:
+`computeOpeningZones`, `zoneShapeOf`, `computeRoleSignature`, `roleSigKey`, `persistRoleRule`,
+`applyLearnedRoleRules`, `loadRoleRulesFromCloud` (+ its `fb-ready` registration), the viewer
+Position-dropdown capture point, and all `zones`/`zoneShape` threading through `classifyRoles`
+and the parse loop. `state.roleRules` no longer read/written; Firestore `roleRules` collection
+left dead/harmless (see FIRESTORE-SETUP.md note). **Layer A untouched** — `imp1Bands`, Stage 1/2
+IMP-1 split, `IMP1_VERTICAL_ROLES`/`normalizeImp1RoleToBase`/`toImp1Role`, Horizontal
+(Glass&Glass), `applyRoleWhitelist`, and the SF01 pin-protection pass all preserved verbatim.
+`_bands` on each opening retained (minus zones/zoneShape) as input for the future template
+feature. Bumped `app.js?v=20260720e`→`20260720f` in `takeoff/index.html`. PROPAGATION-DESIGN.md
+§3-LayerB/§9/§9b marked ⛔ ABANDONED (kept as history).
+⚠️ **Verification gap (environment):** this session's shell saw only a *partial* OneDrive sync of
+the 3395-line `app.js` (Files-On-Demand hydrated ~2255 lines to disk; the Read/Edit tools saw the
+full file). `node --check` therefore ran only on the hydrated prefix (lines 1-2255 = **0 syntax
+errors**, covers both function-deletion seams + the capture-point edit); the 3 parse-section
+edits were verified by authoritative read (balanced) but not by a full `node --check`. **TODO
+(direct-disk env): run `node --check takeoff/app.js` on the full file + re-run the §13 10-check
+and S3/§14 regression harnesses to confirm Layer A role output is byte-for-byte unchanged.**
+Nothing pushed to GitHub yet.
+- **Task 2 (recognized-roles allow-list) — BUILT this session** (`app.js?v=20260720f`, same version
+  bump as Task 1). Per-system `state.recognizedRoles[system]` manual list gates `applyRoleWhitelist`;
+  new `recognizedRolesForSystem`/`hasManualRecognizedList`/`applyRolePins`/`applyRecognizedRolesToAll`/
+  `setRecognizedRoles`; left-sidebar "01b — Recognized Roles" UI (`renderRecognizedRoles` + init
+  handlers). Kills both resurfacing mechanisms: whitelist gate + dropping stale pins that hold a
+  retired role (only when a manual list exists — un-curated systems keep the exact old SF01
+  behaviour). Decisions (removal cascade remap→flag, keep separate from "+ Add Role", local-only
+  storage) documented in PROPAGATION-DESIGN.md §17. Verified: isolated 19-check Node harness
+  (`outputs/task2_harness.js`) all pass + UI `node --check` clean. **UI not browser-tested; full
+  whole-file node --check / regression harness NOT run (partial-OneDrive-sync shell).**
+- **Task 3 (template-classification) — BUILT (Leo asked me to finish it; `app.js?v=20260720g`).**
+  Leo simplified the spec: **matching = top→bottom fill-order sequence ONLY** (no proportion/bay
+  checks), **manual** pick+preview+confirm apply, **doors = another fill**, ~3–5 templates. Built
+  `computeFillStack`/`fillSequenceOf`/`memberKeyOf`/`buildTemplateFromOpening`/`templatesMatchingOpening`/
+  `applyTemplateToOpening` + `saveRoleTemplate`/`deleteRoleTemplate`/`loadRoleTemplatesFromCloud`
+  (Firestore `roleTemplates`, tombstone delete). UI: viewer "Save as Template" + "Apply Template"
+  (preview→confirm) + left-sidebar "01c — Templates" list. Layered on top of Layer A (only overrides
+  role labels). Apply writes roles as roleEdits pins so they persist through re-import. As-built in
+  PROPAGATION-DESIGN.md §16.9; FIRESTORE-SETUP.md has the new `roleTemplates` rule. **Leo's deeper
+  goal: a self-sufficient takeoff tool that doesn't need Claude** — templates let him correct
+  classification by example. Verified: 16-check Node harness + full `node --check`. **Not browser-
+  tested; not pushed to GitHub.**
+- **ENV NOTE (important for next session): Leo MOVED the working folder off OneDrive to
+  `C:\Users\Ethan\Downloads\AC3 tracker` on 2026-07-20** specifically so the shell could see the
+  full file. Even there the workspace bash mount lagged writes (served truncated partials at
+  3445/3479 lines vs the real 3742), so full `node --check` was done via a stitch: bash `head -n
+  3389` (reliable prefix, below every truncation) + the authoritative tail from the `Read` tool →
+  `/tmp/full.js` → `node --check` (passed). If bash shows a truncated `app.js`, it's the mount, not
+  the file — trust the `Read`/`Edit` tools.
+- **Task 3 FIX (`app.js?v=20260720h`) — fill layout is wrong on stacked storefronts + now manually
+  editable.** Leo (SF02): auto-detected `glass>louver>glass>imp-1>glass` was wrong; SF02 is louver
+  (top storefront) then imp/glass/glass (lower). Cause: `computeFillStack` counted the empty gaps
+  above/between storefronts as glass fills. Fix: (1) `detectFillSequence(o)` drops any glass zone
+  with NO framing member (dead space) — gives `louver>imp-1>glass`; (2) auto still can't know if the
+  lower glass is one fill or two (split by a transom), so the fill layout is now a **manually
+  editable field** in the viewer template row (`o.fillLayout`, `openingFillSequence`/
+  `setOpeningFillLayout`, `#vc-fill-layout` input + `↺ Auto` reset). Matching + template save use the
+  manual layout when set. Verified: 7-check harness (`outputs/task3b_harness.js`) + full stitched
+  `node --check`. As-built updated in §16.9.
+- **NEW STANDING RULE (Leo, 2026-07-20) → CLAUDE.md §4.8: "Manual override everywhere."** Every
+  automated/detected result must be hand-adjustable; auto-detection is only a default guess, always
+  expose UI (or a documented setter) to correct it. Apply to ALL future functions, not just fills.
+- **Role-name fix (`app.js?v=20260720i`, `systems.js?v=20260721a`): `Horizontal (Glass&Glass)` →
+  `Horizontal (Glass & Glass)` (WITH spaces) everywhere.** The live cloud parts library uses the
+  spaced name; code+seed emitted the no-space name, so the whitelist couldn't match it and
+  ROLE_REMAP fell it back to plain `Horizontal` (Leo's "总是识别成 Horizontal" bug). Renamed in
+  app.js (ROLE_REMAP + classifier) and systems.js (5 part role lists). Canonical name is now the
+  spaced form. Verified via stitched full `node --check` on both files (mount still lagging).
+- **All three Opus-handoff tasks + the fix now sit at `takeoff/app.js?v=20260720h`** (Task1 delete
+  Layer B, Task2 recognized-roles, Task3 templates + fill-layout override). Root tracker
+  `app.js?v=20260720a` unchanged. Still user-side: full regression harnesses (§13/§14/S3), browser
+  smoke-test of the two new sidebar panels + viewer template/fill-layout controls, and GitHub push
+  for Vercel.
+
+### 2026-07-20 (late) — Layer B killed by Leo; handoff written for Opus, not built yet
+Leo: propagation error rate too high — **delete Layer B entirely**, don't keep tuning it (this
+overrides everything in the "Layer B propagation rework" entry above — that rework is now dead,
+about to be reverted). Also raised two more items and asked me to write a handoff instead of
+building: (1) stale/retired roles keep resurfacing — likely `applyRoleWhitelist`'s "no ROLE_REMAP
+chain → leave visible" fallback combined with the 2026-07-19 pin-protection pass unconditionally
+restoring old pins forever, with no revalidation against the system's current role set; wants a
+left-sidebar manual add/remove list of recognized roles; (2) a bigger new-feature idea — manually
+build a "template" from one reference elevation (fill composition + every mullion's role) and
+apply templates to future imports instead of algorithmic propagation. Full detail, exact line
+numbers, and open design questions are in `HANDOFF-FOR-OPUS-20260720.md` (project root) — **no
+code has been changed for any of this**, that file is the entire deliverable for this session.
+
+### 2026-07-20 — Per-elevation FFD cutting diagram + DXF export (takeoff, `app.js?v=20260720a`)
+Leo: "show me how pieces for each part align on a 24' line" → refined to: pure line (no
+per-piece color/label), handle spliced/oversize pieces silently, scope per elevation (not
+pooled), export as DXF. Built `packFFDLayout` (keeps piece-to-stick assignment that `packFFD`
+previously discarded), `buildOpeningPacking(o)` (per-elevation, not pooled — reuses the newly
+extracted `collectOpeningIntoBuckets` so matching rules never drift from the pooled order list),
+a "📏 Cutting diagram" viewer toggle (plain baseline + tick marks, no color/label), and a DXF
+writer (`buildCuttingDxf` — LINE entities only, one layer per part number, no text) with a
+per-elevation export button plus a toolbar "Cutting DXF (all elevations)" batch button. 36-check
+Node harness passed (stick counts match `packFFD`, splice renders with zero ticks, tick math
+correct, DXF structurally valid, per-elevation scoping doesn't lose/duplicate pieces vs pooled
+total). Full details in `takeoff/PROPAGATION-DESIGN.md` §15. Not yet reviewed by Leo.
+
+### 2026-07-20 (rev2) — Cutting diagram: revert box markers → bordered bar + ticks, elevation header, combined multi-elevation DXF (`app.js?v=20260720c`)
+Leo reviewed the box-marker revision (2.5" open rectangles at each cut) and sent two screenshots:
+current (the open-box markers) vs. desired (pic2 — a single bordered bar spanning the whole
+stick, divided by plain tick lines at cut points). Asked for three things: revert the marker
+style to match pic2 (part-name label stays, per his confirmation to keep both part-name and
+stick-number labels), an elevation/mark label at the top of the diagram, and a way to export
+every elevation's cutting diagram into ONE combined DXF (kept as an additional button, not a
+replacement for the existing per-elevation-multi-download "Cutting DXF (all elevations)" button).
+Built: `STOCK_BAR_HEIGHT` replaces `CUT_RECT_WIDTH`/`CUT_RECT_HEIGHT`/`stickCutRects` — each
+stick now draws one bordered `<rect>`/`dxfRect` spanning its full stock length plus a plain tick
+line (`stickTickPositions`, unchanged) at every cut boundary, in both `renderCuttingSvg` and the
+new shared `buildCuttingDxfBody`. Both take a `mark` param and draw it as a header (bold text in
+SVG, a `TEXT` entity on a dedicated `ELEVATION` layer in DXF) above the diagram/section.
+`buildCombinedCuttingDxf(list)` stacks every opening's `buildCuttingDxfBody` output vertically
+(each section headed by its own mark, `sectionGap` between sections) into a single DXF; new
+toolbar button "Cutting DXF (combined, one file)" / `downloadCombinedCuttingDxf()` — the old
+per-elevation-sequential-download button/flow is untouched.
+**Verification note:** hit the known bash/OneDrive stale-mount issue again — `wc -l` on the real
+`takeoff/app.js` via bash reported 2272 lines (truncated) vs. 3453 real lines confirmed via the
+`Read` tool, and even a fresh scratch file in the outputs sandbox truncated on first read (synced
+correctly one retry later). Worked around by `Read`-ing the exact modified function block
+(lines 1314–1465) straight from the real file and diffing it by eye against the intended edit,
+then verifying the geometry logic in an isolated 15-check Node harness (bar/tick counts, spliced
+stick still zero ticks, elevation header present/absent, combined-DXF section stacking doesn't
+overlap) built from that exact snippet plus stubs for `STOCK_INCHES`/`escHtml`. Did not
+reconstruct the full 3453-line file for a whole-file `node --check` (would cost ~90k+ tokens in
+chunked `Read` calls for marginal extra confidence beyond the isolated harness + surgical
+`Edit`-tool replacements). **Not yet reviewed by Leo** — next session, check his feedback before
+touching `takeoff/PROPAGATION-DESIGN.md` §15 again.
+
+### 2026-07-20 (rev3) — Cutting diagram: open the last segment, label leftover length (`app.js?v=20260720d`)
+Leo's next screenshot (SF03, part A, sticks 1/2) had two red X's pointing at the right-side
+closing edge of each stick's bar, with the note: "最后一段不要闭合...显示最后一段上哪里用到了,
+还有会剩多长" (don't close the last segment; show where it's used to, and how much is left). Fix:
+a stick's bar is now closed left/top/bottom always, but the **right edge is only closed when
+`stick.remaining ~ 0`** (fully used / spliced, `REMAINDER_EPS = 1e-6`) — real leftover material
+means the right end stays open (no vertical closing line), since that far end isn't an actual cut,
+just undetermined offcut. The existing tick at the used/remaining boundary (`stickTickPositions`
+already emits it — every piece-end short of the stock end gets a tick, including the last real
+piece when there's leftover) still marks exactly where real material stops — that answers "哪里
+用到了" without new logic. Added a text label past the open end stating the leftover length
+(`formatNumber(remaining)+'" left'`), in both `renderCuttingSvg` (SVG `<text>`, viewBox widened
++60 instead of +10 to fit it) and `buildCuttingDxfBody` (`dxfText` on the part's own layer).
+Verified with a 10-check Node harness (3 test sticks: two with leftover — 18" and 178" — one
+spliced/fully-used at exactly stock length): correct border-line counts (left+top+bottom always,
+right edge only on the fully-used stick), correct tick counts unchanged, leftover label present
+only on the wasteful sticks with the right numeric value, absent on the fully-used one. Not yet
+reviewed by Leo — this is the third iteration of this same feature in one day (plain baseline+tick
+→ 2.5" boxes → bordered bar+tick → this open-ended version), so check his feedback carefully
+before changing the visual again.
+
+### 2026-07-20 — Layer B propagation rework: regionType/regionEdge/zoneShape (`app.js?v=20260720e`)
+Leo said Layer B propagation "isn't working right": correcting one member's role via the viewer
+dropdown was generalizing far too broadly. Root cause confirmed by reading `computeRoleSignature`
+— the old `borders` field was a single coarse "does this member's midpoint fall inside ANY IMP-1/
+louver bounding box" check, with no idea of top-vs-bottom-of-band or which opening shape it's in.
+So a correction on, say, a horizontal at the top edge of one IMP-1 band would match every
+similarly-oriented/sized member bordering ANY IMP-1 band, anywhere in the building.
+Leo's requested fix (after two clarifying rounds): his example piece is a **horizontal** sitting
+on the IMP-1 band (not a vertical mullion, despite "mullion" in his first message), and matching
+should require the SAME relative location (top/bottom/through a band) AND the SAME overall
+opening shape (e.g. only propagate between openings that are both "louver-on-top-of-imp/glass" —
+an opening with a different band stack should never share the rule).
+Rebuilt `computeRoleSignature`'s output from `{system, orientation, sizeClass, band, borders}` to
+`{system, orientation, sizeClass, band, regionType, regionEdge, zoneShape}`:
+- **`computeOpeningZones(bbox, imp1Bands, louverBand)`** (new) — builds an ordered, contiguous,
+  gap-filled list of bands for the whole opening (louver/imp-1 bands as given, everything else
+  becomes `glass`), sorted bottom-to-top (larger Y = higher, confirmed from the existing "louver
+  带最低一排...`Math.min(y)`" comment elsewhere in the file).
+- **`zoneShapeOf(zones)`** (new) — joins that list top-to-bottom into a string like
+  `"louver>imp-1>glass"`, matching Leo's own "louver on top, imp/glass on bottom" phrasing.
+- **`regionType`**: which band a member's midpoint falls in (`imp-1`/`louver`/`glass`/`door`,
+  `door` still a special early-return, unaffected by the Y-stack).
+- **`regionEdge`**: `top`/`bottom`/`through` — where within THAT SPECIFIC band the member sits.
+  Horizontals: proximity (±3") to the band's near/far Y edge. Verticals: overlap-fraction with
+  the band, using the SAME `frac > 0.5` "majority inside" threshold Stage 2's existing IMP-1
+  classification already uses, for consistency (not a new made-up cutoff).
+- Found and fixed a real bug while writing the harness: zone lookup must NOT use the same ±3"
+  tolerance as regionEdge — two contiguous zones' tolerance-padded ranges overlap right at their
+  shared boundary, and `.find()` would silently prefer whichever zone came first in the array
+  regardless of which one the member actually belongs to. Fixed to strict containment
+  (zones tile the opening with no gaps by construction) with a nearest-zone fallback only for a
+  midpoint genuinely outside all zones.
+`zones`/`zoneShape` are computed ONCE per opening at parse time (right after `imp1Bands` is
+built) — geometry-only, never from current roles — and threaded through both `classifyRoles` call
+sites (fresh parse + restored-snapshot re-pass) and stored on `opening._bands` so the manual-edit
+capture site (viewer Position dropdown, `computeRoleSignature(c, {...o._bands})`) always computes
+an identical signature to what parsing would.
+**Migration:** per Leo's choice, old-schema learned rules are actively discarded rather than left
+dead — `loadRoleRulesFromCloud` now filters out any rule whose signature lacks `regionType` and
+pushes the cleaned (now-empty, on first load after this update) list back to each system's
+Firestore `roleRules/{system}` doc. Takes effect the next time the tool is opened with Firebase
+connected (this session has no direct Firestore access to do it from here).
+**Verified** with a 12-check Node harness (not run against real DXFs — this is pure signature/zone
+logic, exercised with synthetic openings): correct `zoneShape` for a 3-band opening, top-edge vs.
+bottom-edge horizontals get different signature keys (won't cross-propagate), an identically-
+shaped different opening's matching piece gets the SAME key (correctly propagates), a
+differently-shaped opening's matching piece gets a DIFFERENT key (correctly blocked) — this is
+the exact case Leo asked for — a fully-crossing vertical reads `through`, and a door piece stays
+`regionType: 'door'` regardless of the zone stack. **Not yet reviewed by Leo** — this is a
+propagation/matching change, not a visual one, so his confirmation should come from testing an
+actual correction in the viewer across a couple of real elevations, not from a screenshot.
+
+### 2026-07-20 — CP2 core-sync audit: real gap is index.html + elevation cloud wiring, not core JS
+Leo reported CP2 local (not yet pushed to GitHub) shows no new features and elevation markers
+don't respond to clicks — asked if core files were stale. Full diagnosis:
+1. **The 7 CORE JS/HTML files were already in sync** (`app.js`, `app-log.js`, `chat.html`,
+   `cloud-sync.js`, `api/parse.js`, backup scripts, all `takeoff/*` core files). A bash `md5sum`
+   diff first flagged 7 files as different — **false positive**: the bash sandbox's mount of
+   this OneDrive folder is stale/truncated for every file in it, not just ones edited this
+   session (confirmed: `os.stat`/`cat`/`wc` in bash all agree on a truncated byte count that
+   doesn't match the real file via the `Read` tool). Re-verified via a sub-agent using only
+   `Read`/`Write` (never bash) — 6/7 were byte-identical. The one real drift: `api/parse.js` was
+   missing the `'in-progress'` status option in its enum (CP2 had
+   `['installed','pending','issue']` vs AC3's version with `'in-progress'` included) — fixed.
+2. **The real gap is `index.html`** (PROJECT/hybrid file, never straight-copied per SYNC.md —
+   "port feature-by-feature, never whole-file"). CP2's `index.html` is missing: the RFI tab
+   (`#tab-rfi`), the Calendar tab's `#cal-rows` container (so `renderCalendar()` has nothing to
+   render into — this is "new features don't show"), and the "🛠 Takeoff Tool" / "⬆ Import DXF"
+   header buttons. Confirmed against CP2's own `FEATURES.md`: **F-023 through F-030 are all ⬜
+   for CP2** (Project Sync tool alignment, Modules i18n polish, tool/doc self-sync, embedded
+   Takeoff Tool link, and critically **F-030 "Elevation 入云" `elev-cloud.js` Firestore
+   live-sync was never added to CP2**).
+3. **CP2 has no `elevations.js` file at all** (file doesn't exist) — this, not a markup bug, is
+   why clicking an elevation marker does nothing: no per-unit geometry exists behind any marker,
+   static or cloud. F-030 (the cloud path AC3 uses for SF04-SF10 without a hand-authored file)
+   was never wired into CP2, so there's currently no path to elevation data for CP2 without
+   either porting F-030's script tags + Firestore setup, or hand-authoring a static
+   `elevations.js` like AC3's SF01.
+**Resolved (Leo, 2026-07-20): CP2 doesn't need elevation/DXF features — keep CP2's original,
+simpler status-page structure as-is.** No `index.html` port for F-023–030, no `elevations.js`,
+no Firestore elev-cloud setup for CP2. Only the `api/parse.js` status-enum fix stands. Closed.
 
 ### 2026-07-17 — Leo feedback, NOT yet built (see "Current state" above for full detail)
 - [x] **Manual row reordering BUILT (2026-07-17, Sonnet).**
