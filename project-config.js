@@ -33,6 +33,21 @@ window.PROJECT = {
     'Monadnock Construction'
   ],
 
+  /* F-048: which per-unit scopes get a headline card + a marker ring. AC3 tracks three
+     (CP2 tracks Caulking + Face Cover). Only the first TWO ring scopes can draw an arc —
+     the marker has an upper-left and a lower-right arc, nothing more. */
+  scopeKpis: [
+    { scope: 'caulking',  valueId: 'kpi-caulk',     subId: 'kpi-caulk-sub',     label: 'Caulking' },
+    { scope: 'beautyCap', valueId: 'kpi-beautycap', subId: 'kpi-beautycap-sub', label: 'Beauty Cap' }
+  ],
+  ringScopes: [
+    { scope: 'caulking',  cls: 'scope-caulk', labelKey: 'legend_caulk' },
+    { scope: 'beautyCap', cls: 'scope-fc',    labelKey: 'legend_beautycap' }
+  ],
+
+  // Interior storefront id patterns (F-044) — AC3 has none yet; add "^IS" when it does
+  interiorPatterns: [],
+
   // Project strings that override the core i18n table
   i18n: {
     en: { header_sub: "Monadnock · Ground Floor · Storefront Install & Glass Tracking", img_alt_gf: "Atlantic-Chestnut Building 3 — Ground Floor Plan" },

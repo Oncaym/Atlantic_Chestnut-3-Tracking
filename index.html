@@ -57,7 +57,6 @@
   .modal-tab-panel.active { display: block; }
 </style>
 
-
 <meta charset="UTF-8" data-om-id="17a02737:2">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" data-om-id="17a02737:3">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -75,10 +74,9 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-storage-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 <script src="firebase-config.js"></script>
-<script src="project-config.js?v=20260803a"></script>
-<script src="cloud-sync.js"></script>
+<script src="project-config.js?v=20260805w"></script>
+<script src="cloud-sync.js?v=20260805w"></script>
 <script src="elev-cloud.js?v=20260710"></script>
-
 
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
@@ -97,6 +95,13 @@
     --red: #f85149;
     --purple: #bc8cff;
     --orange: #ff8c42;
+    /* Synced from CP2 (F-041/F-044/F-046): scope rings, interior storefront,
+       fire-rated door, and the "we follow the GC's opening" state. */
+    --caulk-ring: #ffa657;
+    --fc-ring: #a5b8cc;
+    --int-sf: #7ee787;
+    --fire-door: #ffb224;
+    --follow-op: #a371f7;
   }
   /* ===== Day mode (light theme) ===== */
   body.day-mode {
@@ -113,6 +118,11 @@
     --red: #cf222e;
     --purple: #8250df;
     --orange: #bc4c00;
+    --caulk-ring: #bc4c00;
+    --fc-ring: #57687d;
+    --int-sf: #1a7f37;
+    --fire-door: #bf8700;
+    --follow-op: #8250df;
   }
   body.day-mode header { background: linear-gradient(135deg, #ffffff 0%, #e9edf2 100%); }
   body.day-mode .btn:hover { background: #dde3ea; border-color: #b6c0cb; }
@@ -208,7 +218,7 @@
     position: absolute;
     left: 0; top: 0; bottom: 0;
     width: 3px;
-    background: var(--accent);
+    background: var(--kpi-accent, var(--accent));
   }
   .kpi-card.green::before { background: var(--green); }
   .kpi-card.yellow::before { background: var(--yellow); }
@@ -371,6 +381,29 @@
     border-color: #22d3ee;
     box-shadow: 0 0 0 1px #22d3ee, 0 2px 6px rgba(0,0,0,0.45);
   }
+  /* F-044 — Interior storefront (IS): a diamond, so exterior vs interior reads by SHAPE
+     while the fill still encodes install status. The label sits in a counter-rotated span
+     (renderPlan wraps it) so the unit number stays upright. */
+  .plan-marker.interior-sf {
+    border-radius: 3px;
+    transform: translate(-50%, -50%) rotate(45deg) scale(var(--mk, 1));
+    border-color: var(--int-sf);
+    box-shadow: 0 0 0 1px var(--int-sf), 0 2px 6px rgba(0,0,0,0.45);
+    font-size: 8px;
+  }
+  .plan-marker.interior-sf:hover { transform: translate(-50%, -50%) rotate(45deg) scale(calc(1.3 * var(--mk, 1))); }
+  .plan-marker.interior-sf .mk-label { display: block; transform: rotate(-45deg); }
+  /* F-044 — door type by border colour; doors keep the square shape. Fire-rated gets a
+     double ring (white + amber) so it reads at a glance without another badge fighting
+     the louver 'L' for the same corner. */
+  .plan-marker.door.dt-interior {
+    border-color: var(--int-sf);
+    box-shadow: 0 0 0 1px var(--int-sf), 0 2px 6px rgba(0,0,0,0.45);
+  }
+  .plan-marker.door.dt-firerated {
+    border-color: var(--fire-door);
+    box-shadow: 0 0 0 1.5px #fff, 0 0 0 3.5px var(--fire-door), 0 2px 6px rgba(0,0,0,0.45);
+  }
   .plan-marker.has-louver::after {
     content: 'L';
     position: absolute;
@@ -399,6 +432,216 @@
     justify-content: center;
     border: 1.5px solid #fff;
   }
+  /* Scope rings (Leo, 2026-08-03): a two-tone halo around the marker — upper-left arc =
+     caulking, lower-right arc = face cover. Solid = installed, dashed = in progress, and
+     nothing at all when neither has started, so an untouched plan looks exactly as before.
+     Uses ::before (::after is the louver 'L' badge) and no box-shadow / border-color, both of
+     which are already spoken for by door · open-RFI · highlight · edit-mode states. */
+  .plan-marker.scope-caulk::before,
+  .plan-marker.scope-fc::before {
+    content: '';
+    position: absolute;
+    top: -5px; right: -5px; bottom: -5px; left: -5px;
+    border-radius: 50%;
+    border: 2.5px solid transparent;
+    transform: rotate(-45deg);   /* arcs land as clean top / bottom halves */
+    pointer-events: none;
+  }
+  .plan-marker.scope-caulk::before { border-top-color: var(--caulk-ring); border-left-color: var(--caulk-ring); }
+  .plan-marker.scope-fc::before    { border-bottom-color: var(--fc-ring); border-right-color: var(--fc-ring); }
+  .plan-marker.scope-caulk-wip::before { border-top-style: dashed; border-left-style: dashed; }
+  .plan-marker.scope-fc-wip::before    { border-bottom-style: dashed; border-right-style: dashed; }
+  /* Openings / Issues lenses answer a different question — keep those views clean */
+  .plan-wrap.lens-openings .plan-marker::before,
+  .plan-wrap.lens-issues .plan-marker::before { display: none; }
+  /* GC view has 13px markers — tighten the ring so it can't collide with neighbours */
+  body.gc-view .plan-marker.scope-caulk::before,
+  body.gc-view .plan-marker.scope-fc::before { top: -3px; right: -3px; bottom: -3px; left: -3px; border-width: 2px; }
+  /* Legend swatches for the two rings */
+  .legend-ring {
+    display: inline-block;
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    border: 2.5px solid transparent;
+    transform: rotate(-45deg);
+    vertical-align: -2px;
+  }
+  .legend-ring.caulk { border-top-color: var(--caulk-ring); border-left-color: var(--caulk-ring); }
+  .legend-ring.fc    { border-bottom-color: var(--fc-ring); border-right-color: var(--fc-ring); }
+  /* ===== Synced from CP2: GC view · plan lens bar · Openings sheet ===== */
+  /* GC (read-only) simplified view: only progress KPIs + the map + Things to Solve.
+     Everything tagged data-gc-hide (charts, glass breakdown, unit-status grid, daily log,
+     detail table, non-progress KPI cards) is hidden; the plan keeps only its level switch
+     (first toolbar child) — all editor tools drop away. Editors never get body.gc-view. */
+  body.gc-view [data-gc-hide] { display: none !important; }
+  body.gc-view .plan-toolbar > *:not(:first-child) { display: none !important; }
+  body.gc-view .section-title { pointer-events: none; }
+  /* GC: English only — hide the language switcher. */
+  body.gc-view #langSwitcher { display: none !important; }
+  /* GC map: only installed / not-installed / issue matter. Drop unit numbers, shrink the
+     markers so they don't overlap, remove the louver 'L' badge, and make issues glow red. */
+  body.gc-view .plan-marker { width: 13px; height: 13px; font-size: 0; border-width: 1.5px; }
+  /* …except in the Openings/Issues lenses (F-039), where the GC needs to read the tag
+     number to match it against the 📋 List. */
+  body.gc-view .plan-wrap.lens-openings .plan-marker,
+  body.gc-view .plan-wrap.lens-issues .plan-marker { width:20px; height:20px; font-size:9px; }
+  body.gc-view .plan-marker.has-louver::after { display: none !important; }
+  body.gc-view .plan-marker.issue { box-shadow: 0 0 11px 3px var(--red), 0 0 5px var(--red); }
+  body.gc-view .plan-marker.has-open-rfi { box-shadow: 0 0 0 2px var(--red), 0 0 11px 3px var(--red); }
+  @media (max-width: 820px) { body.gc-view .plan-marker { width: 11px; height: 11px; } }
+
+  /* ---- F-039: plan lens bar — the GC's single control ----
+     Sits ABOVE .plan-toolbar on purpose: gc-view hides every toolbar child but the
+     first, and the lens bar must survive that. */
+  .plan-lens-bar { display:flex; align-items:center; gap:10px 14px; flex-wrap:wrap; margin-bottom:10px; }
+  .plan-lens-bar .lens-tabs { display:flex; gap:6px; flex-wrap:wrap; }
+  .plan-lens-bar .lens-btn {
+    display:inline-flex; align-items:center; gap:6px; cursor:pointer;
+    background:var(--panel-2); color:var(--text-dim); border:1px solid var(--border);
+    border-radius:20px; padding:7px 14px; font-size:13px; font-weight:600; font-family:inherit;
+    transition:all .15s;
+  }
+  .plan-lens-bar .lens-btn:hover { color:var(--text); border-color:var(--accent); }
+  .plan-lens-bar .lens-btn.active { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .plan-lens-bar .lens-count { font-size:11px; background:rgba(255,255,255,.14); border-radius:20px; padding:1px 7px; }
+  .plan-lens-bar .lens-btn.active .lens-count { background:rgba(0,0,0,.22); }
+  .plan-lens-bar .lens-extras { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+  .plan-lens-bar .lens-select {
+    background:var(--bg); color:var(--text); border:1px solid var(--border); border-radius:8px;
+    padding:6px 10px; font-size:12.5px; font-family:inherit; max-width:min(360px, 60vw);
+  }
+  .plan-lens-bar .lens-hint { flex-basis:100%; font-size:12px; color:var(--text-dim); }
+  /* Openings lens markers (v2): tag NUMBER only, no dimension, no glow. Blue = awaiting
+     the GC, green = they marked it ready. The dimensions live in 📋 List. `!important`
+     on the shadow because .issue / .has-open-rfi set their own red halos — in this lens
+     an issue is not what we're asking them to look at. */
+  .plan-wrap.lens-openings .plan-marker {
+    background:var(--accent,#58a6ff);
+    /* Glow, but in the lens's own colours — the red halo from .issue/.has-open-rfi is
+       about something else and must not leak in here. */
+    box-shadow:0 0 0 2px var(--accent,#58a6ff), 0 0 10px 3px rgba(88,166,255,.75) !important;
+  }
+  .plan-wrap.lens-openings .plan-marker.lens-ready {
+    background:var(--green,#2ea043);
+    box-shadow:0 0 0 2px var(--green,#2ea043), 0 0 10px 3px rgba(46,160,67,.7) !important;
+  }
+  /* F-046b — units whose glass isn't bought: WE follow THEIR opening. Violet + a dashed
+     ring so the direction of the obligation is visible on the plan, not just in the card. */
+  .plan-wrap.lens-openings .plan-marker.lens-follow {
+    background:var(--follow-op,#a371f7);
+    border-style:dashed;
+    box-shadow:0 0 0 2px var(--follow-op,#a371f7), 0 0 10px 3px rgba(163,113,247,.7) !important;
+  }
+  /* Confirmed by the GC → green in both directions (the opening is settled). */
+  .plan-wrap.lens-openings .plan-marker.lens-follow.lens-ready {
+    background:var(--green,#2ea043);
+    border-style:dashed;
+    box-shadow:0 0 0 2px var(--green,#2ea043), 0 0 10px 3px rgba(46,160,67,.7) !important;
+  }
+  .plan-wrap.lens-openings .plan-marker.has-louver::after { display:none; }
+  /* The 📋 List is where the numbers actually are — pull the eye to it. */
+  .plan-lens-bar .lens-cta {
+    background:var(--accent,#58a6ff); border-color:var(--accent,#58a6ff); color:#fff; font-weight:600;
+    animation:lensCtaPulse 2.2s ease-in-out infinite;
+  }
+  @keyframes lensCtaPulse {
+    0%,100% { box-shadow:0 0 0 0 rgba(88,166,255,.55); }
+    50%     { box-shadow:0 0 0 7px rgba(88,166,255,0); }
+  }
+  @media (prefers-reduced-motion: reduce) { .plan-lens-bar .lens-cta { animation:none; } }
+  @media (max-width: 820px) {
+    .plan-lens-bar .lens-btn { padding:6px 11px; font-size:12px; }
+  }
+
+  /* ---- F-038: Openings sheet (📐) — key plan with full unit tags + table ----
+     The GC's super doesn't know our unit numbers, so the tags spell out the full id
+     (SF06N, not 06N) and stay readable on paper. Print rules below strip the app
+     chrome so 🖨 gives a clean one-page handout. */
+  #openingsSheet .op-head { display:flex; align-items:flex-start; gap:12px; margin-bottom:12px; }
+  #openingsSheet .op-scroll { max-height:70vh; overflow:auto; }
+  #openingsSheet .op-floor { margin-bottom:18px; }
+  #openingsSheet .op-floor-name { font-size:12px; color:var(--text-dim); text-transform:uppercase; letter-spacing:.4px; margin-bottom:5px; }
+  #openingsSheet .op-plan { position:relative; display:block; border:1px solid var(--border); border-radius:8px; overflow:hidden; background:var(--bg); }
+  #openingsSheet .op-plan img { display:block; width:100%; height:auto; filter:invert(1); }
+  #openingsSheet .op-tag {
+    position:absolute; transform:translate(-50%,-50%); white-space:nowrap;
+    font-size:10px; font-weight:700; line-height:1; padding:2px 5px; border-radius:4px;
+    /* blue = issued, awaiting the GC; green = GC marked it ready. Deliberately NOT red —
+       red means "issue" everywhere else in this app and these are not problems. */
+    background:var(--accent,#58a6ff); color:#fff; border:1px solid rgba(0,0,0,.35);
+  }
+  #openingsSheet .op-tag-ready { background:var(--green,#2ea043); }
+  /* Day mode: the plan PNG is black linework, so drop the dark-theme inversion. */
+  body.day-mode #openingsSheet .op-plan img { filter:none; }
+  body.day-mode #openingsSheet .op-plan { background:#fff; }
+  #openingsSheet .op-table { width:100%; border-collapse:collapse; font-size:12.5px; margin-top:6px; }
+  /* Override the global `th` rule: its var(--panel-2) fill stays dark on the printed
+     sheet (print forces text to #000, not backgrounds) → unreadable header bar. */
+  #openingsSheet .op-table th { text-align:left; font-size:10.5px; text-transform:uppercase; letter-spacing:.4px; color:var(--text); font-weight:700; padding:7px 8px; background:transparent; border-bottom:2px solid var(--border); }
+  #openingsSheet .op-table td { padding:7px 8px; border-bottom:1px solid var(--border,rgba(255,255,255,.07)); vertical-align:middle; }
+  @media (max-width: 820px) {
+    #openingsSheet .op-table { font-size:11.5px; }
+    #openingsSheet .op-table th:nth-child(6), #openingsSheet .op-table td:nth-child(6),
+    #openingsSheet .op-table th:nth-child(7), #openingsSheet .op-table td:nth-child(7) { display:none; }
+    #openingsSheet .op-tag { font-size:8px; padding:1px 3px; }
+  }
+  @media print {
+    body.printing-openings { background:#fff !important; }
+    body.printing-openings > *:not(#openingsModal) { display:none !important; }
+    body.printing-openings #openingsModal { position:static !important; display:block !important; background:#fff !important; padding:0 !important; overflow:visible !important; }
+    body.printing-openings #openingsModal .modal { max-width:none !important; max-height:none !important; width:auto !important; border:none !important; box-shadow:none !important; background:#fff !important; overflow:visible !important; padding:0 !important; }
+    body.printing-openings #openingsSheet, body.printing-openings #openingsSheet * { color:#000 !important; }
+    body.printing-openings #openingsSheet .op-scroll { max-height:none !important; overflow:visible !important; }
+    body.printing-openings #openingsSheet .op-plan { background:#fff !important; border-color:#999 !important; }
+    body.printing-openings #openingsSheet .op-plan img { filter:none !important; }   /* black linework on white paper */
+    body.printing-openings #openingsSheet .op-table th { background:#fff !important; color:#000 !important; border-bottom:2px solid #333 !important; }
+    body.printing-openings #openingsSheet .op-table td { border-bottom:1px solid #bbb !important; }
+    body.printing-openings .op-noprint { display:none !important; }
+    body.printing-openings #openingsSheet .op-floor { page-break-inside:avoid; }
+    body.printing-openings #openingsSheet tr { page-break-inside:avoid; }
+  }
+
+  /* ---- F-051: unit type registry — shapes + outline colours from the palette ----
+     The FILL always stays the install status; a type only ever sets the outline, the
+     silhouette and an optional 2-char badge. --ut-color is set per marker from script. */
+  .plan-marker.ut { border-color: var(--ut-color, #22d3ee); box-shadow: 0 0 0 1px var(--ut-color, #22d3ee), 0 2px 6px rgba(0,0,0,0.45); }
+  .plan-marker.ut-square  { border-radius: 4px; }
+  .plan-marker.ut-capsule { border-radius: 999px; width: 34px; }
+  .plan-marker.ut-diamond {
+    border-radius: 3px;
+    transform: translate(-50%, -50%) rotate(45deg) scale(var(--mk, 1));
+    font-size: 8px;
+  }
+  .plan-marker.ut-diamond:hover { transform: translate(-50%, -50%) rotate(45deg) scale(calc(1.3 * var(--mk, 1))); }
+  .plan-marker.ut-diamond .mk-label { display: block; transform: rotate(-45deg); }
+  /* Triangle / hexagon: clip-path eats the border, so the outline is a drop-shadow ring. */
+  .plan-marker.ut-triangle, .plan-marker.ut-hex { border-color: transparent; box-shadow: none; }
+  .plan-marker.ut-triangle {
+    clip-path: polygon(50% 4%, 96% 96%, 4% 96%);
+    filter: drop-shadow(0 0 1.5px var(--ut-color)) drop-shadow(0 0 1.5px var(--ut-color));
+    font-size: 8px; align-items: flex-end; padding-bottom: 1px;
+  }
+  .plan-marker.ut-hex {
+    clip-path: polygon(25% 3%, 75% 3%, 100% 50%, 75% 97%, 25% 97%, 0 50%);
+    filter: drop-shadow(0 0 1.5px var(--ut-color)) drop-shadow(0 0 1.5px var(--ut-color));
+  }
+  .plan-marker.ut[data-ut-badge]::after {
+    content: attr(data-ut-badge);
+    position: absolute; top: -7px; right: -8px;
+    min-width: 14px; height: 14px; padding: 0 2px;
+    background: var(--ut-color, #22d3ee); color: #10161d;
+    border-radius: 8px; border: 1.5px solid #fff;
+    font-size: 8px; font-weight: 700; line-height: 11px; text-align: center;
+  }
+  /* Legend swatches mirror the marker silhouettes at 13px. */
+  .ut-swatch { display: inline-block; width: 13px; height: 13px; background: #6c7682; border: 1.5px solid var(--ut-color, #22d3ee); box-shadow: 0 0 0 1px var(--ut-color, #22d3ee); }
+  .ut-swatch.ut-circle  { border-radius: 50%; }
+  .ut-swatch.ut-square  { border-radius: 3px; }
+  .ut-swatch.ut-capsule { border-radius: 999px; width: 20px; }
+  .ut-swatch.ut-diamond { border-radius: 2px; transform: rotate(45deg); }
+  .ut-swatch.ut-triangle, .ut-swatch.ut-hex { border: none; box-shadow: none; background: var(--ut-color, #22d3ee); }
+  .ut-swatch.ut-triangle { clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+  .ut-swatch.ut-hex { clip-path: polygon(25% 3%, 75% 3%, 100% 50%, 75% 97%, 25% 97%, 0 50%); }
   @keyframes pulse {
     0%, 100% { box-shadow: 0 0 0 0 rgba(248,81,73,0.7); }
     50% { box-shadow: 0 0 0 8px rgba(248,81,73,0); }
@@ -1503,7 +1746,9 @@ function importDxfInTracker(e){
     <span id="kpi-installed"></span><span id="kpi-issues"></span><span id="kpi-pending"></span>
     <span id="kpi-louvers"></span><span id="kpi-percent"></span><span id="kpi-percent-sub"></span>
     <span id="kpi-glass-installed"></span><span id="kpi-glass-installed-sub"></span>
+    <span id="kpi-progress"></span><span id="kpi-issues-sub"></span>
   </div>
+
 
   <!-- Scope install tracking — quantities per Shop Drawings AC3-002 / AC3-003 -->
   <style>
@@ -1599,6 +1844,20 @@ function importDxfInTracker(e){
       <div class="kpi-value"><span class="scope-done">0</span>/1</div>
       <div class="kpi-sub"><b><span class="scope-done">0</span> / 1</b> installed · 9/16" Lami Temp · Canopy</div>
       <div class="scope-bar"><i></i></div>
+    </div>
+    <!-- F-041 (synced from CP2 · F-049 moved in here 2026-08-05): per-unit scope completion.
+         Same grid as every other scope card — one banner, one layout, per-project scopes.
+         Cards + ids are declared in PROJECT.scopeKpis; core paints them. -->
+    <div class="kpi-card clickable" onclick="openKpiDetail('scope:caulking')" style="--kpi-accent:var(--caulk-ring)">
+      <div class="kpi-label" data-i18n="legend_caulk">Caulking</div>
+      <div class="kpi-value" id="kpi-caulk">0%</div>
+      <div class="kpi-sub" id="kpi-caulk-sub">0 / 0 units</div>
+    </div>
+    </div>
+    <div class="kpi-card clickable" onclick="openKpiDetail('scope:beautyCap')" style="--kpi-accent:var(--purple)">
+      <div class="kpi-label" data-i18n="legend_beautycap">Beauty Cap</div>
+      <div class="kpi-value" id="kpi-beautycap">0%</div>
+      <div class="kpi-sub" id="kpi-beautycap-sub">0 / 0 units</div>
     </div>
   </section>
   <script>
@@ -1742,9 +2001,8 @@ function importDxfInTracker(e){
   })();
   </script>
 
-
   <!-- Floor Plan -->
-  <section class="section" data-om-id="17a02737:51">
+  <section class="section" id="planSection" data-om-id="17a02737:51">
     <div class="section-header" data-om-id="17a02737:52">
       <div class="section-title" data-i18n="sec_plan_title" data-om-id="17a02737:53">Floor Plan (from DXF) · Click marker to edit / drag to reposition</div>
       <div class="legend" data-om-id="17a02737:54">
@@ -1753,6 +2011,10 @@ function importDxfInTracker(e){
         <div class="legend-item" data-om-id="17a02737:61"><span class="status-dot issue" data-om-id="17a02737:62"></span><span data-i18n="status_issue" data-om-id="17a02737:63">Issue</span></div>
         <div class="legend-item" data-om-id="17a02737:64"><span class="status-dot pending" data-om-id="17a02737:65"></span><span data-i18n="status_pending" data-om-id="17a02737:66">Pending</span></div>
         <div class="legend-item" data-om-id="17a02737:67"><span style="display:inline-block;width:14px;height:14px;background:var(--purple);border-radius:50%;color:#fff;font-size:9px;font-weight:700;text-align:center;line-height:14px" data-om-id="17a02737:68">L</span> <span data-i18n="legend_louver" data-om-id="17a02737:69">Louver</span></div>
+        <div class="legend-item"><span style="display:inline-block;width:11px;height:11px;background:#6c7682;border-radius:2px;border:1.5px solid var(--int-sf);box-shadow:0 0 0 1px var(--int-sf);transform:rotate(45deg)"></span> <span data-i18n="legend_interior_sf">Interior storefront</span></div>
+        <div class="legend-item"><span style="display:inline-block;width:12px;height:12px;background:#6c7682;border-radius:3px;border:1.5px solid var(--fire-door);box-shadow:0 0 0 1px #fff,0 0 0 2.5px var(--fire-door)"></span> <span data-i18n="legend_fire_door">Fire-rated door</span></div>
+        <div class="legend-item"><span class="legend-ring caulk"></span> <span data-i18n="legend_caulk">Caulking</span></div>
+        <div class="legend-item"><span class="legend-ring fc"></span> <span data-i18n="legend_sunshade">Sun Shade</span></div>
         <div class="legend-item" data-om-id="17a02737:70"><span class="planned-swatch" data-om-id="17a02737:71"></span> <span data-i18n="legend_planned" data-om-id="17a02737:72">Planned</span></div>
       </div>
     </div>
@@ -2932,6 +3194,7 @@ function importDxfInTracker(e){
     <!-- Tab bar -->
     <div class="modal-tabs">
       <div class="modal-tab active" id="tab-cal" onclick="switchModalTab('cal')">Calendar</div>
+      <div class="modal-tab" id="tab-ro" onclick="switchModalTab('ro')">Field Verify · R.O.</div>
       <div class="modal-tab" id="tab-elev" onclick="switchModalTab('elev')">Elevation</div>
       <div class="modal-tab" id="tab-rfi" onclick="switchModalTab('rfi')">RFI</div>
     </div>
@@ -2941,7 +3204,23 @@ function importDxfInTracker(e){
          louver/doors) show a read-only rollup fraction — edit those on the Elevation tab. -->
     <div class="modal-tab-panel active" id="panel-cal">
       <div class="cal-header">
-        <div class="form-row">
+        <!-- F-045 (synced): which floor this unit lives on (renderFloorSelect) -->
+      <div class="form-row" id="cal-floor-row" style="display:none">
+        <label data-i18n="form_floor">Floor</label>
+        <select id="cal-floor"></select>
+        <div style="font-size:11px;color:var(--text-dim);margin-top:4px;">Changing the floor clears this marker's position — drop it on the new plan by dragging, or with ➕ Add new marker</div>
+      </div>
+      <!-- F-051: registry type override (renderUnitTypeRow) -->
+      <div class="form-row" id="cal-unittype-row" style="display:none">
+        <label data-i18n="form_unit_type">Unit type</label>
+        <select id="cal-unittype"></select>
+      </div>
+      <!-- F-044 (synced): door type — shown only for door units (renderDoorTypeRow) -->
+      <div class="form-row" id="cal-doortype-row" style="display:none">
+        <label data-i18n="form_door_type">Door type</label>
+        <select id="cal-doortype"></select>
+      </div>
+      <div class="form-row">
           <label>Unit ID</label>
           <input type="text" id="cal-id" autocomplete="off" placeholder="e.g. SF12A">
           <div style="font-size:11px;color:var(--text-dim);margin-top:4px;">Only changes the displayed ID (marker position is preserved)</div>
@@ -2978,6 +3257,17 @@ function importDxfInTracker(e){
     </div>
 
     <!-- Elevation tab -->
+<div class="modal-tab-panel" id="panel-ro">
+      <!-- F-038: Required R.O. we issue to the GC (rendered by renderRoRequired) -->
+      <div id="ro-required"></div>
+      <div class="form-row">
+        <label>R.O. field measurements — record when measured, re-check at ordering. Entries auto-log as field-verify evidence.</label>
+        <div style="display:grid;grid-template-columns:1.1fr 1fr 1.6fr 1fr .9fr auto;gap:6px;font-size:11px;color:var(--text-dim)"><span>Date</span><span>Stage</span><span>Measured dims / note</span><span>By</span><span>Tolerance</span><span></span></div>
+        <div id="ro-list"></div>
+        <button type="button" class="btn" style="font-size:12px;margin-top:8px" onclick="addRoRow()">+ Add measurement</button>
+      </div>
+    </div>
+
     <div class="modal-tab-panel" id="panel-elev">
       <div class="elev-bar">
         <button class="btn" id="elevModeStatus" type="button" onclick="setElevMode(false)">● Update status</button>
@@ -3263,10 +3553,10 @@ function importDxfInTracker(e){
 <div id="toast" class="toast">Saved ✓</div>
 
 <script type="application/json" id="__embedded_state"></script>
-<script src="app-log.js?v=20260716a"></script>
+<script src="app-log.js?v=20260805w"></script>
 <script src="elevations.js?v=20260716a"></script>
 <script src="dxf-elevations.js?v=20260716a"></script>
-<script src="app.js?v=20260803b"></script>
+<script src="app.js?v=20260805w"></script>
 <!-- boot handled inside app.js (core) -->
 </body>
 </html>

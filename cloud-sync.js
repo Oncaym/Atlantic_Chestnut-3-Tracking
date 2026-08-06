@@ -65,6 +65,32 @@
     isReadOnly() { return isReadOnly; },
     logout() { if (auth) auth.signOut(); },
     openHistory() { openHistoryPanel(); },
+
+    /* ---- F-037: GC inbox (/gcItems) ----
+       /state stays editor-only, so read-only (GC) accounts write here instead: an
+       append-only node any signed-in user can add their OWN entries to, and only
+       allowlist editors can update/delete. The app mirrors it into window.GC_ITEMS. */
+    submitGcItem(payload) {
+      if (!db) return Promise.reject(new Error('cloud not initialized'));
+      if (!currentUser) return Promise.reject(new Error('not signed in'));
+      const rec = Object.assign({}, payload || {}, {
+        by: currentUser.email,
+        // AF vs GC comes from the same allowlist check that drives read-only mode.
+        source: isReadOnly ? 'gc' : 'af',
+        ts: firebase.database.ServerValue.TIMESTAMP,
+      });
+      Object.keys(rec).forEach(k => { if (rec[k] === undefined || rec[k] === '') delete rec[k]; });
+      if (!rec.text) return Promise.reject(new Error('empty'));
+      return db.ref('gcItems').push(rec).then(r => r.key);
+    },
+    updateGcItem(id, patch) {
+      if (!db || !id) return Promise.reject(new Error('cloud not initialized'));
+      return db.ref('gcItems/' + id).update(patch || {});
+    },
+    removeGcItem(id) {
+      if (!db || !id) return Promise.reject(new Error('cloud not initialized'));
+      return db.ref('gcItems/' + id).remove();
+    },
   };
 
   // ---------- Auth gate UI ----------
@@ -190,6 +216,7 @@
       updateBadge();
       subscribeToState();
       subscribeToPresence();
+      subscribeToGcItems();
     } else {
       // Clear read-only flag + banner so the next sign-in starts clean.
       isReadOnly = false;
@@ -199,6 +226,8 @@
       showAuthGate();
       // Stop listening (Firebase auto-unsubs when ref handle is dropped, but be defensive)
       if (db) try { db.ref('state').off(); } catch(e){}
+      if (db) try { db.ref('gcItems').off(); } catch(e){}
+      window.GC_ITEMS = [];
     }
   }
 
@@ -234,10 +263,34 @@
     document.getElementById('cs-history-btn').addEventListener('click', openHistoryPanel);
     const userBtn = document.getElementById('cs-user-btn');
     const dropdown = document.getElementById('cs-user-dropdown');
+    /* F-047 (Leo, 2026-08-05 — menu was half cut off on a phone): on mobile the host page
+       makes .header-actions horizontally scrollable, and an `overflow` ancestor clips an
+       absolutely-positioned child. The header also uses backdrop-filter, which makes it the
+       containing block for `position:fixed` descendants — so simply switching to fixed is
+       not enough either. Move the menu to <body> and place it from the button's screen
+       rect: nothing can clip it, on any host layout. */
+    document.body.appendChild(dropdown);
+    const placeDropdown = () => {
+      const r = userBtn.getBoundingClientRect();
+      const w = dropdown.offsetWidth || 200;
+      const vw = document.documentElement.clientWidth;
+      const vh = document.documentElement.clientHeight;
+      const left = Math.max(8, Math.min(r.right - w, vw - w - 8));
+      // Flip above the button if there genuinely isn't room below (short landscape phones).
+      const h = dropdown.offsetHeight || 140;
+      const below = r.bottom + 6;
+      const top = (below + h > vh - 8 && r.top - h - 6 > 8) ? (r.top - h - 6) : Math.min(below, vh - h - 8);
+      dropdown.style.left = Math.round(left) + 'px';
+      dropdown.style.top = Math.round(top) + 'px';
+    };
     userBtn.addEventListener('click', (e) => {
       e.stopPropagation();
+      const opening = !dropdown.classList.contains('open');
+      if (opening) placeDropdown();
       dropdown.classList.toggle('open');
     });
+    window.addEventListener('resize', () => { if (dropdown.classList.contains('open')) placeDropdown(); });
+    window.addEventListener('scroll', () => { if (dropdown.classList.contains('open')) placeDropdown(); }, true);
     document.addEventListener('click', () => dropdown.classList.remove('open'));
     dropdown.addEventListener('click', (e) => {
       const action = e.target.dataset.action;
@@ -319,12 +372,34 @@
     });
   }
 
+  // ---------- GC inbox subscription (F-037) ----------
+  // Mirrors /gcItems into window.GC_ITEMS (oldest first) and pokes the app to re-render.
+  // If the rules haven't been published yet the listen just fails — GC_ITEMS stays empty
+  // and everything else keeps working, so this is safe to ship ahead of the rules update.
+  function subscribeToGcItems() {
+    if (!db) return;
+    try {
+      db.ref('gcItems').limitToLast(300).on('value', (snap) => {
+        const val = snap.val() || {};
+        const list = Object.keys(val).map(k => Object.assign({ _id: k }, val[k]));
+        list.sort((a, b) => (a.ts || 0) - (b.ts || 0));
+        window.GC_ITEMS = list;
+        try { if (typeof window._onGcItems === 'function') window._onGcItems(list); } catch (e) {}
+      }, (err) => {
+        console.warn('[CloudSync] gcItems listen failed (rules not published?):', err && err.message);
+        window.GC_ITEMS = [];
+      });
+    } catch (e) { window.GC_ITEMS = []; }
+  }
+
   // ---------- Read-only mode ----------
   function enterReadOnlyMode(reason) {
     if (isReadOnly) return;
     isReadOnly = true;
     console.warn('[CloudSync] read-only mode:', reason);
     showReadOnlyBanner(reason);
+    // Let the app hide editor-only controls the moment we know (F-033 v2).
+    try { if (typeof window._onReadOnly === 'function') window._onReadOnly(); } catch (e) {}
     // Snapshot whatever the app currently has as the "good" baseline so
     // we have something to revert to even if we never got a cloud read.
     // (The HTML exposes its local `state` as `window.state` for this.)
@@ -338,6 +413,9 @@
   }
 
   function showReadOnlyBanner(reason) {
+    // Suppressed (Leo, 2026-07-23): the read-only strip is noise for GC viewers — they
+    // already can't edit; the editor-only buttons are hidden for them via applyReadOnlyUI.
+    return;
     if (document.getElementById('cs-readonly-banner')) return;
     const bar = document.createElement('div');
     bar.id = 'cs-readonly-banner';
@@ -470,6 +548,19 @@
     presenceRef = db.ref('presence/' + id);
     db.ref('.info/connected').on('value', (snap) => {
       if (snap.val() === true) {
+        // F-033 pilot: append-only access log — one record per browser session so we can
+        // see who has opened the tracker and when (opens/last-seen in the 📊 Usage panel).
+        // Guarded by _accessLogged so a reconnect during the same session doesn't double-count.
+        if (!window._accessLogged) {
+          window._accessLogged = true;
+          try {
+            db.ref('access').push({
+              email: currentUser.email,
+              ts: firebase.database.ServerValue.TIMESTAMP,
+              ua: (navigator.userAgent || '').slice(0, 120),
+            }).catch(() => {}); // read-only viewers may be denied; ignore
+          } catch (e) {}
+        }
         presenceRef.onDisconnect().remove();
         presenceRef.set({
           email: currentUser.email,
@@ -708,13 +799,15 @@
     .cs-user-email { max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .cs-caret { font-size: 9px; color: #8b949e; }
     .cs-user-dropdown {
-      position: absolute; top: calc(100% + 6px); right: 0;
-      min-width: 180px;
+      /* Placed from script against the button's screen rect (F-047) — it lives on <body>,
+         so no scrolling/overflow ancestor in the host page can clip it. */
+      position: fixed; top: 0; left: 0;
+      min-width: 200px; max-width: calc(100vw - 16px);
       background: #1a2028; border: 1px solid #2d3744; border-radius: 8px;
       padding: 4px; box-shadow: 0 8px 24px rgba(0,0,0,0.4);
       opacity: 0; pointer-events: none; transform: translateY(-4px);
       transition: opacity 0.12s, transform 0.12s;
-      z-index: 1000;
+      z-index: 10000;   /* above the sticky header (100) and its stacking context */
     }
     .cs-user-dropdown.open { opacity: 1; pointer-events: auto; transform: translateY(0); }
     .cs-user-dropdown button {
@@ -722,6 +815,12 @@
       background: none; border: none; color: #e6edf3;
       padding: 8px 12px; border-radius: 5px;
       font-size: 13px; cursor: pointer; font-family: inherit;
+      white-space: nowrap;
+    }
+    /* Finger-sized rows on touch screens — the menu is only ever three items. */
+    @media (max-width: 720px) {
+      .cs-user-dropdown { min-width: 214px; padding: 6px; }
+      .cs-user-dropdown button { padding: 12px 14px; font-size: 14px; }
     }
     .cs-user-dropdown button:hover { background: #232b36; }
 

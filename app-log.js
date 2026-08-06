@@ -208,3 +208,77 @@ function upsertGlassLog(date, category, unitId, panel, status, unitKey) {
   };
   rebuildAutoUnitsContent(entry);
 }
+
+/* -------- RFI / GC-inquiry log sync (F-032) --------
+   Keeps state.log in sync with u.rfi[] / state.projectItems[] rows so a status/party
+   edit — or a deleted row — shows up in the daily log instead of drifting. Distinct
+   from upsertUnitLog/upsertGlassLog's "sweep a day's entry" pattern because each RFI
+   has its own date and is low-volume enough to earn its own log line.
+
+   Identity: `rfiKey` = `${scopeKey}::${safeKey(ref||subject)}` — scopeKey is the unit's
+   safeKey(u.key) for unit-level rows, or the literal 'project' for project-level rows
+   (F-032 Q4). kind:'rfi' keeps this entirely invisible to isUnitAutoEntry() (requires
+   !kind || kind==='unit') and to upsertGlassLog's kind==='glass' check — no risk of the
+   two existing projection engines rewriting or sweeping these entries.
+
+   Legacy migration: before this existed, saveUnit() pushed a bare `{date, category:
+   'gc-inquiry', categories:['gc-inquiry'], content}` entry once, when an RFI row was
+   first created — no `auto`, no `kind`, no `rfiKey`. On first encounter for a given
+   row, adopt that legacy entry in place (stamp kind/rfiKey onto it) instead of creating
+   a second one alongside it. Adoption match: same category, no kind yet, and content
+   contains " RFI <ref> " (or, if the row has no ref, contains the subject). */
+function _rfiLogMatchKey(ref, subject) {
+  const k = String(ref || subject || '').trim();
+  return k ? safeKey(k.toLowerCase()) : '';
+}
+function upsertRfiLog(scopeKey, ownerLabel, row) {
+  if (!Array.isArray(state.log)) state.log = Object.values(state.log || {});
+  const mk = _rfiLogMatchKey(row.ref, row.subject);
+  if (!mk) return; // nothing identifying to key off of — skip (mirrors readRfiRows' own filter)
+  const rfiKey = scopeKey + '::' + mk;
+
+  let entry = state.log.find(l => l && l.kind === 'rfi' && l.rfiKey === rfiKey);
+
+  if (!entry) {
+    // Try to adopt a pre-F-032 legacy entry instead of creating a duplicate.
+    const needle = row.ref ? ('RFI ' + row.ref) : (row.subject || '');
+    entry = state.log.find(l =>
+      l && !l.kind &&
+      (l.category === 'gc-inquiry' || (Array.isArray(l.categories) && l.categories.indexOf('gc-inquiry') !== -1)) &&
+      needle && String(l.content || '').indexOf(needle) !== -1
+    );
+    if (entry) {
+      entry.kind = 'rfi';
+      entry.rfiKey = rfiKey;
+      entry.auto = true;
+    }
+  }
+
+  if (!entry) {
+    entry = { kind: 'rfi', rfiKey: rfiKey, auto: true, category: 'gc-inquiry', categories: ['gc-inquiry'] };
+    state.log.push(entry);
+  }
+
+  entry.date = row.date || entry.date || new Date().toISOString().slice(0,10);
+  entry.category = 'gc-inquiry';
+  entry.categories = ['gc-inquiry'];
+  entry.content = `${ownerLabel} · RFI ${row.ref||''} ${row.subject||''} · [${row.status||'open'}]${row.party ? ' · '+row.party : ''}${row.relatedUnits ? ' · affects: '+row.relatedUnits : ''}`.replace(/\s+/g,' ').trim();
+  if (row.ref)   entry.ref   = row.ref;   else delete entry.ref;
+  if (row.party) entry.party = row.party; else delete entry.party;
+}
+
+/* Remove log entries whose rfiKey belongs to `scopeKey` but is no longer present in
+   `currentRows` (handles a deleted RFI row leaving an orphaned log line behind). */
+function sweepOrphanRfiLogs(scopeKey, currentRows) {
+  if (!Array.isArray(state.log)) return;
+  const validKeys = new Set(
+    (currentRows || []).map(r => scopeKey + '::' + _rfiLogMatchKey(r.ref, r.subject)).filter(k => k !== scopeKey + '::')
+  );
+  const prefix = scopeKey + '::';
+  for (let i = state.log.length - 1; i >= 0; i--) {
+    const l = state.log[i];
+    if (l && l.kind === 'rfi' && typeof l.rfiKey === 'string' && l.rfiKey.indexOf(prefix) === 0 && !validKeys.has(l.rfiKey)) {
+      state.log.splice(i, 1);
+    }
+  }
+}

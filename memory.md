@@ -11,6 +11,57 @@
 
 ## Current state / progress
 
+- **2026-08-05 — F-052：submittal 进 Things to Solve**（Leo）。`computeOpenItems()` 把未批准的 submittal
+  也算事项，所以 🔧 徽标 / 红横幅 / Issues KPI 自动包含。`revise-resubmit`+`rejected`=球在我方（红
+  Resubmit，按**退回日**算天数），`submitted`+`under-review`=球在审核方（琥珀 In review，列出当前 Rev
+  还没回的几家）。draft 和 approved 不进。面板独立一段，点一行开对应 submittal 弹窗。CP2 没有 submittal
+  UI，`state.submittals` 为空 → 零影响。验证：`node _tests/test-submittal-items.cjs`（23 断言）。
+
+- **2026-08-05 — F-051：unit type 注册表**（Leo 问"以后我自己怎么加类型"）。⚙ Modules → 🔷 Unit types
+  面板：名字 + 编号前缀 + 形状(6) + 描边色(8) + 两字徽标，存 `state.unitTypes`（走正常保存 → 同步 +
+  编辑历史，**不需要新的 Firebase 规则**）。填充色仍然只表示安装状态；unit 弹窗可手动覆盖类型；图例自动
+  生成。操作步骤写在 CP2 的 `CLAUDE.md` 末尾（"怎么加一种新的 unit 类型"）。45 条断言。
+
+- **2026-08-05 — F-050：Face Cover 与 Beauty Cap 统一成 `beautyCap`**（Leo：本来就是一个件）。core 的
+  Calendar tab 合成一行 Beauty Cap（读不到新键回落旧 `faceCover`）；两边 `scopeKpis`/`ringScopes` 都是
+  caulking + beautyCap；CP2 加了一条重命名迁移。**AC3 的 Sun Shade 百分比卡删掉**——scope grid 里已经有
+  一张按数量的 SUN SHADES，两个口径重复。AC3 的 `u.scopes.beautyCap` 本来就是这个键，无需迁移。
+
+- **2026-08-05 — F-049（紧接 F-048）：①**core 删掉每日 GC 推送**（📤 按钮 + `buildDailyPushText` 等
+  约 85 行；卡点横幅和 Things to Solve 保留）——Leo：推送最后都是手写的。②AC3 的三张 scope 完成度卡
+  从单独一行**移进 `#scopeGrid`**，跟其它 scope 卡同一个 banner：每个项目的 scope 不同，但版式逻辑
+  必须一致。注意 AC3 现在 grid 里同时有「SUN SHADES 0/19」（按数量，AC3 自己的 localStorage 统计）
+  和「Sun Shade install 0%」（按 unit 的 scope 状态，core 统计）——两个口径，如果觉得重复就说一声删掉。
+
+- **2026-08-05 — CORE 统一（AC3 ← CP2 全量同步，F-048）。** 两边的 core 已经差了约 2000 行：CP2 领先
+  F-033/037/038/039/040（GC 协作、openings、lens 栏、每日推送、活动记录）+ F-041~F-047；AC3 只领先
+  今天的 submittal 逐家回复 + 拖拽排序。做法：**以 CP2 的 app.js 为底**，把 AC3 的 submittal 整块
+  （`/* -------- Submittal log (M4) -------- */` … `Photo gallery viewer`，AC3 版是严格更新的超集）换进去，
+  合并后 `app.js` / `cloud-sync.js` / `app-log.js` / `chat.html` **四个 core 文件两边 md5 一致**。
+  - **新增 core 能力 F-048（为了让两边共用同一份代码）**：per-scope 的 KPI 卡和 marker 圆环不再写死
+    caulking/faceCover，改由 `PROJECT.scopeKpis[]` + `PROJECT.ringScopes[]` 驱动（缺省仍是 CP2 那对，
+    老项目零变化）。AC3 配成三张卡：**Caulking / Sun Shade / Beauty Cap**（Leo 选的），圆环取前两个
+    （marker 只有左上/右下两条弧）。抽出 `_scopeDrillRows(name)`，卡片点击走 `openKpiDetail('scope:<name>')`。
+  - **AC3 index.html 补齐**：`#planSection`（lens 栏挂载点，缺了整条 lens 栏都不会出现）、三张 scope 卡
+    （`data-gc-hide`）、unit 弹窗的 Floor / Door type 两行、**Field Verify · R.O. tab**（openings + shop
+    drawing + 尺寸基准都挂在这个 tab 上）、平面图图例四项、以及 CP2 那套 CSS（GC 视图、lens 栏、openings
+    清单/打印、scope 圆环、IS 菱形、门类型描边、`--kpi-accent` 条）。主题变量五个（`--caulk-ring`
+    `--fc-ring` `--int-sf` `--fire-door` `--follow-op`）深浅两套都补了。
+  - **静态审计**：扫了 core 里所有 `getElementById`/`querySelector('#…')`，AC3 仍缺的 4 个
+    （`glass-panels-list`、`l-photo-input`、`planCollapseBtn`、`unit-projlinks`）**全部有 null guard**，
+    确认不会抛错（AC3 的玻璃走 elevation，不需要 Glass tab）。CP2 侧缺的都是 AC3 专属（elevation tab、
+    submittal UI、`cal-facecap`），同样有 guard，且本来就是这个状态。
+  - **GC 功能在 AC3 是"装了但没开"**（Leo 决定）：`gcItems` / `access` 两个 Firebase 节点没在 AC3 的
+    Firebase 项目里发布，也没建 GC 只读账号。所以 GC 卡片/📤 推送/访问日志这些代码在，但没人能用；
+    **要开的时候必须先发布规则**，否则 GC 提交会静默失败（CP2 的 `firebase-database-rules.json` 可直接抄）。
+  - **验证**：AC3 `_tests/test-ac3-sync.cjs`（28 断言：四个 core 文件 md5 一致、三张卡按配置绘制、
+    圆环读 sunshade 而不是 faceCover、drill-down 排序、AC3 markup 齐全、缓存版本号）+ 原有
+    `test-submittal-reviews.cjs`（43）；CP2 五套 84/33/36/65/21 全绿。`?v=20260805s` 四个脚本标签都bump了。
+  - **Leo 待办**：本地开一遍 AC3，重点看 ①三张 scope 卡有没有数（要先在 unit 的 Calendar tab 把
+    Caulking/Sun Shade/Beauty Cap 设成 Installed）②平面图上方多了 lens 栏（📐 Openings / 🔧 Issues /
+    ✓ Progress）③unit 弹窗多了 Field Verify · R.O. tab 和 Floor / Door type 两行 ④原有功能（elevation
+    tab、submittal log、takeoff 跳转）没被碰坏。
+
 - **2026-08-03 — Submittal Log: per-reviewer ball-in-court responses, grouped by Rev (SHIPPED).**
   Leo's ask: Procore replies must be logged per ball-in-court party; the parties are always the
   same 4 in a fixed order, so seed them by default but keep them editable; keep history per Rev.
@@ -42,8 +93,8 @@
     rows. ▲▼ kept as the touch/no-DnD fallback (touch devices don't fire HTML5 drag events).
   - CSS: `#submittalModal .modal { max-width:560px; max-height:88vh; overflow-y:auto }`.
     Bumped `app.js?v=20260803a` + added `project-config.js?v=20260803a` in `index.html`.
-  - **Verified**: 43-check jsdom harness (`test-submittal-reviews.cjs`, kept in the repo root —
-    `npm i jsdom` then `node test-submittal-reviews.cjs`; it slices the submittal block out of
+  - **Verified**: 43-check jsdom harness (`_tests/test-submittal-reviews.cjs` —
+    `npm i jsdom` then `node _tests/test-submittal-reviews.cjs`; it slices the submittal block out of
     `app.js` and evals it against the real DOM, so it stays valid as long as the
     `/* -------- Submittal log (M4) -------- */` marker stands) against the real
     `index.html` markup + `node --check` on both files. Covers default seeding/order, save shape,

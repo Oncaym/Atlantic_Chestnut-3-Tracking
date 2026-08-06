@@ -18,7 +18,7 @@ const I18N = {
     kpi_progress: "Ready",
     kpi_progress_sub: "Ready to install",
     kpi_issues: "Issues",
-    kpi_issues_sub: "Opening error / rework needed",
+    kpi_issues_sub: "Open items on the board",
     kpi_pending: "Pending",
     kpi_pending_sub: "Not yet installed",
     kpi_louvers: "Louvers Installed",
@@ -26,9 +26,50 @@ const I18N = {
     kpi_percent: "Overall Progress",
     kpi_percent_sub: "— Overall",
     kpi_percent_sub_dyn: "{installed} / {total} units · Ground FL",
+    kpi_caulk: "Caulking Done",
+    kpi_facecover: "Face Cover Done",
+    kpi_scope_sub_dyn: "{done} / {total} units{wip}",
+    kpi_scope_sub_wip: " · {n} in progress",
     sec_plan_title: "Floor Plan (from DXF) · Click marker to edit / drag to reposition",
     legend_louver: "Louver",
     legend_facecap: "Face Cap",
+    legend_caulk: "Caulking",
+    legend_facecover: "Face Cover",
+    legend_sunshade: "Sun Shade",
+    legend_beautycap: "Beauty Cap",
+    legend_interior_sf: "Interior storefront",
+    legend_int_door: "Interior door",
+    legend_fire_door: "Fire-rated door",
+    kind_interior_sf: "Interior",
+    door_type_exterior: "Exterior door",
+    door_type_interior: "Interior door",
+    door_type_firerated: "Fire-rated door",
+    form_door_type: "Door type",
+    opt_door_unset: "— not set —",
+    form_floor: "Floor",
+    unit_type_auto: "Auto (by unit id)",
+    sub_item_header: "📋 Submittals not approved",
+    sub_item_resubmit: "Resubmit",
+    sub_item_waiting: "In review",
+    sub_item_ours: "Us — resubmission owed",
+    sub_item_theirs: "Reviewers",
+    sub_item_ours_short: "on us",
+    sub_item_theirs_short: "with reviewers",
+    unit_type_none: "No special type",
+    form_unit_type: "Unit type",
+    ro_basis_label: "Dimension basis — who the opening follows",
+    ro_basis_hold: "We hold this dimension (glass purchased)",
+    ro_basis_follow: "We follow the GC's opening (glass not purchased)",
+    ro_basis_hold_hint: "Glass is bought, so the size is fixed — the GC builds the opening to our number. This is the normal case for everything already issued.",
+    ro_basis_follow_hint: "Glass isn't bought yet, so we can still fabricate to their opening — what we need back is their as-built dimension.",
+    gc_follow_body: "Glass for this unit has not been purchased yet, so we will follow your opening. Send us the as-built dimension once it is framed.",
+    gc_follow_target: "Target size, if you have a choice",
+    gc_follow_send: "Send us the dimension",
+    sheet_follows_short: "follows your opening",
+    sheet_follows_legend: "Rows marked \"follows your opening\" are units whose glass is not purchased yet — send us your as-built dimension and we will fabricate to it.",
+    openings_disclaimer: "Reference only — for coordination and holding dimensions. The binding record is the approved submittal / written RFI response, not this dashboard.",
+    confirm_move_floor: "Move {id} from {from} to {to} and pin it here?",
+    msg_moved_floor: "{id} moved to {to} — drag the marker to fine-tune",
     level_gf: "Ground Floor",
     level_l2: "Other Levels",
     tool_edit_pos: "📍 Edit marker position (drag)",
@@ -128,6 +169,9 @@ const I18N = {
     kpi_detail_title_progress: "Ready Units",
     kpi_detail_title_issues: "Issue Units",
     kpi_detail_title_louvers: "Louver-Installed Units",
+    kpi_detail_title_caulking: "Caulking — Unit by Unit",
+    kpi_detail_title_facecover: "Face Cover — Unit by Unit",
+    kpi_detail_title_beautycap: "Beauty Cap — Unit by Unit",
     kpi_detail_title_glass: "Glass-Installed Panels",
     kpi_detail_title_percent: "All Units",
     kpi_detail_empty: "Nothing to show.",
@@ -167,7 +211,7 @@ const I18N = {
     kpi_progress: "就绪",
     kpi_progress_sub: "准备安装",
     kpi_issues: "问题",
-    kpi_issues_sub: "开口误差 / 待返工",
+    kpi_issues_sub: "看板上待解决的事项",
     kpi_pending: "待装",
     kpi_pending_sub: "尚未安装",
     kpi_louvers: "百叶已装",
@@ -175,9 +219,50 @@ const I18N = {
     kpi_percent: "总进度",
     kpi_percent_sub: "— 总进度",
     kpi_percent_sub_dyn: "{installed} / {total} 单元 · 一层",
+    kpi_caulk: "打胶完成",
+    kpi_facecover: "盖板完成",
+    kpi_scope_sub_dyn: "{done} / {total} 单元{wip}",
+    kpi_scope_sub_wip: " · {n} 进行中",
     sec_plan_title: "平面图（来自 DXF）· 点击标记编辑 / 拖拽调整位置",
     legend_louver: "百叶",
     legend_facecap: "压条",
+    legend_caulk: "打胶",
+    legend_facecover: "盖板",
+    legend_sunshade: "遮阳板",
+    legend_beautycap: "压条",
+    legend_interior_sf: "室内店面",
+    legend_int_door: "室内门",
+    legend_fire_door: "防火门",
+    kind_interior_sf: "室内",
+    door_type_exterior: "室外门",
+    door_type_interior: "室内门",
+    door_type_firerated: "防火门",
+    form_door_type: "门类型",
+    opt_door_unset: "— 未设置 —",
+    form_floor: "楼层",
+    unit_type_auto: "自动（按编号）",
+    sub_item_header: "📋 未批准的 submittal",
+    sub_item_resubmit: "需重提",
+    sub_item_waiting: "审核中",
+    sub_item_ours: "我方 —— 待重提",
+    sub_item_theirs: "审核方",
+    sub_item_ours_short: "在我方",
+    sub_item_theirs_short: "在审核方",
+    unit_type_none: "不特殊标记",
+    form_unit_type: "单元类型",
+    ro_basis_label: "尺寸基准 —— 谁跟谁的尺寸",
+    ro_basis_hold: "我方尺寸为准（玻璃已订）",
+    ro_basis_follow: "我方跟随 GC 开口（玻璃未订）",
+    ro_basis_hold_hint: "玻璃已订、尺寸已锁死，GC 必须按我们给的尺寸做开口。目前已发出的开口都属于这一类。",
+    ro_basis_follow_hint: "玻璃还没订，我们可以按他们的开口下料 —— 需要他们把实测尺寸给我们。",
+    gc_follow_body: "该单元的玻璃尚未采购，我方将按贵方开口尺寸制作。开口做好后请把实测尺寸发给我们。",
+    gc_follow_target: "参考目标尺寸（如可选择）",
+    gc_follow_send: "把尺寸发给我们",
+    sheet_follows_short: "跟随贵方开口",
+    sheet_follows_legend: "标注\"跟随贵方开口\"的行，是玻璃尚未采购的单元 —— 请把实测尺寸给我们，我们按此下料。",
+    openings_disclaimer: "仅供参考 —— 用于协调和锁定尺寸。具有约束力的记录是已批准的 submittal / 书面 RFI 回复，不是这个看板。",
+    confirm_move_floor: "把 {id} 从 {from} 移到 {to}，并钉在这个位置？",
+    msg_moved_floor: "{id} 已移到 {to} —— 拖动 marker 可微调位置",
     level_gf: "一层",
     level_l2: "其他楼层",
     tool_edit_pos: "📍 编辑标记位置（拖拽）",
@@ -277,6 +362,9 @@ const I18N = {
     kpi_detail_title_progress: "就绪单元",
     kpi_detail_title_issues: "问题单元明细",
     kpi_detail_title_louvers: "已装百叶单元",
+    kpi_detail_title_caulking: "打胶 — 逐单元",
+    kpi_detail_title_facecover: "盖板 — 逐单元",
+    kpi_detail_title_beautycap: "压条 — 逐单元",
     kpi_detail_title_glass: "已装玻璃面板",
     kpi_detail_title_percent: "全部单元",
     kpi_detail_empty: "暂无数据。",
@@ -316,7 +404,7 @@ const I18N = {
     kpi_progress: "준비됨",
     kpi_progress_sub: "설치 준비 완료",
     kpi_issues: "문제",
-    kpi_issues_sub: "개구부 오차 / 재작업 필요",
+    kpi_issues_sub: "보드의 미해결 항목",
     kpi_pending: "대기",
     kpi_pending_sub: "미설치",
     kpi_louvers: "루버 설치",
@@ -324,9 +412,50 @@ const I18N = {
     kpi_percent: "전체 진행률",
     kpi_percent_sub: "— 전체",
     kpi_percent_sub_dyn: "{installed} / {total} 유닛 · 1층",
+    kpi_caulk: "코킹 완료",
+    kpi_facecover: "페이스 커버 완료",
+    kpi_scope_sub_dyn: "{done} / {total} 유닛{wip}",
+    kpi_scope_sub_wip: " · {n} 진행 중",
     sec_plan_title: "평면도 (DXF) · 마커 클릭하여 편집 / 드래그하여 위치 조정",
     legend_louver: "루버",
     legend_facecap: "페이스 캡",
+    legend_caulk: "코킹",
+    legend_facecover: "페이스 커버",
+    legend_sunshade: "차양",
+    legend_beautycap: "뷰티 캡",
+    legend_interior_sf: "실내 스토어프론트",
+    legend_int_door: "실내 도어",
+    legend_fire_door: "방화문",
+    kind_interior_sf: "실내",
+    door_type_exterior: "외부 도어",
+    door_type_interior: "실내 도어",
+    door_type_firerated: "방화문",
+    form_door_type: "도어 종류",
+    opt_door_unset: "— 미설정 —",
+    form_floor: "층",
+    unit_type_auto: "자동 (유닛 ID 기준)",
+    sub_item_header: "📋 미승인 제출물",
+    sub_item_resubmit: "재제출 필요",
+    sub_item_waiting: "검토 중",
+    sub_item_ours: "당사 — 재제출 대기",
+    sub_item_theirs: "검토자",
+    sub_item_ours_short: "당사",
+    sub_item_theirs_short: "검토자",
+    unit_type_none: "특수 타입 없음",
+    form_unit_type: "유닛 종류",
+    ro_basis_label: "치수 기준 — 누구의 개구부를 따르는가",
+    ro_basis_hold: "당사 치수 기준 (유리 발주 완료)",
+    ro_basis_follow: "GC 개구부를 따름 (유리 미발주)",
+    ro_basis_hold_hint: "유리가 발주되어 치수가 고정되었습니다 — GC가 당사 치수대로 개구부를 시공합니다.",
+    ro_basis_follow_hint: "유리가 아직 발주되지 않아 GC 개구부에 맞춰 제작할 수 있습니다 — 실측 치수를 받아야 합니다.",
+    gc_follow_body: "이 유닛의 유리는 아직 발주되지 않았습니다. 귀사의 개구부에 맞춰 제작하오니 시공 후 실측 치수를 보내주십시오.",
+    gc_follow_target: "참고 목표 치수",
+    gc_follow_send: "치수 보내기",
+    sheet_follows_short: "귀사 개구부 기준",
+    sheet_follows_legend: "\"귀사 개구부 기준\"으로 표시된 행은 유리 미발주 유닛입니다 — 실측 치수를 보내주시면 그에 맞춰 제작합니다.",
+    openings_disclaimer: "참고용입니다 — 조정 및 치수 확정용. 구속력 있는 기록은 승인된 제출물 / 서면 RFI 회신이며 이 대시보드가 아닙니다.",
+    confirm_move_floor: "{id}을(를) {from}에서 {to}로 옮기고 여기에 배치할까요?",
+    msg_moved_floor: "{id}을(를) {to}로 옮겼습니다 — 마커를 드래그해 미세 조정",
     level_gf: "1층",
     level_l2: "기타 층",
     tool_edit_pos: "📍 마커 위치 편집 (드래그)",
@@ -426,6 +555,9 @@ const I18N = {
     kpi_detail_title_progress: "준비 유닛",
     kpi_detail_title_issues: "문제 유닛 상세",
     kpi_detail_title_louvers: "루버 설치 유닛",
+    kpi_detail_title_caulking: "코킹 — 유닛별",
+    kpi_detail_title_facecover: "페이스 커버 — 유닛별",
+    kpi_detail_title_beautycap: "뷰티 캡 — 유닛별",
     kpi_detail_title_glass: "유리 설치 패널",
     kpi_detail_title_percent: "전체 유닛",
     kpi_detail_empty: "데이터 없음.",
@@ -526,6 +658,26 @@ function isPlanned(item) { return !!(item && item.date && item.date > TODAY_ISO)
 // or an explicit type === 'Door'. Storefront = everything else.
 const _DOOR_PATTERNS = (PROJECT.doorPatterns || ['^SD']).map(p => new RegExp(p, 'i'));
 function isDoor(u) { return !!u && (u.type === 'Door' || /door/i.test(u.type || '') || _DOOR_PATTERNS.some(rx => rx.test(u.id || ''))); }
+/* F-044: interior storefront (CP2: IS-prefixed). Detected from the id like doors are, so
+   markers Leo adds by hand on the plan are classified without any extra field to fill in.
+   `u.interior === 'yes' | 'no'` overrides the pattern when set (constitution §4.8). */
+const _INT_PATTERNS = (PROJECT.interiorPatterns || []).map(p => new RegExp(p, 'i'));
+function isInterior(u) {
+  if (!u) return false;
+  if (u.interior === 'yes') return true;
+  if (u.interior === 'no') return false;
+  return /interior/i.test(u.type || '') || _INT_PATTERNS.some(rx => rx.test(u.id || ''));
+}
+/* Door type (F-044). '' = unspecified; interior/exterior default from the unit itself so a
+   pre-existing door reads sensibly before anyone touches the field. */
+const DOOR_TYPES = ['', 'exterior', 'interior', 'fire-rated'];
+const DOOR_TYPE_LABEL = { '': '— not set —', exterior: 'Exterior door', interior: 'Interior door', 'fire-rated': 'Fire-rated door' };
+function doorTypeOf(u) {
+  if (!u || !isDoor(u)) return '';
+  const v = String(u.doorType || '').trim();
+  if (DOOR_TYPES.indexOf(v) !== -1 && v) return v;
+  return isInterior(u) ? 'interior' : 'exterior';   // inferred default, never written to state
+}
 let doorMode = false;  // when true, floor plan shows only doors (hides storefront)
 
 // Seed data extracted from PDF — Ground Floor + Level 2 units
@@ -727,6 +879,7 @@ function loadState() {
   if (s) {
       if (!s.log) s.log = [];
       if (!s.positions) s.positions = {};
+      if (!Array.isArray(s.projectItems)) s.projectItems = []; // F-032: project-level Open Items
       mergeSeedUnits(s);
       return s;
   }
@@ -735,6 +888,7 @@ function loadState() {
     log: structuredClone(SEED_LOG),
     positions: structuredClone(DEFAULT_POSITIONS),
     glassPanelOffsets: {},
+    projectItems: [],
     updatedAt: new Date().toISOString()
   };
 }
@@ -742,7 +896,41 @@ function loadState() {
 /* Merge any new SEED_UNITS into an existing state object (in-place).
    Called from loadState() and _cloudApplyRemoteState() so Firebase sync
    never silently drops newly-added seed units (e.g. Level 2 markers). */
+/* One-time state migrations (F-044). Seed edits can only ADD things — they can never fix
+   data that already exists in the cloud (a unit's floor, a marker's coordinates). Projects
+   declare those fixups as PROJECT.migrations = [{ id, note, apply(state) }]; each id is
+   recorded in state.migrations[] the first time it runs, so it never runs twice, and core
+   code stays free of project specifics. Returns true when something changed. */
+function runStateMigrations(s) {
+  const list = (window.PROJECT && Array.isArray(PROJECT.migrations)) ? PROJECT.migrations : [];
+  if (!list.length || !s) return false;
+  // Read-only sessions (GC) can never push the "already migrated" marker back, so a
+  // migration would re-run on every reload and drift THEIR copy. Editors do the fixup.
+  if (typeof _isRO === 'function' && _isRO()) return false;
+  if (!Array.isArray(s.migrations)) s.migrations = [];
+  let ran = false;
+  list.forEach(m => {
+    if (!m || !m.id || typeof m.apply !== 'function') return;
+    if (s.migrations.indexOf(m.id) !== -1) return;
+    let result = '';
+    try { result = m.apply(s) || ''; }
+    catch (e) { console.warn('[migration] ' + m.id + ' failed — skipped, will retry next load', e); return; }
+    s.migrations.push(m.id);
+    ran = true;
+    console.log('[migration] ' + m.id + (result ? ': ' + result : ' applied'));
+    // Reuse the seed-sync flag so the result (and the "done" marker) gets pushed to the
+    // cloud — otherwise the migration would run again, and again, on every load.
+    s._mergeNote = (s._mergeNote ? s._mergeNote + ' · ' : '') + ('migration ' + m.id);
+    if (Array.isArray(s.log)) {
+      s.log.push({ kind: 'migration', auto: true, date: new Date().toISOString().slice(0, 10),
+        category: 'field-verify', categories: ['field-verify'],
+        content: 'Data migration ' + m.id + (result ? ' — ' + result : '') });
+    }
+  });
+  return ran;
+}
 function mergeSeedUnits(s) {
+      runStateMigrations(s);
       // ensure positions exist (migration for older state)
       if (!s.positions) s.positions = structuredClone(DEFAULT_POSITIONS);
       if (!s.glassPanelOffsets) s.glassPanelOffsets = {};
@@ -783,8 +971,33 @@ function mergeSeedUnits(s) {
         const seed = SEED_UNITS.find(x => x.key === u.key);
         if (seed && seed.zone) u.zone = seed.zone;
       });
+      // ----- backfill RFI items from SEED_UNITS into existing units (F-032) -----
+      // Additive only: matches by ref (fallback subject, case-insensitive) so a row
+      // already present — even if its status/party/response has since been edited
+      // by the team — is left untouched. Only rows with no match get appended. This
+      // is what lets Leo add a real RFI/inquiry to project-config.js and have it show
+      // up in Firebase for a unit that's already been live for months.
+      let rfiAdded = 0;
+      s.units.forEach(u => {
+        const seed = SEED_UNITS.find(x => x.key === u.key);
+        if (!seed || !Array.isArray(seed.rfi) || !seed.rfi.length) return;
+        if (!Array.isArray(u.rfi)) u.rfi = [];
+        seed.rfi.forEach(seedRow => {
+          const matchKey = String(seedRow.ref || seedRow.subject || '').trim().toLowerCase();
+          if (!matchKey) return;
+          const already = u.rfi.some(r => String(r.ref || r.subject || '').trim().toLowerCase() === matchKey);
+          if (!already) { u.rfi.push(structuredClone(seedRow)); rfiAdded++; }
+        });
+      });
+
       if (added > 0) {
         s._mergeNote = `+${added} new units from PDF`;
+      }
+      if (rfiAdded > 0) {
+        // Same flag _cloudApplyRemoteState() already watches (see F-032 handoff Q1) —
+        // reuse it so an RFI-only backfill also gets pushed back to Firebase, not just
+        // held in memory until something else happens to trigger a save.
+        s._mergeNote = (s._mergeNote ? s._mergeNote + ' · ' : '') + `+${rfiAdded} RFI item(s) from project-config.js`;
       }
 }
 
@@ -838,6 +1051,9 @@ window._cloudApplyRemoteState = function(remoteState, meta) {
     if (!remoteState.positions) remoteState.positions = {};
     if (!Array.isArray(remoteState.submittals)) remoteState.submittals = Object.values(remoteState.submittals || {});
     if (!Array.isArray(remoteState.materials)) remoteState.materials = Object.values(remoteState.materials || {});
+    // F-032: Firebase RTDB drops empty arrays (comes back as missing/null), same as
+    // log/submittals/materials above — coerce projectItems the same way.
+    if (!Array.isArray(remoteState.projectItems)) remoteState.projectItems = Object.values(remoteState.projectItems || {});
 
     mergeSeedUnits(remoteState);
 
@@ -1021,7 +1237,25 @@ function render() {
 }
 
 /* ---- Floor Plan rendering ---- */
+/* F-051: the plan legend grows with the registry — a type nobody can identify is worse
+   than no type. Rebuilt on every render so an edit shows up immediately. */
+function renderUnitTypeLegend() {
+  const legend = document.querySelector('#planSection .legend') || document.querySelector('.legend');
+  if (!legend) return;
+  legend.querySelectorAll('.legend-item[data-ut]').forEach(el => el.remove());
+  const esc = v => String(v == null ? '' : v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  unitTypes().forEach(t => {
+    const d = document.createElement('div');
+    d.className = 'legend-item'; d.dataset.ut = t.key;
+    d.innerHTML = `<span class="ut-swatch ut-${esc(t.shape)}" style="--ut-color:${esc(utColorHex(t.color))}"></span> <span>${esc(t.label)}</span>`;
+    legend.appendChild(d);
+  });
+}
 function renderPlan() {
+  // F-039 v3: make sure the plan is showing the asset that matches the current theme.
+  // Cheap (only touches src when it differs) and covers the first paint, where a day-mode
+  // user restored from localStorage would otherwise get the white-linework plan on white.
+  try { applyPlanTheme(); } catch (e) {}
   const wrap = document.getElementById('planWrap');
   // remove existing markers (keep image + tooltip)
   wrap.querySelectorAll('.plan-marker').forEach(el => el.remove());
@@ -1042,10 +1276,16 @@ function renderPlan() {
   }
   const hidePending = document.getElementById('hidePendingChk').checked;
   const hl = window._highlightedSfIds; // Set<string> or null
+  const lens = _lens();                                    // F-039
+  wrap.classList.toggle('lens-openings', lens === 'openings');
+  wrap.classList.toggle('lens-issues', lens === 'issues');
   state.units.forEach(u => {
     if ((u.level || firstFloorKey()) !== currentLevel) return;
-    if (hidePending && u.status === 'pending') return;
-    if (doorMode && !isDoor(u)) return;   // Door Mode: hide storefront markers
+    if (!_lensShows(u, lens)) return;      // F-039: lens filter — hide what this view isn't about
+    if (lens === 'progress') {
+      if (hidePending && u.status === 'pending') return;
+      if (doorMode && !isDoor(u)) return;   // Door Mode: hide storefront markers
+    }
     if (PROJECT.requirePlacedMarkers && !state.positions[u.key]) return;  // opt-in: skip markers not placed on the plan
     const pos = state.positions[u.key] || { x: 50, y: 50 };
     const m = document.createElement('div');
@@ -1053,28 +1293,204 @@ function renderPlan() {
     if (hl && hl.size) {
       extra = hl.has((u.id || '').toUpperCase()) ? ' highlighted' : ' dimmed';
     }
-    m.className = `plan-marker ${u.status}${isDoor(u) ? ' door' : ''}${u.louver === 'yes' ? ' has-louver' : ''}${isPlanned(u) ? ' planned' : ''}${extra}`;
+    extra += _lensMarkerClass(u, lens);
+    m.className = `plan-marker ${u.status}${unitHasOpenRfi(u) ? ' has-open-rfi' : ''}${isDoor(u) ? ' door' : ''}${_unitShapeClass(u)}${u.louver === 'yes' ? ' has-louver' : ''}${isPlanned(u) ? ' planned' : ''}${_scopeRingClass(u)}${extra}`;
     m.style.left = pos.x + '%';
     m.style.top  = pos.y + '%';
     {
-      // Strip SF prefix only — sub-IDs are entered manually by the user, no auto suffix
-      m.textContent = u.id.replace(/^SF/, '');
+      // Strip SF prefix only — sub-IDs are entered manually by the user, no auto suffix.
+      // In the Openings lens the label is the dimension itself (F-039) — the answer the
+      // GC is looking for, with no click required.
+      const _lbl = _lensMarkerLabel(u, lens);
+      const _ut = unitTypeOf(u);
+      if (_ut) {
+        m.style.setProperty('--ut-color', utColorHex(_ut.color));
+        if (_ut.badge) m.dataset.utBadge = _ut.badge;
+      }
+      if ((_ut && _ut.shape === 'diamond') || (!_ut && isInterior(u) && !isDoor(u))) {
+        // F-044: the diamond is a 45°-rotated box, so the text needs its own span to
+        // rotate back and stay readable.
+        const sp = document.createElement('span');
+        sp.className = 'mk-label';
+        sp.textContent = _lbl;
+        m.appendChild(sp);
+      } else {
+        m.textContent = _lbl;
+      }
     }
     m.dataset.unit = u.key;
-    m.title = `${u.id} · ${formatStatus(u.status)}${u.date ? ' · ' + formatDate(u.date) : ''}`;
+    m.title = _lensMarkerTitle(u, lens);
     // hover tooltip
     m.addEventListener('mouseenter', e => showPlanTooltip(e, u));
     m.addEventListener('mouseleave', hidePlanTooltip);
     wrap.appendChild(m);
   });
   setupPlanInteractions();
+  renderUnitTypeLegend();
   if (typeof mapGlassMode !== 'undefined' && mapGlassMode) renderGlassMarkers();
 }
 
+/* Door-type row in the unit modal. Hidden entirely for non-doors — a storefront has no
+   door type, and an always-visible dead field is worse than no field. */
+/* F-051: unit type picker — "(auto: …)" spells out what the id pattern would pick, so
+   overriding is a deliberate act rather than a mystery. Hidden when no types are defined. */
+function renderUnitTypeRow(u) {
+  const row = document.getElementById('cal-unittype-row');
+  if (!row) return;
+  const list = unitTypes();
+  if (!list.length) { row.style.display = 'none'; return; }
+  row.style.display = '';
+  const sel = document.getElementById('cal-unittype');
+  if (!sel) return;
+  const auto = (function () { const cp = Object.assign({}, u); delete cp.unitType; return unitTypeOf(cp); })();
+  const cur = String((u && u.unitType) || '');
+  const esc = v => String(v == null ? '' : v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  sel.innerHTML = `<option value=""${cur ? '' : ' selected'}>${esc(t('unit_type_auto'))}${auto ? ' (' + esc(auto.label) + ')' : ''}</option>`
+    + `<option value="__none__"${cur === '__none__' ? ' selected' : ''}>${esc(t('unit_type_none'))}</option>`
+    + list.map(x => `<option value="${esc(x.key)}"${cur === x.key ? ' selected' : ''}>${esc(x.label)}</option>`).join('');
+}
+/* F-045: floor picker. Only shown when the project has more than one floor. Changing it
+   clears the marker position — the new floor is a different drawing, so the old x/y is
+   meaningless there; Leo drags it into place (or uses ➕ Add new marker, which now also
+   moves a unit to the floor you place it on). */
+function renderFloorSelect(u) {
+  const row = document.getElementById('cal-floor-row');
+  if (!row) return;
+  const floors = getFloors();
+  if (!floors || floors.length < 2) { row.style.display = 'none'; return; }
+  row.style.display = '';
+  const sel = document.getElementById('cal-floor');
+  if (!sel) return;
+  const cur = (u && u.level) || firstFloorKey();
+  sel.innerHTML = floors.map(f =>
+    `<option value="${_escFloor(f.key)}"${f.key === cur ? ' selected' : ''}>${_escFloor(floorLabel(f))}</option>`).join('');
+}
+function renderDoorTypeRow(u) {
+  const row = document.getElementById('cal-doortype-row');
+  if (!row) return;                      // project without the row (AC3) — no-op
+  if (!isDoor(u)) { row.style.display = 'none'; return; }
+  row.style.display = '';
+  const sel = document.getElementById('cal-doortype');
+  if (!sel) return;
+  const cur = String((u && u.doorType) || '');
+  const inferred = doorTypeOf(u);
+  sel.innerHTML = DOOR_TYPES.map(v => {
+    const label = v ? t('door_type_' + v.replace(/[^a-z]/g, '')) : t('opt_door_unset');
+    const hint = (!v && inferred) ? ' (' + t('door_type_' + inferred.replace(/[^a-z]/g, '')) + ')' : '';
+    return `<option value="${v}"${v === cur ? ' selected' : ''}>${label}${hint}</option>`;
+  }).join('');
+}
+/* ================= Unit type registry (F-051, Leo 2026-08-05) =====================
+   Adding a marker kind (hollow metal door, sun shade, canopy…) used to mean editing
+   three hardcoded branches in this file. Now it is data: a list of types, each with an
+   id pattern, a shape and an outline colour, editable in-app (⚙ → Unit types) and
+   stored in `state.unitTypes` so it syncs to everyone like any other change — no new
+   Firebase rules, no deploy. `PROJECT.unitTypes` may ship project defaults; the cloud
+   list wins on a key clash.
+
+   Deliberate limits (they keep the plan readable):
+     • fill colour always means INSTALL STATUS — a type only ever sets the outline;
+     • shapes and colours come from a fixed palette, not free input;
+     • the three built-ins (exterior storefront / interior storefront / door) stay put,
+       and a custom type only overrides them when its pattern matches first.       */
+const UT_SHAPES = [
+  { key: 'circle',   label: 'Circle (default)' },
+  { key: 'diamond',  label: 'Diamond' },
+  { key: 'square',   label: 'Square' },
+  { key: 'triangle', label: 'Triangle' },
+  { key: 'hex',      label: 'Hexagon' },
+  { key: 'capsule',  label: 'Capsule (wide)' }
+];
+// Picked to stay clear of the status fills (green / yellow / red / grey) and of each other.
+const UT_COLORS = [
+  { key: 'cyan',   hex: '#22d3ee', label: 'Cyan' },
+  { key: 'violet', hex: '#a371f7', label: 'Violet' },
+  { key: 'mint',   hex: '#7ee787', label: 'Mint' },
+  { key: 'amber',  hex: '#ffb224', label: 'Amber' },
+  { key: 'pink',   hex: '#ff7eb6', label: 'Pink' },
+  { key: 'steel',  hex: '#a5b8cc', label: 'Steel' },
+  { key: 'lime',   hex: '#bdda57', label: 'Lime' },
+  { key: 'copper', hex: '#e8a26a', label: 'Copper' }
+];
+function utColorHex(key) { const c = UT_COLORS.find(x => x.key === key); return c ? c.hex : (String(key || '').charAt(0) === '#' ? key : UT_COLORS[0].hex); }
+function utShapeOk(k) { return UT_SHAPES.some(s => s.key === k); }
+// Project defaults + the cloud list, cloud wins per key.
+function unitTypes() {
+  const proj = (window.PROJECT && Array.isArray(PROJECT.unitTypes)) ? PROJECT.unitTypes : [];
+  const cloud = (state && Array.isArray(state.unitTypes)) ? state.unitTypes : [];
+  const out = [];
+  proj.concat(cloud).forEach(t => {
+    if (!t || !t.key) return;
+    const i = out.findIndex(x => x.key === t.key);
+    const row = { key: String(t.key), label: t.label || t.key, match: t.match || '',
+                  shape: utShapeOk(t.shape) ? t.shape : 'circle', color: t.color || 'cyan',
+                  badge: (t.badge || '').slice(0, 2) };
+    if (i === -1) out.push(row); else out[i] = row;
+  });
+  return out;
+}
+/* Which registry type a unit is. `u.unitType` (set by hand in the unit modal) always wins
+   over the id pattern — auto-detection is a default guess, never a verdict (§4.9). */
+function unitTypeOf(u) {
+  if (!u) return null;
+  const list = unitTypes();
+  if (u.unitType) {
+    if (u.unitType === '__none__') return null;          // explicitly "just a plain marker"
+    const pick = list.find(t => t.key === u.unitType);
+    if (pick) return pick;
+  }
+  const id = String(u.id || '');
+  return list.find(t => { try { return t.match && new RegExp(t.match, 'i').test(id); } catch (e) { return false; } }) || null;
+}
+/* F-044 shape / colour language on the plan:
+     exterior storefront = round (unchanged)   interior storefront (IS) = diamond
+     door = square, border colour by door type + an F badge on fire-rated
+   A door that is also interior stays a square — the door shape is the stronger signal on
+   site, and its border colour already says "interior". */
+function _unitShapeClass(u) {
+  let c = '';
+  const ut = unitTypeOf(u);                          // F-051: registry type wins the shape
+  if (ut) c += ' ut ut-' + ut.shape;
+  else if (isInterior(u) && !isDoor(u)) c += ' interior-sf';
+  const dt = doorTypeOf(u);
+  if (dt) c += ' dt-' + dt.replace(/[^a-z]/g, '');   // dt-exterior | dt-interior | dt-firerated
+  return c;
+}
+// "· Interior · Fire-rated door" tail for hover cards and marker titles.
+function _unitKindText(u) {
+  const bits = [];
+  const ut = unitTypeOf(u);
+  if (ut) bits.push(ut.label);
+  else if (isInterior(u) && !isDoor(u)) bits.push(t('kind_interior_sf'));
+  const dt = doorTypeOf(u);
+  if (dt) bits.push(t('door_type_' + dt.replace(/[^a-z]/g, '')));
+  return bits.length ? ' · ' + bits.join(' · ') : '';
+}
+/* Ring classes for caulking (upper-left arc) + face cover (lower-right arc). Only 'installed'
+   and 'in-progress' draw anything — pending / N/A leave the marker exactly as it was. */
+function _scopeRingClass(u) {
+  let c = '';
+  _ringScopes().forEach(r => {
+    const st = scopeStatusOf(u, r.scope);
+    if (st === 'installed') c += ' ' + r.cls;
+    else if (st === 'in-progress') c += ' ' + r.cls + ' ' + r.cls + '-wip';
+  });
+  return c;
+}
+// "Caulking ✓" / "Caulking …" (in progress) for the hover card + marker title attribute.
+function _scopeTipText(u) {
+  const mark = st => st === 'installed' ? ' ✓' : (st === 'in-progress' ? ' …' : (st === 'issue' ? ' ⚠' : null));
+  const bits = [];
+  _ringScopes().forEach(r => {
+    const m = mark(scopeStatusOf(u, r.scope));
+    if (m) bits.push(t(r.labelKey || 'legend_caulk') + m);
+  });
+  return bits.length ? ' · ' + bits.join(' · ') : '';
+}
 function showPlanTooltip(e, u) {
   const tt = document.getElementById('planTooltip');
-  tt.innerHTML = `<strong>${u.id}</strong> · ${isDoor(u) ? 'Door' : u.type} · ${u.zone}<br>
-    <span style="color:var(--text-dim)">${formatStatus(u.status)}${u.date ? ' · ' + formatDate(u.date) : ''}${u.louver==='yes' ? ' · Louver ✓' : ''}${u.facecap==='yes' ? ' · Face Cap ✓' : ''}</span>
+  tt.innerHTML = `<strong>${u.id}</strong> · ${isDoor(u) ? 'Door' : u.type}${_unitKindText(u)} · ${u.zone}<br>
+    <span style="color:var(--text-dim)">${formatStatus(u.status)}${u.date ? ' · ' + formatDate(u.date) : ''}${u.louver==='yes' ? ' · Louver ✓' : ''}${u.facecap==='yes' ? ' · Face Cap ✓' : ''}${_scopeTipText(u)}</span>
     ${u.note ? '<br><span style="color:var(--text-dim);font-size:10px">' + u.note + '</span>' : ''}`;
   const rect = e.currentTarget.getBoundingClientRect();
   const wrapRect = document.getElementById('planWrap').getBoundingClientRect();
@@ -1089,6 +1505,9 @@ function hidePlanTooltip() {
 /* ---- Plan zoom & pan (touch + buttons + wheel) ---- */
 let planView = { s: 0.9, tx: 0, ty: 0 };
 const MIN_ZOOM = 0.9, MAX_ZOOM = 6;
+// Absolute zoom-out floor, below the centred "fit" scale (MIN_ZOOM). Lets you zoom OUT past
+// fit to shrink the plan and reveal/grab markers that were dragged off the visible plan.
+const ZOOM_MIN = 0.35;
 
 // Returns the centered planView state at MIN_ZOOM (equal black border on all sides).
 // Uses wrap.offsetHeight (image natural height) so vertical centering works even when
@@ -1106,35 +1525,56 @@ function getPlanCenterView() {
   };
 }
 
+/* F-039 v3: `will-change: transform` is applied only WHILE a gesture is running, then
+   dropped ~180ms after it settles. During the drag/pinch it keeps the cached layer (smooth
+   60fps); once released, removing it forces the browser to re-rasterize the plan at the
+   final scale, so what the GC actually reads is sharp instead of an upscaled bitmap. */
+let _planGestureTimer = null;
+function planGestureActive() {
+  const wrap = document.getElementById('planWrap'); if (!wrap) return;
+  wrap.style.willChange = 'transform';
+  if (_planGestureTimer) clearTimeout(_planGestureTimer);
+  _planGestureTimer = setTimeout(() => { wrap.style.willChange = ''; _planGestureTimer = null; }, 180);
+}
 function applyPlanTransform() {
   const wrap = document.getElementById('planWrap');
   if (!wrap) return;
+  planGestureActive();
   wrap.style.transform = `translate(${planView.tx}px, ${planView.ty}px) scale(${planView.s})`;
+  // Counter-scale for markers: the wrap's scale spreads marker positions apart (good) but
+  // would also blow up marker size (overlap stays). Markers multiply their own transform by
+  // var(--mk) so their on-screen size stays fixed at the base-view size (MIN_ZOOM) at every
+  // zoom level — zoom in = more spacing, same-size dots, no overlap.
+  wrap.style.setProperty('--mk', String(MIN_ZOOM / planView.s));
   const lbl = document.getElementById('zoomLabel');
   if (lbl) lbl.textContent = Math.round(planView.s / MIN_ZOOM * 100) + '%';
 }
 function clampPlanPan() {
   const vp = document.getElementById('planViewport');
-  if (!vp) return;
+  const wrap = document.getElementById('planWrap');
+  if (!vp || !wrap) return;
   const r = vp.getBoundingClientRect();
-  if (planView.s <= MIN_ZOOM) {
-    // Snap back to centered at MIN_ZOOM
-    Object.assign(planView, getPlanCenterView());
-    return;
-  }
-  const minX = r.width  - r.width  * planView.s;
-  const minY = r.height - r.height * planView.s;
-  if (planView.tx > 0) planView.tx = 0;
-  if (planView.tx < minX) planView.tx = minX;
-  if (planView.ty > 0) planView.ty = 0;
-  if (planView.ty < minY) planView.ty = minY;
+  // Actual rendered content size (real plan dimensions × scale) — using the true wrap size
+  // instead of the viewport width fixes edge access when the plan isn't the same aspect as
+  // the viewport, and lets the clamp work correctly when zoomed OUT past fit (content smaller
+  // than the viewport). No snap-back-to-fit, so zoom-out sticks.
+  const cw = wrap.offsetWidth  * planView.s;
+  const ch = wrap.offsetHeight * planView.s;
+  // Half-viewport of slack on every side so far-edge / off-plan markers can be pulled fully
+  // into view and grabbed (also lets you pan while zoomed out).
+  const padX = r.width  * 0.5;
+  const padY = r.height * 0.5;
+  const minX = Math.min(0, r.width  - cw) - padX, maxX = Math.max(0, r.width  - cw) + padX;
+  const minY = Math.min(0, r.height - ch) - padY, maxY = Math.max(0, r.height - ch) + padY;
+  planView.tx = Math.max(minX, Math.min(maxX, planView.tx));
+  planView.ty = Math.max(minY, Math.min(maxY, planView.ty));
 }
 function planZoom(factor, cx, cy) {
   const vp = document.getElementById('planViewport');
   if (!vp) return;
   const r = vp.getBoundingClientRect();
   if (cx == null) { cx = r.width / 2; cy = r.height / 2; }
-  const newS = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, planView.s * factor));
+  const newS = Math.min(MAX_ZOOM, Math.max(ZOOM_MIN, planView.s * factor));
   if (newS === planView.s) return;
   // Keep the point under (cx,cy) fixed
   const f = newS / planView.s;
@@ -1235,8 +1675,9 @@ function setupPlanZoomPan() {
     if (!panActive) {
       if (Math.hypot(e.clientX - p.sx, e.clientY - p.sy) < PAN_THRESHOLD) return;
       panActive = true;
-      // At base zoom, auto-zoom on first drag so the gesture actually moves the map
-      if (planView.s <= MIN_ZOOM) {
+      // At exactly the fit scale, auto-zoom on first drag so the gesture actually moves the
+      // map. Don't fire when zoomed OUT past fit (user did that on purpose to see everything).
+      if (Math.abs(planView.s - MIN_ZOOM) < 1e-6) {
         const r = vp.getBoundingClientRect();
         planZoom(1.8, p.sx - r.left, p.sy - r.top);
       }
@@ -1385,6 +1826,10 @@ function setupPlanInteractions() {
   });
 }
 
+// Marker % positions may extend past the plan into the surrounding margin (Leo:
+// peripheral placement), but keep a generous safety band so a grouped drag can't fling
+// markers far off-screen where they'd be unreachable.
+function _clampMarkerPct(v) { return Math.max(-50, Math.min(150, v)); }
 document.addEventListener('mousemove', e => {
   // ----- Box-select drawing -----
   if (selBoxState) {
@@ -1407,9 +1852,17 @@ document.addEventListener('mousemove', e => {
   }
   if (!dragState) return;
   const { rect, el } = dragState;
-  const x = ((e.clientX - rect.left) / rect.width) * 100;
-  const y = ((e.clientY - rect.top)  / rect.height) * 100;
-  if (x < 0 || x > 100 || y < 0 || y > 100) return;
+  // Markers may sit BEYOND the drawn plan — in the black margin around the zoomed plan
+  // (Leo wants peripheral placement). So we clamp the CURSOR to the plan VIEWPORT, not to
+  // 0–100% of the image: positions can go negative / past 100 into the margins, but a
+  // marker can never be dragged fully off-screen (viewport clips) and lost. The old code
+  // aborted the whole move when the cursor left 0–100%, which froze edge markers.
+  const _vp = document.getElementById('planViewport');
+  const _vpr = _vp ? _vp.getBoundingClientRect() : { left:-1e6, top:-1e6, right:1e6, bottom:1e6 };
+  const _cx = Math.max(_vpr.left, Math.min(_vpr.right,  e.clientX));
+  const _cy = Math.max(_vpr.top,  Math.min(_vpr.bottom, e.clientY));
+  const x = ((_cx - rect.left) / rect.width)  * 100;
+  const y = ((_cy - rect.top)  / rect.height) * 100;
   if (dragState.glassMulti) {
     // Move all selected glass dots by the same delta from drag start
     const dx = x - dragState.startX;
@@ -1423,8 +1876,8 @@ document.addEventListener('mousemove', e => {
     const dx = x - dragState.startX;
     const dy = y - dragState.startY;
     Object.entries(dragState.multiStart).forEach(([key, sp]) => {
-      const nx = Math.max(0, Math.min(100, sp.x + dx));
-      const ny = Math.max(0, Math.min(100, sp.y + dy));
+      const nx = _clampMarkerPct(sp.x + dx);
+      const ny = _clampMarkerPct(sp.y + dy);
       if (dragState.multiEls[key]) {
         dragState.multiEls[key].style.left = nx + '%';
         dragState.multiEls[key].style.top  = ny + '%';
@@ -1508,8 +1961,8 @@ document.addEventListener('mouseup', () => {
       const dy = dragState.y - dragState.startY;
       Object.entries(dragState.multiStart).forEach(([key, sp]) => {
         state.positions[key] = {
-          x: Math.max(0, Math.min(100, sp.x + dx)),
-          y: Math.max(0, Math.min(100, sp.y + dy))
+          x: _clampMarkerPct(sp.x + dx),
+          y: _clampMarkerPct(sp.y + dy)
         };
       });
       saveState(false);
@@ -1587,6 +2040,23 @@ document.getElementById('planImg').addEventListener('click', e => {
     }
     return;
   }
+  /* F-045 (Leo, 2026-08-05): placing an existing unit while another floor is open used to
+     only rewrite its coordinates — the marker stayed on its old floor and appeared to
+     "jump" there instead of showing up where it was placed. Placing IS the gesture for
+     "this unit lives here", so it moves the unit to the current floor. Asked first, since
+     it changes which floor's counts the unit belongs to. */
+  const from = unit.level || firstFloorKey();
+  if (from !== currentLevel) {
+    const fl = k => { const f = getFloors().find(x => x.key === k); return f ? floorLabel(f) : k; };
+    if (!confirm(t('confirm_move_floor').replace('{id}', unit.id).replace('{from}', fl(from)).replace('{to}', fl(currentLevel)))) return;
+    unit.level = currentLevel;
+    if (Array.isArray(state.log)) {
+      state.log.push({ kind: 'floor-move', auto: true, unitKey: unit.key,
+        date: new Date().toISOString().slice(0, 10), category: 'field-verify', categories: ['field-verify'],
+        content: `${unit.id} · moved ${fl(from)} → ${fl(currentLevel)}` });
+    }
+    toast(t('msg_moved_floor').replace('{id}', unit.id).replace('{to}', fl(currentLevel)));
+  }
   state.positions[unit.key] = { x, y };
   togglePlaceMode();
   saveState();
@@ -1604,21 +2074,148 @@ const PLAN_L2_SRC = PROJECT.planL2 || "data:image/png;base64,iVBORw0KGgoAAAANSUh
 // guarantees switching back to GF always returns to the exact same image and
 // works offline / when the assets/ folder is missing.
 let PLAN_GF_SRC = null;
+/* F-039 v3: theme-appropriate plan asset, no CSS filter.
+   `filter:invert(1)` produced the dark-theme plan, but a filtered element is rasterized
+   into its own layer that iOS Safari bitmap-scales during pinch-zoom — the plan blurred
+   out exactly where the GC needs it sharp (finding an opening at 400%). We ship a
+   pre-inverted twin instead and pick by theme. `data-plan-light` is the original
+   black-linework file, `data-plan-dark` its white counterpart. */
+function _planLightSrc() {
+  const img = document.getElementById('planImg'); if (!img) return '';
+  return img.getAttribute('data-plan-light') || PLAN_GF_SRC || img.getAttribute('src') || '';
+}
+function _floorLightSrc(lvl) {
+  if (lvl !== firstFloorKey()) { const f = getFloors().find(x => x.key === lvl); if (f && f.img) return f.img; }
+  return _planLightSrc();
+}
+/* Other floors (F-040): only the ground-floor plan ships a pre-inverted twin — the upper
+   levels are base64 PNGs baked into core app.js, so we can't hand-invert them without a
+   huge diff to a shared file. Instead invert them at runtime on a canvas once and cache
+   the result. Same end state as the old `filter:invert(1)` (dark plan) but it's a plain
+   bitmap, so pinch-zoom still re-rasterizes sharp. Falls back to the CSS filter if the
+   canvas route ever fails. */
+const _INVERT_CACHE = {};
+function _invertedSrc(src) {
+  if (!src) return Promise.resolve(null);
+  if (_INVERT_CACHE[src]) return Promise.resolve(_INVERT_CACHE[src]);
+  return new Promise(resolve => {
+    try {
+      const im = new Image();
+      im.onload = () => {
+        try {
+          const c = document.createElement('canvas');
+          c.width = im.naturalWidth; c.height = im.naturalHeight;
+          const ctx = c.getContext('2d');
+          ctx.drawImage(im, 0, 0);
+          const d = ctx.getImageData(0, 0, c.width, c.height);
+          const px = d.data;
+          for (let i = 0; i < px.length; i += 4) { px[i] = 255 - px[i]; px[i + 1] = 255 - px[i + 1]; px[i + 2] = 255 - px[i + 2]; }
+          ctx.putImageData(d, 0, 0);
+          const out = c.toDataURL('image/png');
+          _INVERT_CACHE[src] = out; resolve(out);
+        } catch (e) { resolve(null); }
+      };
+      im.onerror = () => resolve(null);
+      im.src = src;
+    } catch (e) { resolve(null); }
+  });
+}
+// A floor's shipped dark twin, if it has one (PROJECT.floors[].imgDark). Ground floor keeps
+// carrying its pair on the <img> markup (data-plan-light / data-plan-dark).
+function _floorDarkSrc(lvl) {
+  const img = document.getElementById('planImg');
+  if (lvl === firstFloorKey()) return (img && img.getAttribute('data-plan-dark')) || '';
+  const f = getFloors().find(x => x.key === lvl);
+  return (f && f.imgDark) || '';
+}
+function _floorImgSrc(lvl) {
+  const light = _floorLightSrc(lvl);
+  if (isDayMode()) return light;
+  const dark = _floorDarkSrc(lvl);
+  if (dark) return dark;                   // pre-inverted twin — always preferred
+  return _INVERT_CACHE[light] || light;    // legacy floors with no twin: runtime inversion below
+}
+// Re-point the plan at the right asset (called on floor change and on theme toggle).
+function applyPlanTheme() {
+  const img = document.getElementById('planImg'); if (!img) return;
+  const want = _floorImgSrc(currentLevel);
+  if (want && img.getAttribute('src') !== want) img.setAttribute('src', want);
+  img.style.filter = '';   // never filter the plan — see comment above
+  // Upper floor in dark mode with no cached inversion yet → build it, then swap in.
+  const light = _floorLightSrc(currentLevel);
+  const needsRuntimeInvert = !isDayMode()
+    && !_floorDarkSrc(currentLevel)        // a shipped dark twin makes inversion unnecessary
+    && !_INVERT_CACHE[light];
+  if (needsRuntimeInvert) {
+    // Wear the CSS filter immediately so the plan is never briefly white-on-white while
+    // the canvas inversion runs — then drop it the moment the real bitmap is ready. If
+    // the canvas route never completes (or is unavailable), the filter just stays: the
+    // old behaviour, correct but soft at high zoom, rather than an unreadable plan.
+    img.style.filter = 'invert(1)';
+    _invertedSrc(light).then(out => {
+      const el = document.getElementById('planImg'); if (!el) return;
+      if (isDayMode() || _floorDarkSrc(currentLevel)) return;   // theme/floor changed meanwhile
+      if (out) { el.setAttribute('src', out); el.style.filter = ''; }
+    });
+  }
+}
 function setLevel(lvl) {
   clearMarkerSelection();
   const img = document.getElementById('planImg');
-  if (PLAN_GF_SRC === null) PLAN_GF_SRC = img.src;
+  if (PLAN_GF_SRC === null) PLAN_GF_SRC = _planLightSrc();
   currentLevel = lvl;
   document.querySelectorAll('.level-btn').forEach(b => b.classList.toggle('active', b.dataset.level === lvl));
-  const _f = getFloors().find(x => x.key === lvl);
-  img.src = (lvl === firstFloorKey()) ? PLAN_GF_SRC : ((_f && _f.img) ? _f.img : PLAN_GF_SRC);
-  // Both GF (transparent PNG) and L2 (white SVG) need invert for dark theme
-  img.style.filter = 'invert(1)';
+  applyPlanTheme();
   renderPlan();
 }
 
+/* -------- Caulking / Face Cover progress (Leo, 2026-08-03) --------
+   Both live on the unit as Calendar-tab scopes: u.scopes.caulking / u.scopes.beautyCap,
+   status ∈ '' (N/A) | pending | in-progress | installed | issue. Denominator is every unit
+   on the project (same convention as the Overall Progress card) — a unit that genuinely
+   doesn't need the scope can be left at N/A and still counts as not-done, so the number
+   never flatters us. */
+function scopeStatusOf(u, name) {
+  const sc = u && u.scopes && u.scopes[name];
+  return (sc && sc.status) || '';
+}
+function scopeProgress(name) {
+  const u = (state && Array.isArray(state.units)) ? state.units : [];
+  const done = u.filter(x => scopeStatusOf(x, name) === 'installed').length;
+  const wip  = u.filter(x => scopeStatusOf(x, name) === 'in-progress').length;
+  const total = u.length;
+  return { done, wip, total, pct: total ? Math.round((done / total) * 100) : 0 };
+}
+/* Which per-unit scopes get a headline card and a marker ring is PROJECT data (F-048):
+   CP2 tracks Caulking + Face Cover, AC3 tracks Caulking + Sun Shade + Beauty Cap. Core
+   ships the CP2 pair as the default so an un-migrated project behaves exactly as before. */
+function _scopeKpis() {
+  const list = (window.PROJECT && Array.isArray(PROJECT.scopeKpis)) ? PROJECT.scopeKpis : null;
+  return list || [
+    { scope: 'caulking',  valueId: 'kpi-caulk',     subId: 'kpi-caulk-sub' },
+    { scope: 'beautyCap', valueId: 'kpi-beautycap', subId: 'kpi-beautycap-sub' }
+  ];
+}
+// Up to two arcs are drawable (upper-left + lower-right) — see .scope-caulk / .scope-fc CSS.
+function _ringScopes() {
+  const list = (window.PROJECT && Array.isArray(PROJECT.ringScopes)) ? PROJECT.ringScopes : null;
+  return (list || [
+    { scope: 'caulking',  cls: 'scope-caulk', labelKey: 'legend_caulk' },
+    { scope: 'beautyCap', cls: 'scope-fc',    labelKey: 'legend_beautycap' }
+  ]).slice(0, 2);
+}
+function _paintScopeKpi(valueId, subId, name) {
+  const p = scopeProgress(name);
+  const v = document.getElementById(valueId);
+  if (v) v.textContent = p.pct + '%';
+  const sub = document.getElementById(subId);
+  if (sub) sub.textContent = t('kpi_scope_sub_dyn')
+    .replace('{done}', p.done).replace('{total}', p.total)
+    .replace('{wip}', p.wip ? t('kpi_scope_sub_wip').replace('{n}', p.wip) : '');
+}
 function renderKPIs() {
   const u = state.units;
+  _scopeKpis().forEach(k => _paintScopeKpi(k.valueId, k.subId, k.scope));
   const installed = u.filter(x=>x.status==='installed').length;
   const inProg = u.filter(x=>x.status==='in-progress').length;
   const issues = u.filter(x=>x.status==='issue').length;
@@ -1628,7 +2225,15 @@ function renderKPIs() {
   const pct = total ? Math.round((installed / total) * 100) : 0;
   { const el=document.getElementById('kpi-installed'); if(el) el.textContent = installed; }
   const _progEl = document.getElementById('kpi-progress'); if(_progEl) _progEl.textContent = inProg;
-  { const el=document.getElementById('kpi-issues'); if(el) el.textContent = issues; }
+  /* F-040 (Leo: "issues 显示为 0，没有和 things to solve 连起来"): the Issues KPI counted
+     units whose *install status* is 'issue' — a different thing from the Things to Solve
+     board (open RFIs + project items + GC submissions), so the header said 3 while this
+     card said 0. One number now: the board's. The old unit-status count is still what
+     drives the red markers, it just isn't a headline KPI any more. */
+  { const el=document.getElementById('kpi-issues');
+    if(el) el.textContent = (typeof computeOpenItems === 'function') ? computeOpenItems().length : issues; }
+  { const el=document.getElementById('kpi-issues-sub');
+    if(el) el.textContent = t('kpi_issues_sub'); }
   { const el=document.getElementById('kpi-pending'); if(el) el.textContent = pending; }
   { const el=document.getElementById('kpi-louvers'); if(el) el.textContent = louvers; }
   { const el=document.getElementById('kpi-percent'); if(el) el.textContent = pct + '%'; }
@@ -1913,8 +2518,28 @@ function renderCharts() {
    KPI DRILL-DOWN PANEL
    Each KPI card and the donut slices route to openKpiDetail(kind).
    ====================================================== */
+/* One unit list for any tracked scope: the SCOPE's own status/date (not the frame's),
+   worst-first so "who still owes me caulking" is the top of the list. */
+function _scopeDrillRows(name) {
+  const u = (state && Array.isArray(state.units)) ? state.units : [];
+  const rank = { issue: 0, 'in-progress': 1, pending: 2, '': 3, installed: 4 };
+  const rows = u.map(x => {
+    const st = scopeStatusOf(x, name);
+    const sc = (x.scopes && x.scopes[name]) || {};
+    return Object.assign({}, x, { status: st || 'pending', date: sc.date || '', _rank: rank[st] != null ? rank[st] : 3 });
+  }).sort((a, b) => a._rank - b._rank || String(a.id).localeCompare(String(b.id)));
+  const cfg = _scopeKpis().find(k => k.scope === name) || {};
+  const title = cfg.titleKey ? t(cfg.titleKey)
+    : (name === 'caulking' ? t('kpi_detail_title_caulking')
+      : (name === 'beautyCap' ? t('kpi_detail_title_beautycap') : (cfg.label || name)));
+  return { units: rows, title: title };
+}
 function _kpiUnitsForKind(kind) {
   const u = state.units || [];
+  // F-048: project-defined scope cards call openKpiDetail('scope:<name>').
+  if (typeof kind === 'string' && kind.indexOf('scope:') === 0) {
+    return _scopeDrillRows(kind.slice(6));
+  }
   switch (kind) {
     case 'installed': return { units: u.filter(x => x.status === 'installed'), title: t('kpi_detail_title_installed') };
     case 'pending':   return { units: u.filter(x => x.status === 'pending'),   title: t('kpi_detail_title_pending') };
@@ -1925,6 +2550,12 @@ function _kpiUnitsForKind(kind) {
     case 'issue':
     case 'issues':    return { units: u.filter(x => x.status === 'issue'),     title: t('kpi_detail_title_issues') };
     case 'louvers':   return { units: u.filter(x => x.louver === 'yes'),       title: t('kpi_detail_title_louvers') };
+    // Caulking / Face Cover: list every unit but swap in the SCOPE's own status+date, so the
+    // drill-down answers "who still owes me caulking" instead of repeating frame status.
+    // Rows keep `key`, so clicking one still opens that unit's modal.
+    case 'caulking':   return _scopeDrillRows('caulking');
+    case 'facecover':                                   // legacy alias
+    case 'beautycap':  return _scopeDrillRows('beautyCap');
     case 'percent':   return { units: u.slice(),                               title: t('kpi_detail_title_percent') };
     case 'glass': {
       // Flatten glass panels
@@ -2210,6 +2841,7 @@ function glassStatusOptions(selected) {
 
 function renderGlassPanelList(panels) {
   const list = document.getElementById('glass-panels-list');
+  if (!list) return; // tab not present on this project (e.g. AC3, elevation-tracked glass)
   const triage = window._triageCache || {};
   list.innerHTML = panels.map((p, i) => {
     // Cross-reference Glass Triage: show triage status next to the panel.
@@ -2269,60 +2901,879 @@ function readGlassPanels() {
 function renderRoList(rows) {
   const box = document.getElementById('ro-list'); if (!box) return;
   const esc = s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  // Single-quoted attribute needs &, ', < escaped (values like Firebase URLs contain &).
+  const attr = s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/'/g,'&#39;').replace(/</g,'&lt;');
   const r = (rows && rows.length) ? rows : [{}];
-  box.innerHTML = r.map((m,i)=>`
-    <div class="ro-row" style="display:grid;grid-template-columns:1.1fr 1fr 1.6fr 1fr .9fr auto;gap:6px;margin-top:6px">
-      <input type="date" value="${esc(m.date)}">
-      <select>${['R.O. measure','Order check','Site check'].map(s=>`<option${(m.stage||'R.O. measure')===s?' selected':''}>${s}</option>`).join('')}</select>
-      <input type="text" placeholder="e.g. 2140 × 915 (+5 / −0)" value="${esc(m.dims)}" autocomplete="off">
-      <input type="text" placeholder="who" value="${esc(m.by)}" autocomplete="off">
-      <select><option value=""${!m.tol?' selected':''}>—</option><option value="ok"${m.tol==='ok'?' selected':''}>OK</option><option value="out"${m.tol==='out'?' selected':''}>OUT</option></select>
-      <button type="button" class="btn-remove" onclick="removeRoRow(${i})" title="Remove">×</button>
-    </div>`).join('');
+  box.innerHTML = r.map((m,i)=>{
+    const photos = Array.isArray(m.photos) ? m.photos : [];
+    const thumbs = photos.map((p,pi)=>`<span style="position:relative;display:inline-block">
+        <img src="${esc(p)}" alt="RO photo ${pi+1}" style="width:46px;height:46px;object-fit:cover;border-radius:6px;border:1px solid var(--border);cursor:pointer" onclick="window.open('${esc(p)}','_blank')">
+        <button type="button" onclick="removeRoPhoto(${i},${pi})" title="remove" style="position:absolute;top:-7px;right:-7px;width:18px;height:18px;line-height:16px;border-radius:50%;border:none;background:var(--red,#e5484d);color:#fff;font-size:12px;cursor:pointer;padding:0">×</button>
+      </span>`).join('');
+    return `<div class="ro-row" data-photos='${attr(JSON.stringify(photos))}' style="border-bottom:1px solid var(--border,rgba(255,255,255,.07));padding-bottom:9px;margin-top:9px">
+      <div style="display:grid;grid-template-columns:1.1fr 1fr 1.6fr 1fr .9fr auto;gap:6px;align-items:center">
+        <input type="date" value="${esc(m.date)}">
+        <select>${['R.O. measure','Order check','Site check'].map(s=>`<option${(m.stage||'R.O. measure')===s?' selected':''}>${s}</option>`).join('')}</select>
+        <input type="text" placeholder="e.g. 2140 × 915 (+5 / −0)" value="${esc(m.dims)}" autocomplete="off">
+        <input type="text" placeholder="who" value="${esc(m.by)}" autocomplete="off">
+        <select><option value=""${!m.tol?' selected':''}>—</option><option value="ok"${m.tol==='ok'?' selected':''}>OK</option><option value="out"${m.tol==='out'?' selected':''}>OUT</option></select>
+        <button type="button" class="btn-remove" onclick="removeRoRow(${i})" title="Remove">×</button>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:7px;flex-wrap:wrap">
+        <label class="btn" style="font-size:11px;padding:4px 10px;cursor:pointer;margin:0">📷 Add photo
+          <input type="file" accept="image/*" multiple class="ro-photo-input" style="display:none" onchange="addRoPhotos(${i}, this.files); this.value='';">
+        </label>
+        ${thumbs}
+        <span class="ro-photo-status" data-ri="${i}" style="font-size:11px;color:var(--text-dim)"></span>
+      </div>
+    </div>`;
+  }).join('');
 }
 function _roRowsRaw() {
   return Array.from(document.querySelectorAll('#ro-list .ro-row')).map(row=>{
-    const f = row.querySelectorAll('input,select');
-    return { date:f[0].value, stage:f[1].value, dims:f[2].value.trim(), by:f[3].value.trim(), tol:f[4].value };
+    // Exclude the file input so date/stage/dims/by/tol keep their positions.
+    const f = row.querySelectorAll('input:not([type="file"]),select');
+    let photos = []; try { photos = JSON.parse(row.dataset.photos || '[]'); } catch(e) {}
+    return { date:f[0].value, stage:f[1].value, dims:f[2].value.trim(), by:f[3].value.trim(), tol:f[4].value, photos };
   });
 }
-function readRoRows() { return _roRowsRaw().filter(m=>m.dims||m.by); }
+function readRoRows() { return _roRowsRaw().filter(m=>m.dims||m.by||(m.photos&&m.photos.length)); }
 function addRoRow() { const rows=_roRowsRaw(); rows.push({date:new Date().toISOString().slice(0,10),stage:'R.O. measure'}); renderRoList(rows); }
 function removeRoRow(i) { const rows=_roRowsRaw(); rows.splice(i,1); renderRoList(rows); }
-/* Note: the R.O. tab/UI above was retired by M3 (replaced by the RFI tab below), but
-   u.ro[] data + these read/render helpers are left in place untouched — u.ro stays
-   stored, just untabbed (per M3 D4). Nothing calls renderRoList/readRoRows anymore. */
+// Photo capture/upload for a Field Verify R.O. row — reuses the log photo pipeline
+// (_photoFileToBlob + _uploadPhotoToStorage, Firebase Storage w/ data-URL fallback).
+// Stores download URLs (small strings) on u.ro[i].photos, so they sync fine in state.
+let _roPhotoBusy = 0;
+async function addRoPhotos(i, fileList) {
+  if (!fileList || !fileList.length) return;
+  const statusEl = document.querySelector(`#ro-list .ro-photo-status[data-ri="${i}"]`);
+  if (statusEl) statusEl.textContent = (typeof t==='function' ? t('photo_processing') : 'Uploading…') || 'Uploading…';
+  _roPhotoBusy++;
+  const urls = [];
+  try {
+    for (const f of Array.from(fileList)) {
+      if (!f.type || !f.type.startsWith('image/')) continue;
+      try {
+        const blob = await _photoFileToBlob(f);
+        let ref;
+        try { ref = await _uploadPhotoToStorage(blob, f.name); }
+        catch(e) { ref = await new Promise(r=>{ const fr=new FileReader(); fr.onload=()=>r(fr.result); fr.readAsDataURL(blob); }); }
+        urls.push(ref);
+      } catch(e) { console.warn('[RO photo] failed', e); }
+    }
+  } finally { _roPhotoBusy--; }
+  const rows = _roRowsRaw();
+  if (!rows[i]) return;
+  rows[i].photos = (rows[i].photos || []).concat(urls);
+  renderRoList(rows);
+}
+function removeRoPhoto(i, pi) {
+  const rows = _roRowsRaw();
+  if (!rows[i] || !Array.isArray(rows[i].photos)) return;
+  const url = rows[i].photos[pi];
+  if (typeof _deleteStoragePhoto === 'function') _deleteStoragePhoto(url);
+  rows[i].photos.splice(pi, 1);
+  renderRoList(rows);
+}
+/* ==================== F-038: Required R.O. (issued to the GC) ==================
+   Leo, 2026-07-31: the GC prepares the openings for us, so they need the dimension we
+   are asking them to build to — and we need a dated record that we published it.
+   `u.ro[]` above is the wrong home for that: it records what we MEASURED on site
+   (as-built actuals), not what we PROMISED. So required dims get their own field:
+
+     u.roRequired = { w, h, tol, note, issued(date), rev(int) }
+
+   Imperial per Leo (feet-inches). Input is forgiving — 84.25 / 84 1/4 / 7-0 1/4 /
+   7'0 1/4" all normalize to 7'-0 1/4" — because this gets typed on a phone. Every
+   change appends (never overwrites) a log entry, so the evidence trail shows
+   "issued 7'-0 1/4" × 3'-0" on 7/31, rev 2 on 8/12" with the editor's name attached. */
+const _IMP_DEN = 16;   // round to the nearest 1/16"
+// Parse a forgiving imperial string into total inches. Returns null if unparseable.
+function _impParse(s) {
+  if (s == null) return null;
+  let str = String(s).trim().toLowerCase();
+  if (!str) return null;
+  str = str.replace(/[”″]/g, '"').replace(/[’′]/g, "'").replace(/\bft\b|\bfeet\b|\bfoot\b/g, "'").replace(/\bin\b|\binch(es)?\b/g, '"');
+  let feet = 0, rest = str;
+  const fm = rest.match(/^\s*(\d+(?:\.\d+)?)\s*'/);            // leading feet
+  if (fm) { feet = parseFloat(fm[1]); rest = rest.slice(fm[0].length); }
+  else {
+    const dm = rest.match(/^\s*(\d+)\s*-\s*(\d+(?:\s+\d+\/\d+)?)\s*"?\s*$/); // 7-0 1/4
+    if (dm) { feet = parseFloat(dm[1]); rest = dm[2]; }
+  }
+  rest = rest.replace(/^[\s\-]+/, '').replace(/"\s*$/, '').trim();
+  let inches = 0;
+  if (rest) {
+    const m = rest.match(/^(\d+(?:\.\d+)?)?\s*(?:(\d+)\s*\/\s*(\d+))?$/);
+    if (!m || (m[1] === undefined && m[2] === undefined)) return null;
+    if (m[1] !== undefined) inches += parseFloat(m[1]);
+    if (m[2] !== undefined && m[3] !== undefined && +m[3] !== 0) inches += parseInt(m[2], 10) / parseInt(m[3], 10);
+  }
+  const total = feet * 12 + inches;
+  return isFinite(total) ? total : null;
+}
+// Total inches → canonical 7'-0 1/4" (or 0 1/4" when under a foot).
+function _impFormat(total) {
+  if (total == null || !isFinite(total)) return '';
+  const neg = total < 0; total = Math.abs(total);
+  let sixteenths = Math.round(total * _IMP_DEN);
+  let whole = Math.floor(sixteenths / _IMP_DEN); let num = sixteenths - whole * _IMP_DEN;
+  let den = _IMP_DEN;
+  while (num && num % 2 === 0) { num /= 2; den /= 2; }
+  const ft = Math.floor(whole / 12), inch = whole - ft * 12;
+  const frac = num ? ` ${num}/${den}` : '';
+  const body = ft ? `${ft}'-${inch}${frac}"` : `${inch}${frac}"`;
+  return (neg ? '−' : '') + body;
+}
+// Free text → canonical string. Unparseable input is returned trimmed but untouched,
+// so a note like "see detail 3/A501" is never silently destroyed.
+function _impNorm(s) { const v = _impParse(s); return v == null ? String(s == null ? '' : s).trim() : _impFormat(v); }
+function _roReqOf(u) {
+  const r = (u && u.roRequired) || {};
+  return { w: r.w || '', h: r.h || '', tol: r.tol || '', note: r.note || '', issued: r.issued || '', rev: r.rev || 0 };
+}
+function _roReqEmpty(r) { return !(r && (r.w || r.h || r.tol || r.note)); }
+/* F-046 (Leo's boss, 2026-08-05): who holds the dimension.
+     'hold'   — glass is purchased, so the size is fixed: the GC builds the opening to OUR
+                number. Every opening issued so far is this case, hence the default.
+     'follow' — glass not purchased yet: we will fabricate to THEIR opening, so what we need
+                back from them is the as-built dimension.
+   This is a coordination aid either way — the binding record is the written one (approved
+   submittal / RFI response), which is what `t('openings_disclaimer')` says out loud. */
+function roBasisOf(u) { return (u && u.roBasis === 'follow') ? 'follow' : 'hold'; }
+function _roFollows(u) { return roBasisOf(u) === 'follow'; }
+// "7'-0 1/4" × 3'-0"" — the one string the GC actually needs.
+function _roReqDims(r) { return (r && (r.w || r.h)) ? `${r.w || '—'} × ${r.h || '—'}` : ''; }
+let _roBasisDraft = null;
+function setRoBasis(v) {
+  _roBasisDraft = (v === 'follow') ? 'follow' : 'hold';
+  const u = state.units.find(x => x.key === editingUnitId);
+  if (u) renderRoRequired(u, true);      // keepDrafts: don't wipe queued uploads / the pick
+}
+function renderRoRequired(u, keepDrafts) {
+  const box = document.getElementById('ro-required'); if (!box) return;
+  const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const r = _roReqOf(u);
+  /* The basis picker re-renders this box (the labels below change with it). It has to read
+     from a DRAFT, not from the unit — the unit only changes on Save, so re-rendering from
+     `u` snapped the dropdown straight back and the click looked dead (Leo, 2026-08-05). */
+  if (!keepDrafts) _roBasisDraft = roBasisOf(u);
+  const basis = _roBasisDraft || roBasisOf(u);
+  box.innerHTML = `<div class="form-row">
+      <label>${esc(t('ro_basis_label'))}</label>
+      <select id="ro-basis" onchange="setRoBasis(this.value)">
+        <option value="hold"${basis === 'hold' ? ' selected' : ''}>${esc(t('ro_basis_hold'))}</option>
+        <option value="follow"${basis === 'follow' ? ' selected' : ''}>${esc(t('ro_basis_follow'))}</option>
+      </select>
+      <div style="font-size:11px;color:var(--text-dim);margin-top:4px">${esc(basis === 'follow' ? t('ro_basis_follow_hint') : t('ro_basis_hold_hint'))}</div>
+    </div>
+    <div class="form-row">
+      <label>${basis === 'follow' ? 'Target R.O. (optional — what we would prefer; the GC still sends us theirs)' : 'Required R.O. — issued to the GC (what they build to). Imperial; 84.25 or 7-0 1/4 both work.'}</label>
+      <div id="ro-req-row" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;align-items:end">
+        ${_eviCell('Width', `<input type="text" id="ro-req-w" placeholder="e.g. 7-0 1/4" value="${esc(r.w)}" autocomplete="off" onblur="_roReqBlur(this)" ${_EVI_IN}>`)}
+        ${_eviCell('Height', `<input type="text" id="ro-req-h" placeholder="e.g. 3-0" value="${esc(r.h)}" autocomplete="off" onblur="_roReqBlur(this)" ${_EVI_IN}>`)}
+        ${_eviCell('Tolerance (optional)', `<input type="text" id="ro-req-tol" placeholder='e.g. +1/4" / −0' value="${esc(r.tol)}" autocomplete="off" ${_EVI_IN}>`)}
+      </div>
+      <div style="margin-top:6px">${_eviCell('Note to the GC (optional)', `<input type="text" id="ro-req-note" placeholder="e.g. measure to face of slab, not to the shoring" value="${esc(r.note)}" autocomplete="off" ${_EVI_IN}>`)}</div>
+      <div style="font-size:11px;color:var(--text-dim);margin-top:6px">${r.issued ? `Issued ${esc(r.issued)}${r.rev ? ` · rev ${r.rev}` : ''} — appears on the GC's 📐 Openings sheet.` : 'Not issued yet — fill in width/height and Save to publish it to the GC.'}</div>
+    </div>
+    <div class="form-row">
+      <label>Shop drawing / elevation — the GC sees these when they tap this unit</label>
+      <input type="file" id="ro-dwg-file" accept="image/*" multiple onchange="handleUnitDwgFiles(this.files); this.value=''">
+      <div style="font-size:11px;color:var(--text-dim);margin-top:4px">Screenshot the elevation and drop it here. Uploaded on pick, saved with the unit — resized to 2000px max, so keep dimension strings legible.</div>
+      <span id="ro-dwg-status" style="font-size:11px;color:var(--text-dim)"></span>
+      <div id="ro-dwg-thumbs" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"></div>
+    </div>`;
+  // Draft copy: uploads land here and only reach the unit on Save, so Cancel discards them.
+  if (!keepDrafts) _unitDwgDraft = _dwgOf(u).map(d => Object.assign({}, d));
+  renderUnitDwgThumbs();
+}
+
+/* -------- Per-unit shop drawing / elevation (F-042, Leo 2026-08-03) --------------
+   Leo's boss: a GC tapping a required opening should see the shop drawing for that unit.
+   Images go to Firebase Storage via the SAME path the daily-log photos already use
+   (data-URL fallback if Storage is unavailable), so only a short URL is stored in
+   `u.drawings[]` — /state stays small and no new Firebase rules are needed: the GC can
+   already read /state, and Storage download URLs carry their own access token. */
+let _unitDwgDraft = [];
+function _dwgOf(u) { return (u && Array.isArray(u.drawings) ? u.drawings : []).filter(d => d && d.url); }
+async function handleUnitDwgFiles(fileList) {
+  if (!fileList || !fileList.length) return;
+  const status = document.getElementById('ro-dwg-status');
+  const setStatus = s => { if (status) status.textContent = s; };
+  for (const f of Array.from(fileList)) {
+    if (!f.type || !f.type.startsWith('image/')) continue;
+    setStatus('Uploading ' + f.name + ' …');
+    try {
+      // 2000px / q0.85: a drawing has to stay readable, unlike a site photo.
+      const blob = await _photoFileToBlob(f, 2000, 0.85);
+      let url, fellBack = false;
+      try { url = await _uploadPhotoToStorage(blob, f.name); }
+      catch (e) {
+        // Storage unavailable: keep the file rather than lose it, but shrink it hard — a
+        // data-URL lives inside /state, and a few full-size drawings there would bloat
+        // every save for everyone. Say so out loud so it gets fixed instead of festering.
+        console.warn('[unit drawing] Storage upload failed, falling back to data-URL', e);
+        fellBack = true;
+        const small = await _photoFileToBlob(f, 1200, 0.7).catch(() => blob);
+        url = await new Promise(r => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(small); });
+      }
+      const me = (window.CloudSync && CloudSync.currentUser && CloudSync.currentUser() && CloudSync.currentUser().email) || '';
+      _unitDwgDraft.push({ url, name: f.name || 'elevation', ts: Date.now(), by: me });
+      renderUnitDwgThumbs();
+      setStatus(fellBack ? 'Saved, but Firebase Storage rejected the upload — stored inline at reduced quality. Tell whoever owns the Firebase project.' : '');
+    } catch (e) {
+      console.warn('[unit drawing] failed', e);
+      setStatus('Could not process ' + (f.name || 'that file') + ' — try a PNG/JPG screenshot.');
+    }
+  }
+}
+function renderUnitDwgThumbs() {
+  const wrap = document.getElementById('ro-dwg-thumbs');
+  if (!wrap) return;
+  const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  wrap.innerHTML = _unitDwgDraft.map((d, i) => `<span style="position:relative;display:inline-block">
+      <img src="${esc(d.url)}" alt="${esc(d.name || 'elevation')}" title="${esc(d.name || '')}"
+        style="width:96px;height:72px;object-fit:cover;border:1px solid var(--border);border-radius:6px;background:#fff;cursor:zoom-in"
+        onclick="openUnitDwgViewer(${i})">
+      <button type="button" class="btn btn-danger" title="Remove" onclick="removeUnitDwg(${i})"
+        style="position:absolute;top:-6px;right:-6px;padding:0 6px;min-height:0;line-height:1.4;font-size:11px;border-radius:50%">×</button>
+    </span>`).join('') || `<span style="font-size:11.5px;color:var(--text-dim)">No drawing uploaded for this unit yet.</span>`;
+}
+function removeUnitDwg(i) {
+  const d = _unitDwgDraft[i];
+  if (!d) return;
+  if (!confirm('Remove ' + (d.name || 'this drawing') + ' from this unit?')) return;
+  _deleteStoragePhoto(d.url);
+  _unitDwgDraft.splice(i, 1);
+  renderUnitDwgThumbs();
+}
+/* Lightbox. Takes the array so it works for both the editor draft and a GC's saved list.
+   Tap the image to toggle 2.5× zoom (phone-friendly); ↔ buttons when there are several. */
+let _dwgView = { list: [], i: 0, zoom: false };
+function openUnitDwgViewer(i) { openDwgViewer(_unitDwgDraft, i); }
+function openDwgViewerFor(unitKey, i) {
+  const u = (state && Array.isArray(state.units)) ? state.units.find(x => x.key === unitKey) : null;
+  openDwgViewer(_dwgOf(u || {}), i);
+}
+function openDwgViewer(list, i) {
+  _dwgView = { list: (list || []).filter(d => d && d.url), i: i || 0, zoom: false };
+  // Nothing to show (unit gone, last sheet deleted): close any open viewer rather than
+  // leaving stale content on screen, and never flash an empty overlay.
+  if (!_dwgView.list.length) {
+    const old = document.getElementById('dwgViewer');
+    if (old) old.classList.remove('show');
+    return;
+  }
+  if (_dwgView.i >= _dwgView.list.length) _dwgView.i = 0;
+  let ov = document.getElementById('dwgViewer');
+  if (!ov) {
+    ov = document.createElement('div'); ov.id = 'dwgViewer'; ov.className = 'modal-overlay';
+    document.body.appendChild(ov);
+    ov.addEventListener('click', e => { if (e.target === ov) ov.classList.remove('show'); });
+  }
+  renderDwgViewer();
+  ov.classList.add('show');
+}
+function stepDwgViewer(d) {
+  const n = _dwgView.list.length;
+  if (!n) return;
+  _dwgView.i = (_dwgView.i + d + n) % n;
+  _dwgView.zoom = false;
+  renderDwgViewer();
+}
+function toggleDwgZoom() { _dwgView.zoom = !_dwgView.zoom; renderDwgViewer(); }
+function renderDwgViewer() {
+  const ov = document.getElementById('dwgViewer');
+  if (!ov) return;
+  const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const d = _dwgView.list[_dwgView.i];
+  if (!d) { ov.classList.remove('show'); return; }
+  const n = _dwgView.list.length;
+  ov.innerHTML = `<div class="modal" style="max-width:min(1100px,96vw);padding:14px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <strong style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;font-weight:500">${esc(d.name || 'Elevation')}</strong>
+        ${n > 1 ? `<span style="font-size:12px;color:var(--text-dim)">${_dwgView.i + 1} / ${n}</span>
+        <button type="button" class="btn" style="font-size:12px;padding:3px 9px;min-height:0" onclick="stepDwgViewer(-1)">‹</button>
+        <button type="button" class="btn" style="font-size:12px;padding:3px 9px;min-height:0" onclick="stepDwgViewer(1)">›</button>` : ''}
+        <a class="btn" style="font-size:12px;padding:3px 9px;min-height:0;text-decoration:none" href="${esc(d.url)}" target="_blank" rel="noopener">↗ Full size</a>
+        <button type="button" class="btn" style="font-size:12px;padding:3px 9px;min-height:0" onclick="document.getElementById('dwgViewer').classList.remove('show')">✕</button>
+      </div>
+      <div style="overflow:auto;max-height:78vh;background:#fff;border-radius:6px">
+        <img src="${esc(d.url)}" alt="${esc(d.name || 'elevation')}" onclick="toggleDwgZoom()"
+          style="display:block;${_dwgView.zoom ? 'width:250%;max-width:none' : 'width:100%'};cursor:${_dwgView.zoom ? 'zoom-out' : 'zoom-in'}">
+      </div>
+    </div>`;
+}
+function _roReqBlur(el) { if (el && el.value) el.value = _impNorm(el.value); }
+function readRoRequired() {
+  const g = id => { const el = document.getElementById(id); return el ? el.value.trim() : ''; };
+  if (!document.getElementById('ro-req-w')) return null;   // tab not present (AC3) — leave untouched
+  const _b = document.getElementById('ro-basis');
+  const _basis = (_b ? _b.value : _roBasisDraft) === 'follow' ? 'follow' : 'hold';
+  return { w: _impNorm(g('ro-req-w')), h: _impNorm(g('ro-req-h')), tol: g('ro-req-tol'), note: g('ro-req-note'),
+           basis: _basis };
+}
+/* Apply an edited Required R.O. to a unit. Bumps rev + re-stamps `issued` only when a
+   dimension/tolerance/note actually changed, and appends (never rewrites) a log entry so
+   each revision stays visible in the Daily Log as evidence of what we published when. */
+function applyRoRequired(u, next) {
+  if (!u || !next) return false;
+  const prev = _roReqOf(u);
+  // F-046: the basis lives on the unit (it outlives any one revision of the dimension).
+  const basisWas = roBasisOf(u);
+  if (next.basis && next.basis !== basisWas) {
+    if (next.basis === 'follow') u.roBasis = 'follow'; else delete u.roBasis;
+    if (Array.isArray(state.log)) {
+      state.log.push({ kind: 'ro-basis', auto: true, unitKey: u.key,
+        date: new Date().toISOString().slice(0, 10), category: 'field-verify', categories: ['field-verify'],
+        content: next.basis === 'follow'
+          ? `${u.id} · glass not purchased — we will follow the GC's opening dimension`
+          : `${u.id} · we hold the R.O. dimension — the GC builds to it` });
+    }
+  }
+  const same = ['w', 'h', 'tol', 'note'].every(k => (prev[k] || '') === (next[k] || ''));
+  if (same) return next.basis !== basisWas;
+  if (_roReqEmpty(next)) { delete u.roRequired; }
+  else {
+    const today = new Date().toISOString().slice(0, 10);
+    u.roRequired = { w: next.w, h: next.h, tol: next.tol, note: next.note, issued: today, rev: (prev.rev || 0) + (_roReqEmpty(prev) ? 0 : 1) };
+  }
+  const r = _roReqOf(u);
+  if (Array.isArray(state.log)) {
+    state.log.push({
+      kind: 'ro-req', auto: true, unitKey: u.key, date: r.issued || new Date().toISOString().slice(0, 10),
+      category: 'field-verify', categories: ['field-verify'],
+      content: _roReqEmpty(r)
+        ? `${u.id} · Required R.O. withdrawn`
+        : `${u.id} · Required R.O. issued to GC: ${_roReqDims(r)}${r.tol ? ` (${r.tol})` : ''}${r.rev ? ` · rev ${r.rev}` : ''}${r.note ? ` · ${r.note}` : ''}`,
+    });
+  }
+  return true;
+}
+/* -------- F-038: the Openings sheet (what the GC actually opens) ----------------
+   A key plan with FULL unit tags plus a table of required openings. The plan matters:
+   the GC's super does not know our unit numbers, so a bare list of "SF06N — 7'-0 1/4"
+   is useless to him. Print-friendly (one 🖨 button → the sheet, nothing else) and
+   CSV-exportable, so the number can leave the browser and go on a clipboard. */
+// The printable sheet always uses the LIGHT (black-linework) asset — it gets CSS-inverted
+// for the dark UI and printed as-is on white paper. It is not pinch-zoomed, so the filter
+// layer that hurts the main plan (F-039 v3) is harmless here.
+function _planSrcFor(key) {
+  const base = _planLightSrc();
+  if (key === firstFloorKey()) return base;
+  const f = getFloors().find(x => x.key === key);
+  return (f && f.img) ? f.img : base;
+}
+/* Latest "opening ready" state per unit, from the GC inbox (F-037).
+   v2 (Leo mis-tapped ✓ and couldn't undo): the ack is a TOGGLE. Firebase rules let a
+   non-editor create entries but not edit or delete them, so un-marking appends a new
+   `kind:'ready', cleared:true` record instead of removing the old one — the latest
+   record wins, and the whole marked/un-marked sequence stays in the audit trail. */
+function _openingAcks() {
+  const latest = {}, out = {};
+  _gcItems().filter(x => x && x.kind === 'ready' && x.unitId).forEach(x => {
+    const k = String(x.unitId).trim().toLowerCase();
+    if (!latest[k] || (x.ts || 0) >= (latest[k].ts || 0)) latest[k] = x;
+  });
+  Object.keys(latest).forEach(k => { if (!latest[k].cleared) out[k] = latest[k]; });
+  return out;
+}
+function _openingAckedBy(unitId) {
+  const a = _openingAcks()[String(unitId || '').trim().toLowerCase()];
+  return a ? (a.by || '') : null;
+}
+// Every unit we've issued a required R.O. for, in plan order, with its ack state.
+function openingsRows() {
+  const acks = _openingAcks();
+  return (state && Array.isArray(state.units) ? state.units : [])
+    .filter(u => !_roReqEmpty(_roReqOf(u)) || _roFollows(u))
+    .map(u => {
+      const r = _roReqOf(u);
+      const ack = acks[String(u.id).trim().toLowerCase()] || null;
+      return { key: u.key, id: u.id, level: u.level || firstFloorKey(), w: r.w, h: r.h, tol: r.tol,
+        note: r.note, issued: r.issued, rev: r.rev, ack: ack, dwg: _dwgOf(u).length, follows: _roFollows(u),
+        pos: (state.positions && state.positions[u.key]) || null };
+    })
+    .sort((a, b) => a.level === b.level ? String(a.id).localeCompare(String(b.id), undefined, { numeric: true }) : String(a.level).localeCompare(String(b.level)));
+}
+function openOpeningsSheet() {
+  const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  let ov = document.getElementById('openingsModal');
+  if (!ov) {
+    ov = document.createElement('div'); ov.id = 'openingsModal'; ov.className = 'modal-overlay';
+    document.body.appendChild(ov);
+    ov.addEventListener('click', e => { if (e.target === ov) ov.classList.remove('show'); });
+  }
+  const ro = _isRO();
+  const rows = openingsRows();
+  const floors = getFloors().filter(f => rows.some(r => r.level === f.key));
+  // Key plan per floor — tags carry the FULL unit id (the dashboard strips the SF prefix
+  // to keep markers small; here legibility wins over density).
+  const planFor = (f) => {
+    const mine = rows.filter(r => r.level === f.key);
+    const tags = mine.map(r => {
+      const p = r.pos || { x: 50, y: 50 };
+      const done = !!r.ack;
+      // Number only (SF prefix stripped, same as the dashboard markers) — the full id was
+      // wide enough that neighbouring openings overlapped into an unreadable blob.
+      return `<span class="op-tag${done ? ' op-tag-ready' : ''}" style="left:${p.x}%;top:${p.y}%" title="${esc(r.id)} · ${esc(_roReqDims(r))}">${esc(String(r.id).replace(/^SF/i, ''))}</span>`;
+    }).join('');
+    return `<div class="op-floor">
+        <div class="op-floor-name">${esc(floorLabel(f))}</div>
+        <div class="op-plan"><img src="${esc(_planSrcFor(f.key))}" alt="${esc(floorLabel(f))} key plan">${tags}</div>
+      </div>`;
+  };
+  const ackCell = (r) => {
+    if (r.ack && !ro) return `<span style="color:var(--green,#2ea043);white-space:nowrap">✓ ready ${esc(_gcTsDate(r.ack.ts))}</span>`;
+    if (!ro) return `<span style="color:var(--text-dim)">awaiting GC</span>`;
+    // GC: the ack is a toggle — a mis-tap has to be undoable.
+    return r.ack
+      ? `<button type="button" class="btn op-noprint" style="font-size:11px;padding:3px 9px;white-space:nowrap;color:var(--green,#2ea043);border-color:var(--green,#2ea043)" title="Tap to undo" onclick="markOpeningReady('${esc(r.id)}')">✓ ready — tap to undo</button>`
+      : `<button type="button" class="btn op-noprint" style="font-size:11px;padding:3px 9px;white-space:nowrap" onclick="markOpeningReady('${esc(r.id)}')">✓ Opening ready</button>`;
+  };
+  const body = rows.length ? rows.map(r => `<tr>
+      <td style="font-weight:600">${esc(r.id)}</td>
+      <td style="color:var(--text-dim)">${esc(r.level)}</td>
+      <td style="white-space:nowrap;font-variant-numeric:tabular-nums">${r.follows ? `<span style="color:var(--text-dim)">${esc(t('sheet_follows_short'))}</span>` : esc(r.w || '—')}</td>
+      <td style="white-space:nowrap;font-variant-numeric:tabular-nums">${r.follows ? '' : esc(r.h || '—')}</td>
+      <td style="color:var(--text-dim)">${esc(r.tol || '')}</td>
+      <td style="color:var(--text-dim)">${esc(r.note || '')}</td>
+      <td style="color:var(--text-dim);white-space:nowrap">${esc(r.issued || '')}${r.rev ? ` <span style="opacity:.7">rev ${esc(r.rev)}</span>` : ''}</td>
+      <td>${r.dwg ? `<button type="button" class="btn op-noprint" style="font-size:11px;padding:3px 9px;white-space:nowrap" onclick="openDwgViewerFor('${esc(r.key)}', 0)">\u{1F4D0} Drawing${r.dwg > 1 ? ' \u00d7' + r.dwg : ''}</button>` : `<span style="color:var(--text-dim)">\u2014</span>`}</td>
+      <td>${ackCell(r)}</td>
+    </tr>`).join('')
+    : `<tr><td colspan="9" style="color:var(--text-dim);padding:14px 6px">No required openings issued yet.</td></tr>`;
+  const title = ((window.PROJECT || {}).name) || 'Installation Tracker';
+  ov.innerHTML = `<div class="modal" style="max-width:1000px">
+      <div id="openingsSheet">
+        <div class="op-head">
+          <div>
+            <h3 style="margin:0">📐 Required Rough Openings</h3>
+            <div style="font-size:12px;color:var(--text-dim);margin-top:2px">${esc(title)} · issued to the GC · ${rows.length} opening${rows.length === 1 ? '' : 's'} · printed ${new Date().toISOString().slice(0, 10)}</div>
+          </div>
+        </div>
+        <div class="op-scroll">
+          ${floors.map(planFor).join('')}
+          <table class="op-table">
+            <thead><tr><th>Unit</th><th>Floor</th><th>Required W</th><th>Required H</th><th>Tol.</th><th>Note</th><th>Issued</th><th>Drawing</th><th>GC status</th></tr></thead>
+            <tbody>${body}</tbody>
+          </table>
+          <div style="font-size:11px;color:var(--text-dim);margin-top:10px"><b>${esc(t('openings_disclaimer'))}</b></div>
+          <div style="font-size:11px;color:var(--text-dim);margin-top:6px">${esc(t('sheet_follows_legend'))}</div>
+          <div style="font-size:11px;color:var(--text-dim);margin-top:6px">Dimensions are rough-opening sizes in feet-inches. Tags on the key plan show the unit number without the "SF" prefix (tag <b>42</b> = unit SF42); green = the GC has marked it ready.</div>
+        </div>
+      </div>
+      <div class="modal-actions op-noprint" style="gap:8px;flex-wrap:wrap">
+        <button class="btn" type="button" onclick="printOpenings()" style="margin-right:auto">🖨 Print</button>
+        <button class="btn" type="button" onclick="exportOpeningsCsv()">⬇ CSV</button>
+        <button class="btn" type="button" onclick="document.getElementById('openingsModal').classList.remove('show')">Close</button>
+      </div>
+    </div>`;
+  ov.classList.add('show');
+}
+function printOpenings() {
+  document.body.classList.add('printing-openings');
+  const cleanup = () => { document.body.classList.remove('printing-openings'); window.removeEventListener('afterprint', cleanup); };
+  window.addEventListener('afterprint', cleanup);
+  setTimeout(() => { try { window.print(); } catch (e) {} setTimeout(cleanup, 1500); }, 60);
+}
+function _openingsCsv() {
+  const q = s => '"' + String(s == null ? '' : s).replace(/"/g, '""') + '"';
+  const lines = [['Unit', 'Floor', 'Required Width', 'Required Height', 'Tolerance', 'Note', 'Issued', 'Rev', 'GC status'].map(q).join(',')];
+  openingsRows().forEach(r => lines.push([r.id, r.level, r.w, r.h, r.tol, r.note, r.issued, r.rev || '',
+    r.ack ? ('ready ' + _gcTsDate(r.ack.ts)) : 'awaiting GC'].map(q).join(',')));
+  return lines.join('\r\n');
+}
+function exportOpeningsCsv() {
+  const blob = new Blob(['﻿' + _openingsCsv()], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `openings-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 0);
+}
+/* GC one-tap acknowledgment — no typing, and reversible (a mis-tap must be undoable).
+   Toggles: ready → not ready → ready, each step appended to /gcItems. */
+function markOpeningReady(unitId, force) {
+  const CS = window.CloudSync;
+  if (!CS || typeof CS.submitGcItem !== 'function') { if (typeof toast === 'function') toast('Cloud not ready'); return; }
+  const isReady = !!_openingAcks()[String(unitId || '').trim().toLowerCase()];
+  const clearing = (force === undefined) ? isReady : !force;
+  const payload = clearing
+    ? { kind: 'ready', cleared: true, unitId: unitId, subject: 'Opening ready — undone',
+        text: `GC withdrew the ready confirmation for ${unitId}.` }
+    : { kind: 'ready', unitId: unitId, subject: 'Opening ready',
+        text: `GC confirms the rough opening at ${unitId} is prepared per the issued dimensions.` };
+  return CS.submitGcItem(payload)
+    .then(() => {
+      if (typeof toast === 'function') toast(clearing ? 'Ready mark removed' : 'Marked ready ✓');
+      _refreshOpeningViews(unitId);
+    })
+    .catch(err => { console.warn('[F-038] ready toggle failed:', err && err.message); if (typeof toast === 'function') toast('Could not send — check your connection'); });
+}
+// Repaint whatever opening surfaces are currently on screen after a toggle.
+function _refreshOpeningViews(unitId) {
+  try { if (_lens() === 'openings') renderPlan(); } catch (e) {}
+  const sheet = document.getElementById('openingsModal');
+  if (sheet && sheet.classList.contains('show')) { openOpeningsSheet(); return; }
+  const card = document.getElementById('unitViewModal');
+  if (card && card.classList.contains('show') && unitId) {
+    const u = (state.units || []).find(x => x.id === unitId || x.key === unitId);
+    if (u) openUnitReadOnly(u);
+  }
+}
+/* ==================== end F-038 ==================== */
+
+/* ==================== F-039: plan lenses ======================================
+   Leo, 2026-07-31: "GC 需要一打开就会用." The GC had grown four entry points — the
+   map, the 🔧 banner, the 📐 sheet, and the unit card — each answering a different
+   question. A GC super only ever asks two: *what do I have to prepare* and *what is
+   blocking me*. So the plan gets ONE control, a lens bar, and every other surface
+   becomes a projection of it:
+
+     [ 📐 Openings (n) ] [ 🔧 Issues (n) ] [ ✓ Progress ]
+
+   - Openings: only units with a required R.O.; the marker LABEL is the dimension, so
+     the answer needs no click. Blue = awaiting them, green = they marked it ready.
+   - Issues: only units with an open RFI. A picker appears listing the open RFIs —
+     pick one and only the units it affects stay lit (Leo's original idea, scoped to
+     the lens where an RFI number means something).
+   - Progress: the install view we already had, untouched, default for editors.
+
+   Purely a view state: nothing here writes to `state`, so it never syncs and can't
+   conflict. GC lands on Openings, editors on Progress. */
+const _LENSES = ['progress', 'openings', 'issues'];
+let _planLens = null;          // null = not chosen yet → resolve by role on first read
+let _lensUserPicked = false;   // once they click a lens, we stop overriding it
+let _lensRfi = '';             // selected RFI key inside the Issues lens ('' = all)
+/* F-043 (Leo, 2026-08-03): the Progress lens is ours, not the GC's — install status per
+   unit is internal production data. Read-only accounts get Openings + Issues only, so the
+   tab is not rendered and the lens is unreachable even if it was already selected when the
+   allowlist check came back (read-only resolves after the first paint). */
+function _lensAllowed(l) { return _LENSES.indexOf(l) !== -1 && !(l === 'progress' && _isRO()); }
+function _lens() {
+  if (_planLens && _lensAllowed(_planLens)) return _planLens;
+  // First paint: the GC's job is preparing openings, so that's where they land.
+  _planLens = _isRO() ? 'openings' : 'progress';
+  return _planLens;
+}
+function setPlanLens(l) {
+  if (!_lensAllowed(l)) return;
+  _planLens = l; _lensUserPicked = true;
+  if (l !== 'issues') _lensRfi = '';
+  renderPlanLensBar(); renderPlan();
+}
+function setLensRfi(v) { _lensRfi = v || ''; renderPlanLensBar(); renderPlan(); }
+// Every open RFI in the project, unit-level and project-level, as picker options.
+function _lensRfiOptions() {
+  const seen = {}, out = [];
+  const add = (m, unitId) => {
+    if (!m || (m.status || 'open') !== 'open' || !(m.ref || m.subject)) return;
+    const k = _projLinkKey(m); if (!k || seen[k]) { if (seen[k]) return; }
+    seen[k] = true;
+    out.push({ key: k, label: (m.ref || m.subject) + (m.ref && m.subject ? ' · ' + m.subject : ''), scope: unitId ? 'unit' : 'project' });
+  };
+  (state && Array.isArray(state.units) ? state.units : []).forEach(u => (Array.isArray(u.rfi) ? u.rfi : []).forEach(m => add(m, u.id)));
+  (state && Array.isArray(state.projectItems) ? state.projectItems : []).forEach(m => add(m, null));
+  return out;
+}
+// Does this unit belong to the currently selected RFI?
+function _unitMatchesLensRfi(u) {
+  if (!_lensRfi) return unitHasOpenRfi(u);
+  const own = Array.isArray(u.rfi) && u.rfi.some(m => (m.status || 'open') === 'open' && _projLinkKey(m) === _lensRfi);
+  const linked = Array.isArray(u.projectLinks) && u.projectLinks.some(k => String(k).trim().toLowerCase() === _lensRfi);
+  return own || linked;
+}
+function _lensShows(u, lens) {
+  if (lens === 'openings') return !_roReqEmpty(_roReqOf(u)) || _roFollows(u);
+  if (lens === 'issues') return _unitMatchesLensRfi(u);
+  return true;
+}
+function _lensMarkerClass(u, lens) {
+  if (lens !== 'openings') return '';
+  const acked = !!_openingAcks()[String(u.id).trim().toLowerCase()];
+  /* F-046b (Leo): the two directions have to be told apart on the plan, not just in the
+     card — blue "build to our number" vs violet "send us yours". Green still means the GC
+     has confirmed that opening either way, so a finished unit reads the same in both. */
+  return ' lens-dim' + (_roFollows(u) ? ' lens-follow' : '') + (acked ? ' lens-ready' : '');
+}
+// v2 (Leo, 2026-07-31): tag number only in every lens. Putting the dimension on the
+// marker looked clever but crowded the plan into unreadable overlapping pills — the
+// dimensions belong in the 📋 List, which is why that button now glows.
+function _lensMarkerLabel(u, lens) { return u.id.replace(/^SF/, ''); }
+function _lensMarkerTitle(u, lens) {
+  if (lens === 'openings') {
+    const r = _roReqOf(u); const ack = _openingAcks()[String(u.id).trim().toLowerCase()];
+    if (_roFollows(u)) return `${u.id} · ${t('sheet_follows_short')} — ${t('gc_follow_body')}`;
+    return `${u.id} · required R.O. ${_roReqDims(r)}${r.tol ? ' ' + r.tol : ''}${ack ? ' · GC marked ready ' + _gcTsDate(ack.ts) : ' · awaiting the GC'}`;
+  }
+  return `${u.id}${_unitKindText(u)} · ${formatStatus(u.status)}${u.date ? ' · ' + formatDate(u.date) : ''}${_scopeTipText(u)}`;
+}
+/* F-046b: colour key for the Openings lens — two directions of obligation plus "settled".
+   Rendered inline under the hint so the GC never has to guess what violet means. */
+function _lensOpeningsKey() {
+  const chip = (v, label) => `<span style="display:inline-flex;align-items:center;gap:5px;margin-right:12px;white-space:nowrap">`
+    + `<span style="width:10px;height:10px;border-radius:50%;background:${v.bg};box-shadow:0 0 0 1.5px ${v.bg}${v.dash ? ';border:1px dashed #fff' : ''}"></span>${label}</span>`;
+  const anyFollow = (state && Array.isArray(state.units) ? state.units : []).some(u => _roFollows(u));
+  return `<div style="margin-top:5px;font-size:11px;display:flex;flex-wrap:wrap;align-items:center">`
+    + chip({ bg: 'var(--accent,#58a6ff)' }, 'Build to our dimension')
+    + (anyFollow ? chip({ bg: 'var(--follow-op,#a371f7)', dash: 1 }, 'Send us your dimension (glass not ordered)') : '')
+    + chip({ bg: 'var(--green,#2ea043)' }, 'You marked it ready')
+    + `</div>`;
+}
+function _lensCounts() {
+  const units = (state && Array.isArray(state.units) ? state.units : []);
+  return {
+    openings: units.filter(u => !_roReqEmpty(_roReqOf(u)) || _roFollows(u)).length,
+    // F-040: same number as the 🔧 badge, the red banner and the Issues KPI. It used to
+    // count affected UNITS (one project RFI linked to 22 units read as "22 issues"),
+    // which made every counter on the page disagree with every other one.
+    issues: (typeof computeOpenItems === 'function') ? computeOpenItems().length : 0,
+  };
+}
+function renderPlanLensBar() {
+  const sec = document.getElementById('planSection'); if (!sec) return;
+  const tb = sec.querySelector('.plan-toolbar'); if (!tb) return;
+  let bar = document.getElementById('planLensBar');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'planLensBar'; bar.className = 'plan-lens-bar';
+    tb.parentNode.insertBefore(bar, tb);   // sits ABOVE the editor toolbar, so gc-view keeps it
+  }
+  const lens = _lens(), c = _lensCounts(), esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const tab = (k, label, n) => `<button type="button" class="lens-btn${lens === k ? ' active' : ''}" onclick="setPlanLens('${k}')">${label}${n != null ? ` <span class="lens-count">${n}</span>` : ''}</button>`;
+  const opts = lens === 'issues' ? _lensRfiOptions() : [];
+  const extras = lens === 'openings'
+    ? `<div class="lens-extras">
+         <button type="button" class="btn lens-cta" onclick="openOpeningsSheet()" title="Every opening with its dimensions">📋 Opening sizes</button>
+         <button type="button" class="btn" onclick="openOpeningsSheet();setTimeout(printOpenings,80)" title="Print the openings sheet">🖨</button>
+       </div>`
+    : (lens === 'issues'
+      ? `<div class="lens-extras">
+           <select class="lens-select" onchange="setLensRfi(this.value)" title="Show only the units one RFI affects">
+             <option value=""${_lensRfi ? '' : ' selected'}>All open issues</option>
+             ${opts.map(o => `<option value="${esc(o.key)}"${_lensRfi === o.key ? ' selected' : ''}>${esc(o.label)}</option>`).join('')}
+           </select>
+           <button type="button" class="btn" onclick="openItemsModal()" title="Details and history">🔧 Details</button>
+         </div>`
+      : '');
+  bar.innerHTML = `<div class="lens-tabs">
+      ${tab('openings', '📐 Openings', c.openings)}
+      ${tab('issues', '🔧 Issues', c.issues)}
+      ${_lensAllowed('progress') ? tab('progress', '✓ Progress', null) : ''}
+    </div>${extras}
+    <div class="lens-hint">${lens === 'openings'
+      ? 'Tags mark the openings we need. Tap 📋 Opening sizes for the dimensions, or tap a tag to confirm it or flag a problem.'
+        + _lensOpeningsKey()
+      : (lens === 'issues' ? 'Only units with an open issue are shown. Tap one to see the thread or add your response.'
+        : 'Installation status by unit.')}</div>`;
+}
+/* ==================== end F-039 ==================== */
+
+/* Note: the R.O. tab/UI above was retired by AC3's M3 (replaced by the RFI tab below).
+   CP2 kept the R.O. tab (no elevation data yet), so openUnit()/saveUnit() do call
+   renderRoList/readRoRows for CP2 — guarded, so this stays a no-op on projects
+   without a #ro-list element (per F-031 modal catch-up, 2026-07-23). */
 
 /* -------- RFI rows (unit modal, M3) --------
    Stored per unit as u.rfi = [{ref, date, subject, status, party, response, dateAnswered}].
    status ∈ open|answered|closed. Modeled on the old R.O. row functions above. Each NEW row
    also auto-appends a gc-inquiry log entry (mirrors how R.O. appended field-verify), kept
    non-auto so the app-log.js projection engine won't rewrite it. */
+// Days between an ISO date string (YYYY-MM-DD) and today. Returns null if no/invalid date.
+function _daysOpen(dateStr) {
+  if (!dateStr) return null;
+  const d = new Date(dateStr + 'T00:00:00');
+  if (isNaN(d.getTime())) return null;
+  return Math.max(0, Math.floor((Date.now() - d.getTime()) / 86400000));
+}
+function _daysOpenBadge(days) {
+  if (days == null) return '';
+  const color = days > 7 ? '#e05252' : (days > 3 ? '#d9a441' : 'var(--text-dim)');
+  return `<span class="meta-pill" style="color:${color};border-color:${color}">${days}d</span>`;
+}
+// Labeled input cell — small caption sits directly ON each box (F-032 follow-up:
+// Leo asked to drop the detached column-header rows and label every field itself).
+// `min-width:0` lets the cell shrink inside its grid track so date inputs never push
+// past the modal edge; inputs are forced to width:100% since the Open Items modal is
+// not a .form-row (which is where the width:100% rule normally comes from).
+function _eviCell(label, inner) {
+  return `<div style="display:flex;flex-direction:column;gap:2px;min-width:0">`
+    + `<label style="display:block;font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.3px;margin:0">${label}</label>`
+    + inner + `</div>`;
+}
+// Dark input styling copied from `.form-row input` so project-level boxes in the
+// Things-to-Solve modal (which are NOT inside a .form-row) match the unit RFI tab
+// instead of rendering as default white.
+const _EVI_IN = 'style="width:100%;min-width:0;box-sizing:border-box;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:7px 9px;color:var(--text);font-size:13px;font-family:inherit"';
+
+/* ---- Response THREAD (F-034) ------------------------------------------------
+   An RFI / project item's answer is a back-and-forth, not one box: we revise, GC
+   gives feedback, if it passes it's done, if not we revise again. So `response`
+   becomes `thread = [{ by:'us'|'gc'|'', text, date }]`. Legacy single-string
+   `response` migrates into a one-entry thread on first render (side left blank).
+   Editors maintain the thread in-app (GC is read-only and replies by email, which
+   the editor then logs as a `gc` entry). Shared by the unit RFI tab + project items. */
+const _THREAD_SIDES = [['', '—'], ['us', 'Us'], ['gc', 'GC']];
+/* F-037 (Leo, 2026-07-31): the side box was a hard <select> of Us/GC/— , but real threads
+   involve the architect, the owner, the door supplier, the EOR… Now it's a typeable combobox
+   (text input + shared <datalist> of the common parties). Stored value stays 'us'/'gc' for the
+   two canonical sides (so existing colours/labels/badges keep working) and is free text for
+   anything else. Everything downstream goes through _sideNorm/_sideLabel/_sideColor. */
+const _THREAD_SIDE_SUGGEST = ['Us', 'GC', 'Architect', 'Owner', 'EOR', 'Supplier', 'Glazier'];
+function _sideNorm(v) {
+  const s = String(v == null ? '' : v).trim(); const l = s.toLowerCase();
+  if (l === 'us' || l === 'af' || l === 'we') return 'us';
+  if (l === 'gc') return 'gc';
+  return s;
+}
+function _sideLabel(by) { const v = _sideNorm(by); return v === 'us' ? 'Us' : (v === 'gc' ? 'GC' : (v || '—')); }
+function _sideColor(by) {
+  const v = _sideNorm(by);
+  if (v === 'us') return 'var(--accent,#58a6ff)';
+  if (v === 'gc') return 'var(--purple,#a371f7)';
+  return v ? 'var(--yellow,#d29922)' : 'var(--text-dim)';   // any other named party
+}
+// One shared datalist for every thread box on the page (ids must be unique, so it can't
+// live inside _threadEntryHtml). Created lazily; harmless to call repeatedly.
+function _ensureSideDatalist() {
+  if (typeof document === 'undefined' || !document.body) return;
+  if (document.getElementById('thread-side-opts')) return;
+  const dl = document.createElement('datalist');
+  dl.id = 'thread-side-opts';
+  dl.innerHTML = _THREAD_SIDE_SUGGEST.map(s => `<option value="${s}"></option>`).join('');
+  document.body.appendChild(dl);
+}
+// Normalize any item into a thread array, migrating a legacy `response` string.
+function _threadFrom(m) {
+  if (m && Array.isArray(m.thread)) return m.thread.map(e => ({ by: e.by || '', text: e.text || '', date: e.date || '' }));
+  if (m && m.response) return [{ by: '', text: String(m.response), date: m.dateAnswered || m.date || '' }];
+  return [];
+}
+// One editable thread entry (side select + note + date + remove).
+function _threadEntryHtml(e) {
+  e = e || {};
+  const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  // Free text (F-037): show the pretty label, blank when the side was never set.
+  const by = _sideLabel(e.by) === '—' ? '' : _sideLabel(e.by);
+  return `<div class="thread-entry" style="display:grid;grid-template-columns:96px 1fr 138px auto;gap:6px;align-items:center;margin-top:5px">
+      <input data-tf="by" type="text" list="thread-side-opts" placeholder="Us / GC / …" value="${esc(by)}" autocomplete="off" ${_EVI_IN}>
+      <input data-tf="text" type="text" placeholder="what happened / feedback" value="${esc(e.text)}" autocomplete="off" ${_EVI_IN}>
+      <input data-tf="date" type="date" value="${esc(e.date)}" ${_EVI_IN}>
+      <button type="button" class="btn-remove" onclick="removeThreadEntry(this)" title="Remove" style="margin:0">×</button>
+    </div>`;
+}
+// The whole thread editor block for a row (entries + add button). Spans the row width.
+function _threadBoxHtml(entries) {
+  _ensureSideDatalist();
+  const rows = (entries && entries.length ? entries : []).map(_threadEntryHtml).join('');
+  return `<div class="thread-box" style="grid-column:1 / -1;margin-top:8px;padding-top:8px;border-top:1px dashed var(--border,rgba(255,255,255,.14))">
+      <label style="display:block;font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.3px;margin:0 0 2px">Response thread</label>
+      <div class="thread-entries">${rows}</div>
+      <button type="button" class="btn" style="font-size:11px;margin-top:6px" onclick="addThreadEntry(this)">+ Add response</button>
+    </div>`;
+}
+// Read the thread entries out of a rendered row (scoped so it never clashes with the
+// row's scalar inputs, which live in .evi-line1 / .evi-line2). Blank-text rows dropped.
+function _readThread(row) {
+  return Array.from(row.querySelectorAll('.thread-entry')).map(te => {
+    const g = k => { const el = te.querySelector('[data-tf="' + k + '"]'); return el ? el.value : ''; };
+    return { by: _sideNorm(g('by')), text: (g('text') || '').trim(), date: g('date') };
+  }).filter(e => e.text);
+}
+function addThreadEntry(btn) {
+  _ensureSideDatalist();
+  const box = btn.closest('.thread-box'); if (!box) return;
+  const list = box.querySelector('.thread-entries'); if (!list) return;
+  const tmp = document.createElement('div');
+  tmp.innerHTML = _threadEntryHtml({ by: 'us', date: new Date().toISOString().slice(0, 10) });
+  const el = tmp.firstElementChild; if (el) list.appendChild(el);
+}
+function removeThreadEntry(btn) { const e = btn.closest('.thread-entry'); if (e) e.remove(); }
+// Read-only conversation view (used in the Things-to-Solve thread cards).
+function _threadReadHtml(entries) {
+  const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  if (!entries || !entries.length) return '';
+  return `<div style="margin-top:6px;display:flex;flex-direction:column;gap:4px">` + entries.map(e => `
+      <div style="font-size:11.5px;line-height:1.4">
+        <b style="color:${_sideColor(e.by)}">${_sideLabel(e.by)}</b>${e.date ? ` <span style="color:var(--text-dim)">· ${esc(e.date)}</span>` : ''}
+        <span style="color:var(--text-dim)"> — ${esc(e.text)}</span>
+      </div>`).join('') + `</div>`;
+}
 function renderRfiList(rows) {
   const box = document.getElementById('rfi-list'); if (!box) return;
   const esc = s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   const r = (rows && rows.length) ? rows : [{}];
   const STATUS = ['open','answered','closed'];
+  // Two-line layout: line 1 = Ref/Date/Subject/Status(+days badge), line 2 =
+  // Party/Response(wider)/Answered/remove. Each box now carries its own label (see
+  // _eviCell). DOM read order (querySelectorAll('input,select') over the whole .ro-row
+  // in _rfiRowsRaw below) is unaffected by the label wrappers — still ref, date, subject,
+  // status, party, response, dateAnswered.
   box.innerHTML = r.map((m,i)=>`
-    <div class="ro-row" style="display:grid;grid-template-columns:1fr 1fr 1.6fr 1fr 1.6fr 1fr auto;gap:6px;margin-top:6px">
-      <input type="text" placeholder="e.g. RFI-014" value="${esc(m.ref)}" autocomplete="off">
-      <input type="date" value="${esc(m.date)}">
-      <input type="text" placeholder="subject" value="${esc(m.subject)}" autocomplete="off">
-      <select>${STATUS.map(s=>`<option value="${s}"${(m.status||'open')===s?' selected':''}>${s}</option>`).join('')}</select>
-      <input type="text" placeholder="response" value="${esc(m.response)}" autocomplete="off">
-      <input type="date" value="${esc(m.dateAnswered)}">
-      <button type="button" class="btn-remove" onclick="removeRfiRow(${i})" title="Remove">×</button>
+    <div class="ro-row evi-row" style="padding:8px 0;border-bottom:1px solid var(--border,rgba(255,255,255,.07))">
+      <div class="evi-line1" style="display:grid;grid-template-columns:1fr 1fr 1.8fr 1fr auto;gap:6px;align-items:end">
+        ${_eviCell('Ref', `<input type="text" placeholder="e.g. RFI-014" value="${esc(m.ref)}" autocomplete="off" ${_EVI_IN}>`)}
+        ${_eviCell('Date', `<input type="date" value="${esc(m.date)}" ${_EVI_IN}>`)}
+        ${_eviCell('Subject', `<input type="text" placeholder="subject" value="${esc(m.subject)}" autocomplete="off" ${_EVI_IN}>`)}
+        ${_eviCell('Status', `<select ${_EVI_IN}>${STATUS.map(s=>`<option value="${s}"${(m.status||'open')===s?' selected':''}>${s}</option>`).join('')}</select>`)}
+        <span style="padding-bottom:6px">${(m.status||'open')==='open' ? _daysOpenBadge(_daysOpen(m.date)) : ''}</span>
+      </div>
+      <div class="evi-line2" style="display:grid;grid-template-columns:1fr auto;gap:6px;margin-top:6px;align-items:end">
+        ${_eviCell('Party', `<input type="text" placeholder="party e.g. GC" value="${esc(m.party)}" autocomplete="off" ${_EVI_IN}>`)}
+        <button type="button" class="btn-remove" onclick="removeRfiRow(${i})" title="Remove" style="margin-bottom:4px">×</button>
+      </div>
+      ${_threadBoxHtml(_threadFrom(m))}
     </div>`).join('');
 }
+// NOTE (F-031/F-032): `party` input added to the RFI row grid — before F-031 it was in the
+// u.rfi[] data shape (and read by the Open Items panel / log meta-pills) but had no UI field
+// at all, so it silently dropped on every save. F-032 then split the row across two lines
+// for room (see renderRfiList above) — DOM read order below is unaffected since
+// querySelectorAll('input,select') walks the whole wrapper in document order regardless of
+// which line each field visually sits on: ref, date, subject, status, party, response,
+// dateAnswered.
 function _rfiRowsRaw() {
   return Array.from(document.querySelectorAll('#rfi-list .ro-row')).map(row=>{
-    const f = row.querySelectorAll('input,select');
-    return { ref:f[0].value.trim(), date:f[1].value, subject:f[2].value.trim(), status:f[3].value, response:f[4].value.trim(), dateAnswered:f[5].value };
+    // Scope to the scalar lines so the variable-length thread inputs never shift indices.
+    const f = row.querySelectorAll('.evi-line1 input, .evi-line1 select, .evi-line2 input, .evi-line2 select');
+    return { ref:f[0].value.trim(), date:f[1].value, subject:f[2].value.trim(), status:f[3].value, party:f[4].value.trim(), thread:_readThread(row) };
   });
 }
 function readRfiRows() { return _rfiRowsRaw().filter(m=>m.ref||m.subject); }
 function addRfiRow() { const rows=_rfiRowsRaw(); rows.push({date:new Date().toISOString().slice(0,10),status:'open'}); renderRfiList(rows); }
 function removeRfiRow(i) { const rows=_rfiRowsRaw(); rows.splice(i,1); renderRfiList(rows); }
+
+/* -------- Link a unit to project-level RFIs (F-036) --------
+   Project-level items (state.projectItems[]) carry a free-text "Related Units", but that
+   never actually tied a unit to the item. This picker lets each unit tick which project
+   RFIs affect it; the link is stored on u.projectLinks[] (by ref, else subject). A ticked
+   item that's still open lights up the unit's red RFI ring (see unitHasOpenRfi). */
+function _projLinkKey(m) { return String((m && (m.ref || m.subject)) || '').trim().toLowerCase(); }
+function renderUnitProjectLinks(u) {
+  const box = document.getElementById('unit-projlinks'); if (!box) return;
+  const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const items = (Array.isArray(state.projectItems) ? state.projectItems : []).filter(m => m.ref || m.subject);
+  const linked = new Set((u && Array.isArray(u.projectLinks) ? u.projectLinks : []).map(k => String(k).trim().toLowerCase()));
+  if (!items.length) {
+    box.innerHTML = `<div style="font-size:12px;color:var(--text-dim)">No project-level RFIs yet — add them in the header 🔧 Things to Solve panel.</div>`;
+    return;
+  }
+  box.innerHTML = items.map(m => {
+    const key = m.ref || m.subject || '';
+    const st = m.status || 'open';
+    const stc = st === 'open' ? 'var(--red,#e5484d)' : (st === 'answered' ? 'var(--yellow,#d29922)' : 'var(--text-dim)');
+    return `<label style="display:flex;gap:8px;align-items:center;padding:5px 2px;margin:0;cursor:pointer">
+        <input type="checkbox" data-plk="${esc(key)}"${linked.has(key.trim().toLowerCase()) ? ' checked' : ''} style="width:auto;height:auto;flex:0 0 auto;margin:0;padding:0;accent-color:var(--accent,#58a6ff)">
+        <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--text)"><b>${esc(m.ref || '—')}</b>${m.subject ? ` · ${esc(m.subject)}` : ''}</span>
+        <span style="font-size:10px;text-transform:uppercase;letter-spacing:.4px;border:1px solid ${stc};color:${stc};border-radius:20px;padding:1px 7px;white-space:nowrap">${esc(st)}</span>
+      </label>`;
+  }).join('');
+}
+function readUnitProjectLinks() {
+  return Array.from(document.querySelectorAll('#unit-projlinks input[type="checkbox"]')).filter(c => c.checked).map(c => c.getAttribute('data-plk')).filter(Boolean);
+}
 
 function formatStatus(s) {
   return { installed:t('status_installed'), 'in-progress':t('status_in_progress'), issue:t('status_issue'), pending:t('status_pending') }[s] || s;
@@ -2330,39 +3781,173 @@ function formatStatus(s) {
 function categoryLabel(c) {
   return { framing:'Framing', glass:'Glass', louver:'Louver', caulking:'Caulking', issue:'Issue',
     'fit-issue':'Fit Issue', 'field-verify':'Field Verify', 'gc-inquiry':'GC Inquiry',
-    'doors':'Doors', 'metal-panel':'Metal Panel', 'sunshade':'Sun Shade', 'beauty-cap':'Beauty Cap' }[c] || c;
+    'doors':'Doors', 'metal-panel':'Metal Panel', 'faceCover':'Beauty Cap', 'sunshade':'Sun Shade', 'beautyCap':'Beauty Cap', 'beauty-cap':'Beauty Cap' }[c] || c;
 }
 
 /* -------- Modals -------- */
+// Single source of truth for "is this session a read-only (GC) account?".
+function _isRO() {
+  return !!(window.CloudSync && typeof window.CloudSync.isReadOnly === 'function' && window.CloudSync.isReadOnly());
+}
+
+/* -------- GC unit view (F-037, Leo 2026-07-31) --------------------------------
+   Before this, a GC clicking a red marker landed in the full editable unit modal —
+   every field live, Save present (and rejected by the cloud rules only after the fact).
+   Wrong mental model: the GC clicks a glowing unit to SEE the issue, not to edit it.
+   openUnit() now routes read-only accounts to this card: unit facts + its open RFIs
+   (own + linked project-level) as read-only threads, plus one action — raise/answer
+   an issue, which goes to /gcItems (see F-037 write path below). */
+function openUnitReadOnly(u) {
+  const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  let ov = document.getElementById('unitViewModal');
+  if (!ov) {
+    ov = document.createElement('div'); ov.id = 'unitViewModal'; ov.className = 'modal-overlay';
+    document.body.appendChild(ov);
+    ov.addEventListener('click', e => { if (e.target === ov) ov.classList.remove('show'); });
+  }
+  const stColor = { installed: 'var(--green,#2ea043)', 'in-progress': 'var(--yellow,#d29922)', issue: 'var(--red,#e5484d)', pending: 'var(--text-dim)' }[u.status] || 'var(--text-dim)';
+  const stPill = `<span style="font-size:10px;text-transform:uppercase;letter-spacing:.4px;border:1px solid ${stColor};color:${stColor};border-radius:20px;padding:2px 9px;white-space:nowrap">${esc((CAL_STATUS_LABEL && CAL_STATUS_LABEL[u.status]) || u.status || 'pending')}</span>`;
+  // F-038: the required opening is the single most useful thing on this card for a GC
+  // preparing the opening — so it sits above the facts grid, not buried in it.
+  const rq = _roReqOf(u);
+  const ack = _openingAcks()[String(u.id).trim().toLowerCase()] || null;
+  // F-046: units whose glass isn't bought yet are the other way round — we follow THEIR
+  // opening, so the card asks for their dimension instead of handing them ours.
+  const followBlock = !_roFollows(u) ? '' : `<div style="margin-top:12px;border:1px dashed var(--text-dim);border-radius:10px;padding:10px 12px">
+      <div style="font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:var(--text-dim)">${esc(t('ro_basis_follow'))}</div>
+      <div style="font-size:13px;margin-top:4px">${esc(t('gc_follow_body'))}</div>
+      ${!_roReqEmpty(rq) ? `<div style="font-size:12px;color:var(--text-dim);margin-top:6px">${esc(t('gc_follow_target'))}: <span style="font-variant-numeric:tabular-nums">${esc(_roReqDims(rq))}</span></div>` : ''}
+      <div style="margin-top:8px"><button type="button" class="btn" style="font-size:12px" onclick="openGcIssueForm('${esc(u.id)}')">📏 ${esc(t('gc_follow_send'))}</button></div>
+    </div>`;
+  const roBlock = (_roReqEmpty(rq) || _roFollows(u)) ? '' : `<div style="margin-top:12px;border:1px solid var(--accent,#58a6ff);border-radius:10px;padding:10px 12px">
+      <div style="font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:var(--text-dim)">Required rough opening</div>
+      <div style="font-size:19px;font-weight:600;margin-top:2px;font-variant-numeric:tabular-nums">${esc(_roReqDims(rq))}${rq.tol ? ` <span style="font-size:12px;font-weight:400;color:var(--text-dim)">${esc(rq.tol)}</span>` : ''}</div>
+      ${rq.note ? `<div style="font-size:12px;color:var(--text-dim);margin-top:3px">${esc(rq.note)}</div>` : ''}
+      <div style="font-size:11px;color:var(--text-dim);margin-top:4px">Issued ${esc(rq.issued || '—')}${rq.rev ? ` · rev ${esc(rq.rev)}` : ''}</div>
+      <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">${ack
+        ? `<button type="button" class="btn" style="font-size:12px;color:var(--green,#2ea043);border-color:var(--green,#2ea043)" title="Tap to undo" onclick="markOpeningReady('${esc(u.id)}')">✓ Marked ready ${esc(_gcTsDate(ack.ts))} — tap to undo</button>`
+        : `<button type="button" class="btn" style="font-size:12px" onclick="markOpeningReady('${esc(u.id)}')">✓ Opening ready</button>`}
+        <button type="button" class="btn" style="font-size:12px" onclick="openOpeningsSheet()">📋 All sizes</button></div>
+    </div>`;
+  // F-042: the shop drawing for THIS unit, right under the dimensions the GC came for.
+  const dwgs = _dwgOf(u);
+  const dwgBlock = !dwgs.length ? '' : `<div style="margin-top:12px">
+      <div style="font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:var(--text-dim);margin-bottom:5px">Shop drawing · ${dwgs.length} ${dwgs.length === 1 ? 'sheet' : 'sheets'}</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">${dwgs.map((d, i) => `
+        <img src="${esc(d.url)}" alt="${esc(d.name || 'elevation')}" onclick="openDwgViewerFor('${esc(u.key)}', ${i})"
+          style="width:118px;height:86px;object-fit:cover;border:1px solid var(--border);border-radius:6px;background:#fff;cursor:zoom-in">`).join('')}</div>
+      <div style="font-size:11px;color:var(--text-dim);margin-top:4px">Tap to enlarge · ↗ Full size opens the image on its own.</div>
+    </div>`;
+  const facts = [];
+  if (u.date) facts.push(['Install date', u.date]);
+  if (u.louver && u.louver !== 'na') facts.push(['Louver', u.louver]);
+  const gp = Array.isArray(u.glassPanels) ? u.glassPanels.filter(g => g && (g.panel || g.status)) : [];
+  if (gp.length) facts.push(['Glass', gp.map(g => [g.panel, g.status].filter(Boolean).join(': ')).join(' · ')]);
+  else if (u.glass) facts.push(['Glass', u.glass]);
+  if (u.note) facts.push(['Note', u.note]);
+  const factHtml = facts.length
+    ? `<div style="display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:12.5px;margin-top:10px">`
+      + facts.map(([k, v]) => `<span style="color:var(--text-dim)">${esc(k)}</span><span>${esc(v)}</span>`).join('') + `</div>`
+    : '';
+  // Issue cards: this unit's own RFIs, then any project-level items it's linked to.
+  const own = (Array.isArray(u.rfi) ? u.rfi : []).filter(m => m.ref || m.subject);
+  const linked = (Array.isArray(u.projectLinks) ? u.projectLinks : []).map(_projItemByKey).filter(Boolean);
+  const card = (m, isProject) => {
+    const st = m.status || 'open';
+    const c = st === 'open' ? 'var(--red,#e5484d)' : (st === 'answered' ? 'var(--yellow,#d29922)' : 'var(--text-dim)');
+    const th = _threadFrom(m);
+    return `<div style="padding:10px 2px;border-bottom:1px solid var(--border,rgba(255,255,255,.08))">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis"><b>${esc(m.ref || '—')}</b>${isProject ? ` <span style="font-size:9px;color:var(--text-dim);border:1px solid var(--border);border-radius:20px;padding:1px 6px">PROJECT</span>` : ''}</span>
+          <span style="font-size:10px;text-transform:uppercase;letter-spacing:.4px;border:1px solid ${c};color:${c};border-radius:20px;padding:1px 8px">${esc(st)}</span>${st === 'open' ? _daysOpenBadge(_daysOpen(m.date)) : ''}
+        </div>
+        ${m.subject ? `<div style="font-size:13px;margin-top:3px">${esc(m.subject)}</div>` : ''}
+        ${m.party ? `<div style="font-size:11.5px;color:var(--text-dim);margin-top:3px">👤 ${esc(m.party)}</div>` : ''}
+        ${th.length ? _threadReadHtml(th) : ''}
+        <div style="margin-top:8px"><button type="button" class="btn" style="font-size:12px" onclick="openRfiRespond('${esc(u.id)}','${esc(m.ref || '')}','${esc(m.subject || '')}')">💬 Respond</button></div>
+      </div>`;
+  };
+  const issues = own.map(m => card(m, false)).join('') + linked.map(m => card(m, true)).join('');
+  // Anything this account already sent in on this unit, so they can see it landed.
+  // Scoped to their own email — one outside party never sees another's traffic.
+  const _me = (window.CloudSync && typeof window.CloudSync.currentUser === 'function' && window.CloudSync.currentUser() && window.CloudSync.currentUser().email) || '';
+  const mine = _gcItemsForUnit(u.id).filter(x => x.by === _me);
+  /* v2 (Leo): the card used to dump R.O. + facts + issues together regardless of why
+     they tapped. Now it answers only the question the current lens is asking, with a
+     one-line bridge to the other lens when there IS something over there. */
+  const lens = _lens();
+  const openIssueCount = own.filter(m => (m.status || 'open') === 'open').length + linked.filter(m => (m.status || 'open') === 'open').length;
+  const issuesSection = `<div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--border)">
+        <div style="font-size:12px;color:var(--text-dim);margin-bottom:4px">Issues on this unit</div>
+        ${issues || `<div style="padding:10px 2px;color:var(--text-dim);font-size:12.5px">No open issues logged on this unit.</div>`}
+      </div>
+      ${mine.length ? `<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border)">
+        <div style="font-size:12px;color:var(--text-dim);margin-bottom:4px">Sent to Advanced Facade</div>${mine.map(_gcItemReadCard).join('')}</div>` : ''}`;
+  const bridge = (label, toLens) => `<div style="margin-top:12px"><button type="button" class="btn" style="font-size:12px" onclick="setPlanLens('${toLens}');openUnit('${esc(u.key)}')">${label}</button></div>`;
+  let bodyHtml;
+  const disclaimer = `<div style="margin-top:12px;font-size:11px;color:var(--text-dim);line-height:1.5">${esc(t('openings_disclaimer'))}</div>`;
+  if (lens === 'openings') {
+    bodyHtml = (followBlock || roBlock || `<div style="margin-top:12px;color:var(--text-dim);font-size:12.5px">No rough opening has been issued for this unit yet.</div>`)
+      + dwgBlock + disclaimer
+      + (openIssueCount ? bridge(`🔧 ${openIssueCount} open issue${openIssueCount === 1 ? '' : 's'} on this unit →`, 'issues') : '');
+  } else if (lens === 'issues') {
+    bodyHtml = issuesSection + (!_roReqEmpty(rq) ? bridge('📐 Required opening for this unit →', 'openings') : '');
+  } else {
+    bodyHtml = (factHtml || `<div style="margin-top:12px;color:var(--text-dim);font-size:12.5px">Nothing logged on this unit yet.</div>`) + dwgBlock;
+  }
+  ov.innerHTML = `<div class="modal" style="max-width:560px">
+      <div style="display:flex;align-items:center;gap:10px">
+        <h3 style="margin:0;flex:1;min-width:0">${esc(u.id)}</h3>${lens === 'progress' ? stPill : ''}
+      </div>
+      ${bodyHtml}
+      <div class="modal-actions" style="gap:8px;flex-wrap:wrap">
+        <button class="btn btn-primary" type="button" style="margin-right:auto" onclick="openGcIssueForm('${esc(u.id)}')">➕ Raise an issue</button>
+        <button class="btn" type="button" onclick="document.getElementById('unitViewModal').classList.remove('show')">Close</button>
+      </div>
+    </div>`;
+  ov.classList.add('show');
+}
+
 function openUnit(id) {
   const u = state.units.find(x=>x.key===id);
   if (!u) return;
+  // GC / non-allowlist accounts never reach the editor (F-037).
+  if (_isRO()) { openUnitReadOnly(u); return; }
   editingUnitId = id;
   document.getElementById('modalTitle').textContent = t('edit_unit_title').replace('{id}', u.id);
   // Calendar-tab header fields (M3 — replaces the old Details/Framing tab's id/note/louver/facecap)
   document.getElementById('cal-id').value = u.id;
   { const _cl = document.getElementById('cal-louver'); if (_cl) _cl.value = u.louver || 'na'; }
   { const _cf = document.getElementById('cal-facecap'); if (_cf) _cf.value = u.facecap || 'na'; }
+  renderDoorTypeRow(u);                      // F-044: door type (doors only)
+  renderUnitTypeRow(u);                      // F-051: registry type (manual override)
+  renderFloorSelect(u);                      // F-045: which floor this unit lives on
   document.getElementById('cal-note').value = u.note || '';
-  // glassPanels[]/glassNote/ro[] are preserved in state but no longer edited from the modal
-  // (M3 D3: Glass tab dropped, glass status now lives on elevation elements; R.O. tab dropped
-  // for RFI — u.ro stays stored, untabbed).
+  // glassPanels[]/ro[] tabs: dropped by AC3's M3 (glass now lives on elevation elements,
+  // R.O. superseded by RFI) but CP2 kept both tabs (no elevation data yet) — seed them here
+  // if present, guarded so this is a no-op on projects without those tab elements.
+  renderGlassPanelList(u.glassPanels && u.glassPanels.length ? u.glassPanels : (u.glass ? [{ panel: u.panels||'', status: u.glass }] : [{ panel:'', status:'' }]));
+  renderRoRequired(u);                       // F-038: required (issued) R.O. block
+  renderRoList(Array.isArray(u.ro) ? u.ro : []);
   renderRfiList(Array.isArray(u.rfi) ? u.rfi : []);
+  renderUnitProjectLinks(u);
   setElevMode(false);
   switchModalTab('cal');
   document.getElementById('unitModal').classList.add('show');
 }
 
 function switchModalTab(tab) {
-  ['cal','elev','rfi'].forEach(t => {
+  // 'glass' and 'ro' added for CP2 (F-031 modal catch-up) — AC3 has neither element so
+  // these are no-ops there, same as 'rfi' was already a no-op on pre-M3 projects.
+  ['cal','elev','rfi','glass','ro'].forEach(t => {
     const tb=document.getElementById('tab-'+t), pn=document.getElementById('panel-'+t);
     if (tb) tb.classList.toggle('active', t===tab);
     if (pn) pn.classList.toggle('active', t===tab);
   });
   if (tab==='elev') renderElevation();
   else if (tab==='cal') renderCalendar();
-  // 'rfi' panel content is seeded once by openUnit() (like the old R.O. tab) — no re-render
-  // on switch, so in-progress row edits aren't discarded by a tab-away-and-back.
+  // 'rfi'/'glass'/'ro' panel content is seeded once by openUnit() — no re-render on switch,
+  // so in-progress row edits aren't discarded by a tab-away-and-back.
 }
 
 /* ===== Interactive elevation (per-SF, geometry from window.ELEVATIONS) ===== */
@@ -2443,12 +4028,14 @@ function renderCalendar() {
     date:   (S.frame && S.frame.date)   != null ? S.frame.date   : (u.date   || '') });
   rows.push({ scope:'caulking', label:'Caulking', editable:true,
     status: (S.caulking && S.caulking.status) || '', date: (S.caulking && S.caulking.date) || '' });
-  rows.push({ scope:'sunshade', label:'Sun Shade', editable:true,
-    status: (S.sunshade && S.sunshade.status) || '', date: (S.sunshade && S.sunshade.date) || '' });
-  if (u.facecap === 'yes') {
+  // CP2 has no sunshades — track Face Cover install instead (Leo, 2026-07-23).
+  /* F-050 (Leo, 2026-08-05): "Face Cover" (CP2) and "Beauty Cap" (AC3) were the same part
+     under two names. One row now, keyed `beautyCap` everywhere; CP2's old `faceCover` data
+     is renamed by a one-time migration. Falls back to the legacy key so a project that
+     hasn't run the migration yet still shows its numbers. */
+  { const bc = S.beautyCap || S.faceCover || {};
     rows.push({ scope:'beautyCap', label:'Beauty Cap', editable:true,
-      status: (S.beautyCap && S.beautyCap.status) || 'installed', date: (S.beautyCap && S.beautyCap.date) || '' });
-  }
+      status: bc.status || '', date: bc.date || '' }); }
   if (bt.glass[1] > 0) rows.push({ scope:'glass', label:'Glass', editable:false, rollup:bt.glass });
   if (bt.panel[1] > 0) rows.push({ scope:'metalPanel', label:'Metal Panel', editable:false, rollup:bt.panel });
   if (bt.louver[1] > 0 || u.louver === 'yes') rows.push({ scope:'louver', label:'Louver', editable:false, rollup: bt.louver[1]>0 ? bt.louver : null });
@@ -2623,6 +4210,27 @@ function saveUnit() {
   // --- Calendar-tab header fields (M3) ---
   { const _cl = document.getElementById('cal-louver'); if (_cl) u.louver = _cl.value; }
   { const _cf = document.getElementById('cal-facecap'); if (_cf) u.facecap = _cf.value; }
+  // F-051: manual unit-type override ('' = follow the id pattern).
+  { const _ut = document.getElementById('cal-unittype');
+    if (_ut) { if (_ut.value) u.unitType = _ut.value; else delete u.unitType; } }
+  // F-045: floor change — clear the stale position and log the move.
+  { const _fs = document.getElementById('cal-floor');
+    const _was = u.level || firstFloorKey();
+    if (_fs && _fs.value && _fs.value !== _was) {
+      const fl = k => { const f = getFloors().find(x => x.key === k); return f ? floorLabel(f) : k; };
+      u.level = _fs.value;
+      if (state.positions) delete state.positions[u.key];
+      if (Array.isArray(state.log)) {
+        state.log.push({ kind: 'floor-move', auto: true, unitKey: u.key,
+          date: new Date().toISOString().slice(0, 10), category: 'field-verify', categories: ['field-verify'],
+          content: `${u.id} · moved ${fl(_was)} → ${fl(u.level)}` });
+      }
+      toast(t('msg_moved_floor').replace('{id}', u.id).replace('{to}', fl(u.level)));
+    } }
+  // F-044: door type. Only doors carry it, and an empty pick removes the field so
+  // doorTypeOf() falls back to the inferred default instead of storing a fake value.
+  { const _dt = document.getElementById('cal-doortype');
+    if (_dt && isDoor(u)) { if (_dt.value) u.doorType = _dt.value; else delete u.doorType; } }
   u.note = document.getElementById('cal-note').value;
   // glassPanels[] / glassNote / ro[] intentionally left untouched — those tabs were
   // dropped by M3 (D3/D4); the data stays stored, just untabbed.
@@ -2634,20 +4242,29 @@ function saveUnit() {
   if (u.scopes.frame) { u.status = u.scopes.frame.status; u.date = u.scopes.frame.date; }
   if (u.scopes.beautyCap && u.scopes.beautyCap.status === 'installed') u.facecap = 'yes';
 
-  // --- RFI rows (M3): save + auto-log NEW RFIs as gc-inquiry evidence (mirrors the
-  // old R.O. → field-verify auto-log; kept non-auto so app-log.js won't rewrite it) ---
-  const _oldRfiLen = Array.isArray(u.rfi) ? u.rfi.length : 0;
-  u.rfi = readRfiRows();
-  if (u.rfi.length > _oldRfiLen) {
-    u.rfi.slice(_oldRfiLen).forEach(m => {
-      if (!(m.ref || m.subject)) return;
-      state.log.push({
-        date: m.date || new Date().toISOString().slice(0,10),
-        category: 'gc-inquiry', categories: ['gc-inquiry'],
-        content: `${u.id} · RFI ${m.ref||''} ${m.subject||''}`.trim()
-      });
-    });
+  // --- Glass panels + R.O. rows: CP2 kept these tabs (see openUnit comment above) ---
+  { const _gl = document.getElementById('glass-panels-list'); if (_gl) u.glassPanels = readGlassPanels(); }
+  { const _ro = document.getElementById('ro-list'); if (_ro) u.ro = readRoRows(); }
+  // F-038: required (issued) R.O. — bumps rev + appends its own log line when changed.
+  { const _rr = readRoRequired(); if (_rr) applyRoRequired(u, _rr); }
+  // F-042: shop drawings. Guarded on the R.O. tab being present so trackers without it
+  // (AC3 today) never have their `drawings` wiped by a save.
+  if (document.getElementById('ro-dwg-thumbs')) {
+    const _dw = _unitDwgDraft.filter(d => d && d.url);
+    if (_dw.length) u.drawings = _dw; else delete u.drawings;
   }
+
+  // --- RFI rows (F-032): full upsert + orphan sweep on every save — not just newly
+  // added rows — so editing status/party/response on an existing RFI updates its log
+  // line too, and deleting a row removes the orphaned log entry. upsertRfiLog adopts
+  // any pre-F-032 bare gc-inquiry entry it finds instead of duplicating it. ---
+  u.rfi = readRfiRows();
+  { const _scope = safeKey(u.key);
+    u.rfi.forEach(row => upsertRfiLog(_scope, u.id, row));
+    sweepOrphanRfiLogs(_scope, u.rfi);
+  }
+  // F-036: which project-level RFIs this unit is linked to (marks the unit's RFI ring).
+  if (document.getElementById('unit-projlinks')) u.projectLinks = readUnitProjectLinks();
 
   // --- Auto-generate Daily Log entry from diff ---
   autoLogUnitChanges(u, {
@@ -3315,12 +4932,21 @@ function toggleMapGlassMode() {
   const btn      = document.getElementById('glassMapBtn');
   const batchBtn = document.getElementById('glassBatchBtn');
   const hideSfBtn = document.getElementById('hideSfBtn');
+  const doorBtn = document.getElementById('doorModeBtn');
   if (mapGlassMode) {
     wrap.classList.add('glass-mode');
     clearMarkerSelection();   // drop any SF box-selection so it can't show under glass mode
     if (btn) { btn.textContent = '🗺 SF View'; btn.classList.add('btn-primary'); }
     if (batchBtn) batchBtn.style.display = '';
     if (hideSfBtn) hideSfBtn.style.display = '';
+    // Door Mode is irrelevant in glass view — turn it off (so it isn't stuck on with a
+    // hidden button) and hide its button.
+    if (typeof doorMode !== 'undefined' && doorMode) {
+      doorMode = false;
+      if (doorBtn) { doorBtn.textContent = '🚪 Door Mode'; doorBtn.classList.remove('btn-primary'); }
+      renderPlan();
+    }
+    if (doorBtn) doorBtn.style.display = 'none';
     renderGlassMarkers();
   } else {
     wrap.classList.remove('glass-mode');
@@ -3329,6 +4955,7 @@ function toggleMapGlassMode() {
     if (btn) { btn.textContent = '🪟 Glass Mode'; btn.classList.remove('btn-primary'); }
     if (batchBtn) { batchBtn.style.display = 'none'; batchBtn.textContent = '☑ Batch Select'; batchBtn.classList.remove('btn-primary'); }
     if (hideSfBtn) { hideSfBtn.style.display = 'none'; hideSfBtn.textContent = '🙈 Hide SF'; hideSfBtn.classList.remove('btn-primary'); }
+    if (doorBtn) doorBtn.style.display = '';        // restore Door Mode button in SF view
     mapGlassBatchMode = false;
     selectedGlassPanels = [];
     document.getElementById('glassBatchBar').style.display = 'none';
@@ -3661,20 +5288,778 @@ const FEATURE_MODULES = [
   { k:'chatLink',      emoji:'💬', label:{en:'Chat NL updater',zh:'Chat 自然语言更新入口',ko:'Chat 자연어 업데이트 입구'},            sel:['a[href="/chat"]'] },
   { k:'warehouseLink', emoji:'📦', label:{en:'Warehouse page',zh:'Warehouse 仓库页入口',ko:'Warehouse 창고 페이지 입구'},             sel:['a[href="warehouse.html"]'] },
   { k:'drawingsBtn',   emoji:'📁', label:{en:'Drawings button',zh:'Drawings 图纸按钮',ko:'Drawings 도면 버튼'},                sel:['button[onclick="openDrawings()"]'] },
+  { k:'openItemsBtn',  emoji:'⏳', label:{en:'Open Items panel',zh:'Open Items 卡点面板',ko:'Open Items 패널'},               sel:['#openItemsBtn'] },
+  // defaultOff: hidden unless a teammate turns it on in the ⚙ Modules panel.
+  { k:'glassTriage',   emoji:'🪟', label:{en:'Glass Triage page',zh:'Glass Triage 玻璃到货页入口',ko:'Glass Triage 페이지 입구'}, sel:['a[href="friday-triage.html"]'], defaultOff:true },
 ];
+
+/* ------------------------------------------------------------
+   OPEN ITEMS PANEL (F-031) — cross-trade / GC blocker visibility.
+   Reuses the existing per-unit u.rfi[] evidence (ref/date/subject/
+   status/party/response) that already exists for RFIs. Any open-
+   status row on any unit shows up here, aggregated project-wide,
+   sorted oldest-first, with a days-open badge. Nothing new to store:
+   this is a read-only projection over data that's already there,
+   so it's safe even for units created before this feature existed.
+   ------------------------------------------------------------ */
+// True when a unit carries at least one open RFI row (ref/subject present, status open),
+// OR is linked to an open project-level RFI (F-036). Drives the red glow ring on the plan
+// marker — same signal Open Items / the banner use.
+function unitHasOpenRfi(u) {
+  const own = !!(u && Array.isArray(u.rfi) && u.rfi.some(m => (m.status || 'open') === 'open' && (m.ref || m.subject)));
+  return own || unitLinkedOpenProject(u);
+}
+// Resolve a stored link key back to its project item (matched by ref, else subject).
+function _projItemByKey(key) {
+  const k = String(key || '').trim().toLowerCase(); if (!k) return null;
+  return (typeof state !== 'undefined' && state && Array.isArray(state.projectItems) ? state.projectItems : [])
+    .find(m => _projLinkKey(m) === k) || null;
+}
+// True when the unit links to at least one project item that is still open.
+function unitLinkedOpenProject(u) {
+  return !!(u && Array.isArray(u.projectLinks) && u.projectLinks.some(key => {
+    const m = _projItemByKey(key); return m && (m.status || 'open') === 'open';
+  }));
+}
+// Reverse lookup: unit IDs that have linked a given project item (for its read card).
+function _unitsLinkedTo(m) {
+  const k = _projLinkKey(m); if (!k) return '';
+  return (typeof state !== 'undefined' && state && Array.isArray(state.units) ? state.units : [])
+    .filter(u => Array.isArray(u.projectLinks) && u.projectLinks.some(x => String(x).trim().toLowerCase() === k))
+    .map(u => u.id).join(', ');
+}
+function computeOpenItems() {
+  if (typeof state === 'undefined' || !state || !Array.isArray(state.units)) return [];
+  const items = [];
+  state.units.forEach(u => {
+    (Array.isArray(u.rfi) ? u.rfi : []).forEach(m => {
+      if ((m.status || 'open') !== 'open') return;
+      if (!(m.ref || m.subject)) return;
+      items.push({
+        scope: 'unit', unitId: u.id, unitKey: u.key,
+        ref: m.ref || '', subject: m.subject || '', party: m.party || '',
+        thread: _threadFrom(m),
+        date: m.date || '', days: _daysOpen(m.date)
+      });
+    });
+  });
+  // F-037: pending GC-submitted entries count as things to solve too (they drive the
+  // header 🔧 badge + the red banner), but they render in their own inbox section.
+  _gcOpenItems().forEach(x => {
+    const d = _gcTsDate(x.ts);
+    items.push({
+      scope: 'gc', unitId: x.unitId || null, unitKey: null,
+      ref: x.ref || '', subject: x.subject || String(x.text || '').slice(0, 60),
+      party: 'GC', date: d, days: _daysOpen(d)
+    });
+  });
+  // F-032: project-level items — not tied to any unit (submittal revisions, structural
+  // calc reviews, etc. that don't map to a single unit key).
+  (Array.isArray(state.projectItems) ? state.projectItems : []).forEach(m => {
+    if ((m.status || 'open') !== 'open') return;
+    if (!(m.ref || m.subject)) return;
+    items.push({
+      scope: 'project', unitId: null, unitKey: null,
+      ref: m.ref || '', subject: m.subject || '', party: m.party || '',
+      relatedUnits: m.relatedUnits || '',
+      date: m.date || '', days: _daysOpen(m.date)
+    });
+  });
+  // F-052 (Leo): an unapproved submittal IS a thing to solve — it holds fabrication.
+  // Two flavours, and the difference is who has the ball:
+  //   revise-resubmit / rejected → OURS: we owe a resubmission (that's the urgent one)
+  //   submitted / under-review   → THEIRS: waiting on reviewers, aged from the submit date
+  // Draft (not sent yet) and approved / approved-as-noted never appear.
+  submittalOpenItems().forEach(x => items.push(x));
+  items.sort((a, b) => (b.days == null ? -1 : b.days) - (a.days == null ? -1 : a.days));
+  return items;
+}
+const SUB_OURS = ['revise-resubmit', 'rejected'];
+const SUB_THEIRS = ['submitted', 'under-review'];
+function submittalOpenItems() {
+  const subs = (typeof state !== 'undefined' && state && Array.isArray(state.submittals)) ? state.submittals : [];
+  const out = [];
+  subs.forEach((sm, i) => {
+    const st = sm.status || '';
+    const ours = SUB_OURS.indexOf(st) !== -1;
+    if (!ours && SUB_THEIRS.indexOf(st) === -1) return;
+    // Who we're actually waiting on: reviewers of the current revision with no response yet.
+    const rev = revKey(sm.rev);
+    const waiting = reviewsFor(sm, rev).filter(r => !r.status || r.status === 'pending').map(r => r.party);
+    const date = ours ? (sm.returnedDate || sm.submittedDate || '') : (sm.submittedDate || '');
+    out.push({
+      scope: 'submittal', idx: i, unitId: null, unitKey: null,
+      ref: sm.number || '', subject: sm.title || '',
+      party: ours ? t('sub_item_ours') : (waiting.length ? waiting.join(', ') : t('sub_item_theirs')),
+      subStatus: st, needsResubmit: ours, rev: rev,
+      spec: sm.spec || '', date: date, days: _daysOpen(date)
+    });
+  });
+  return out;
+}
+function _openItemsT() {
+  // Title kept in English on purpose — it's the main urgency cue and is GC-facing.
+  // Description intentionally dropped (Leo: unnecessary). Other labels stay localized.
+  if (currentLang === 'zh') return { title: '🔧 Things to Solve', desc: '', empty: '目前没有需要处理的事项 🎉', unit: 'Unit', party: '对方', subject: '事项', days: '天数', projectHeader: '项目级（影响一批 unit，不挂单个 unit）', addBtn: '+ 新增项目级条目', relatedUnits: 'Related Units' };
+  if (currentLang === 'ko') return { title: '🔧 Things to Solve', desc: '', empty: '처리할 항목이 없습니다 🎉', unit: 'Unit', party: '상대', subject: '내용', days: '일수', projectHeader: '프로젝트 레벨 (여러 unit에 영향, 단일 unit 아님)', addBtn: '+ 프로젝트 항목 추가', relatedUnits: 'Related Units' };
+  return { title: '🔧 Things to Solve', desc: '', empty: 'Nothing to solve right now 🎉', unit: 'Unit', party: 'Party', subject: 'Subject', days: 'Days', projectHeader: 'Project-level (affects a batch of units, not one)', addBtn: '+ Add project-level item', relatedUnits: 'Related Units' };
+}
+let _projItemsEditMode = false; // Things-to-Solve project section: read (threads) vs edit (rows)
+function openItemsModal() {
+  const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  let ov = document.getElementById('openItemsModal');
+  if (!ov) {
+    ov = document.createElement('div'); ov.id = 'openItemsModal'; ov.className = 'modal-overlay';
+    document.body.appendChild(ov);
+    ov.addEventListener('click', e => { if (e.target === ov) ov.classList.remove('show'); });
+  }
+  const T = _openItemsT();
+  // GC (read-only) accounts can't edit RFI status — they only respond. In that mode we
+  // drop the edit affordances (no clickable→editable unit modal, no Edit/Usage buttons)
+  // and give each open item a Respond button that composes an email draft to the PM.
+  const ro = !!(window.CloudSync && typeof window.CloudSync.isReadOnly === 'function' && window.CloudSync.isReadOnly());
+  const statusPill = (st) => { st = st || 'open'; const c = st === 'open' ? 'var(--red,#e5484d)' : (st === 'answered' ? 'var(--yellow,#d29922)' : 'var(--text-dim)'); return `<span style="font-size:10px;text-transform:uppercase;letter-spacing:.4px;border:1px solid ${c};color:${c};border-radius:20px;padding:1px 8px;white-space:nowrap">${esc(st)}</span>`; };
+  // Read-only "thread" card — lists the info, no input boxes (Leo, 2026-07-23). Same
+  // shape for unit + project items so each reads as one thread and nothing overlaps on mobile.
+  const threadCard = (it) => {
+    const clickable = !ro && it.scope === 'unit' && it.unitKey;
+    const respondBtn = (ro && (it.status || 'open') === 'open')
+      ? `<div style="margin-top:8px"><button type="button" class="btn" data-unit="${esc(it.unitId || '')}" data-ref="${esc(it.ref || '')}" data-subject="${esc(it.subject || '')}" style="font-size:12px" onclick="event.stopPropagation();openRfiRespond(this.dataset.unit,this.dataset.ref,this.dataset.subject)">💬 Respond</button></div>`
+      : '';
+    const head = it.scope === 'unit'
+      ? `<b>${esc(it.unitId)}</b>${it.ref ? ` · <span style="color:var(--text-dim)">${esc(it.ref)}</span>` : ''}`
+      : `<b>${esc(it.ref || '—')}</b> <span style="font-size:9px;color:var(--text-dim);border:1px solid var(--border);border-radius:20px;padding:1px 6px;margin-left:2px">PROJECT</span>`;
+    const meta = [];
+    if (it.party) meta.push(`👤 ${esc(it.party)}`);
+    if (it.scope === 'project' && it.relatedUnits) meta.push(`Affects: ${esc(it.relatedUnits)}`);
+    if (it.scope === 'project' && it.linkedUnits) meta.push(`Linked units: ${esc(it.linkedUnits)}`);
+    return `<div style="padding:10px 2px;border-bottom:1px solid var(--border,rgba(255,255,255,.08));${clickable ? 'cursor:pointer' : ''}"${clickable ? ` onclick="closeOpenItemsModal();openUnit('${esc(it.unitKey)}')"` : ''}>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">${head}</span>
+          ${statusPill(it.status)}${it.days != null ? _daysOpenBadge(it.days) : ''}
+        </div>
+        ${it.subject ? `<div style="font-size:13px;margin-top:3px">${esc(it.subject)}</div>` : ''}
+        ${meta.length ? `<div style="font-size:11.5px;color:var(--text-dim);margin-top:3px">${meta.join(' · ')}</div>` : ''}
+        ${(it.thread && it.thread.length) ? _threadReadHtml(it.thread) : ''}
+        ${respondBtn}
+      </div>`;
+  };
+  const unitItems = computeOpenItems().filter(it => it.scope === 'unit');
+  unitItems.forEach(it => it.status = 'open');
+  const unitCards = unitItems.length ? unitItems.map(threadCard).join('')
+    : `<div style="padding:14px 2px;color:var(--text-dim)">${T.empty}</div>`;
+  // Project-level read cards from the full records (carry status/response, unlike computeOpenItems).
+  const projAll = (Array.isArray(state.projectItems) ? state.projectItems : []).map(m => ({
+    scope: 'project', ref: m.ref || '', subject: m.subject || '', party: m.party || '',
+    relatedUnits: m.relatedUnits || '', linkedUnits: _unitsLinkedTo(m), status: m.status || 'open', thread: _threadFrom(m),
+    days: (m.status || 'open') === 'open' ? _daysOpen(m.date) : null
+  })).filter(m => m.ref || m.subject);
+  projAll.sort((a, b) => { const ao = a.status === 'open' ? 0 : 1, bo = b.status === 'open' ? 0 : 1; if (ao !== bo) return ao - bo; return (b.days == null ? -1 : b.days) - (a.days == null ? -1 : a.days); });
+  const editing = !ro && !!_projItemsEditMode;
+  const projRead = projAll.length ? projAll.map(threadCard).join('')
+    : `<div style="padding:12px 2px;color:var(--text-dim);font-size:12px">${currentLang==='zh'?'暂无项目级事项。':(currentLang==='ko'?'프로젝트 항목 없음.':'No project-level items yet.')}</div>`;
+  const projBody = editing
+    ? `<div id="project-items-list"></div><button type="button" class="btn" style="font-size:12px;margin-top:8px" onclick="addProjectItemRow()">${T.addBtn}</button>`
+    : projRead;
+  const editBtn = ro ? '' : `<button type="button" class="btn${editing ? ' btn-primary' : ''}" style="margin-left:auto;font-size:12px" onclick="toggleProjectEdit()">${editing ? ('✓ ' + _modT().save) : '✏️ Edit'}</button>`;
+  // F-037 GC inbox: entries the GC (or an AF phone) posted to /gcItems and nobody has
+  // triaged yet. Editors get merge/clear actions; GC just sees that theirs landed.
+  // Read-only viewers only see their own submissions (never another party's traffic).
+  const _me = (window.CloudSync && typeof window.CloudSync.currentUser === 'function' && window.CloudSync.currentUser() && window.CloudSync.currentUser().email) || '';
+  const gcPending = ro ? _gcOpenItems().filter(x => x.by === _me) : _gcOpenItems();
+  const gcCard = (x) => {
+    const d = _gcTsDate(x.ts);
+    const tag = [x.unitId, x.ref].filter(Boolean).join(' · ');
+    const actions = ro ? '' : `<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
+        <button type="button" class="btn btn-primary" style="font-size:12px" onclick="mergeGcItem('${esc(x._id)}')" title="Append to the matching RFI thread, or promote to a new project-level item">⤵ ${x.ref ? 'Merge into thread' : 'Promote to item'}</button>
+        <button type="button" class="btn" style="font-size:12px" onclick="markGcItemHandled('${esc(x._id)}')" title="Dismiss without adding it to the board">✓ Clear</button>
+      </div>`;
+    return `<div style="padding:10px 2px;border-bottom:1px solid var(--border,rgba(255,255,255,.08))">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">${_gcSourceBadge(x.source)} <b>${esc(x.subject || (x.kind === 'reply' ? 'Response' : 'Issue'))}</b>${tag ? ` <span style="color:var(--text-dim);font-size:11.5px">${esc(tag)}</span>` : ''}</span>
+          ${d ? _daysOpenBadge(_daysOpen(d)) : ''}
+        </div>
+        <div style="font-size:12.5px;color:var(--text-dim);margin-top:3px">${esc(x.text || '')}</div>
+        <div style="font-size:11px;color:var(--text-dim);margin-top:3px">${esc(x.by || '')}${d ? ` · ${esc(d)}` : ''}</div>
+        ${actions}
+      </div>`;
+  };
+  /* F-052: submittals get their own block — they are project-wide, not unit threads, and
+     the action is different (resubmit vs chase a reviewer). Sorted ours-first, then oldest. */
+  const subItems = computeOpenItems().filter(it => it.scope === 'submittal')
+    .sort((a, b) => (b.needsResubmit ? 1 : 0) - (a.needsResubmit ? 1 : 0) || (b.days || 0) - (a.days || 0));
+  const subCard = (it) => {
+    const c = it.needsResubmit ? 'var(--red,#e5484d)' : 'var(--yellow,#d29922)';
+    const label = it.needsResubmit ? t('sub_item_resubmit') : t('sub_item_waiting');
+    const open = (!ro && typeof editSubmittal === 'function') ? ` onclick="closeOpenItemsModal();editSubmittal(${it.idx})" style="cursor:pointer"` : '';
+    return `<div style="padding:10px 2px;border-bottom:1px solid var(--border,rgba(255,255,255,.08))"${open}>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis"><b>${esc(it.ref || '—')}</b>${it.spec ? ` <span style="color:var(--text-dim);font-size:11px">${esc(it.spec)}</span>` : ''}</span>
+          <span style="font-size:10px;text-transform:uppercase;letter-spacing:.4px;border:1px solid ${c};color:${c};border-radius:20px;padding:1px 8px;white-space:nowrap">${esc(label)}</span>
+          ${it.days != null ? _daysOpenBadge(it.days) : ''}
+        </div>
+        ${it.subject ? `<div style="font-size:13px;margin-top:3px">${esc(it.subject)}</div>` : ''}
+        <div style="font-size:11.5px;color:var(--text-dim);margin-top:3px">${esc(it.rev)} · ${esc(SUBMITTAL_STATUS_LABEL[it.subStatus] || it.subStatus)} · 👤 ${esc(it.party)}</div>
+      </div>`;
+  };
+  const subSection = subItems.length ? `<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border)">
+        <div style="font-size:12px;color:var(--text-dim);margin-bottom:8px">${t('sub_item_header')} — ${subItems.filter(x => x.needsResubmit).length} ${t('sub_item_ours_short')} · ${subItems.filter(x => !x.needsResubmit).length} ${t('sub_item_theirs_short')}</div>
+        ${subItems.map(subCard).join('')}
+      </div>` : '';
+  const gcSection = gcPending.length ? `<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border)">
+        <div style="font-size:12px;color:var(--text-dim);margin-bottom:8px">${ro ? 'Sent to Advanced Facade — awaiting review' : `📥 From the GC — needs triage (${gcPending.length})`}</div>
+        ${gcPending.map(gcCard).join('')}
+      </div>` : '';
+  ov.innerHTML = `<div class="modal" style="max-width:640px">
+      <h3 style="margin-bottom:12px">${T.title}</h3>
+      <div style="max-height:44vh;overflow:auto">
+        ${unitCards}
+        ${subSection}
+        ${gcSection}
+        <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border)">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+            <span style="font-size:12px;color:var(--text-dim)">${T.projectHeader}</span>${editBtn}
+          </div>
+          ${projBody}
+        </div>
+      </div>
+      <div class="modal-actions" style="gap:8px;flex-wrap:wrap">
+        ${ro ? `<button class="btn btn-primary" type="button" style="margin-right:auto" onclick="closeOpenItemsModal();openGcIssueForm('')">➕ Raise an issue</button>`
+             : `<button class="btn" type="button" onclick="openUsagePanel()" style="margin-right:auto" title="Who opened it, and every GC action (editors only)">📊 Activity</button>`}
+        <button class="btn" type="button" onclick="closeOpenItemsModal()">${_modT().cancel}</button>
+      </div>
+    </div>`;
+  if (editing) renderProjectItemsList(Array.isArray(state.projectItems) && state.projectItems.length ? state.projectItems : [{}]);
+  ov.classList.add('show');
+}
+function closeOpenItemsModal() { _projItemsEditMode = false; const ov = document.getElementById('openItemsModal'); if (ov) ov.classList.remove('show'); }
+
+/* ==================== F-037: GC inbox (/gcItems) ==============================
+   Leo, 2026-07-31: the GC needs to RAISE issues, not just read ours. /state stays
+   editor-only (an outside account must never be able to overwrite install data), so
+   GC writes land in a separate append-only Firebase node `/gcItems`:
+
+     { kind:'issue'|'reply', unitId, ref, subject, text, by(email), source:'gc'|'af', ts,
+       handled?:true, handledBy? }
+
+   Rules: any signed-in user may CREATE their own entry; only allowlist editors may
+   update/delete (triage). cloud-sync mirrors the node into window.GC_ITEMS and calls
+   window._onGcItems on change. AF vs GC is the allowlist check we already have —
+   `source` is stamped at submit time so the board can badge them apart.
+   Nothing here touches /state until an editor promotes/merges an entry. */
+window.GC_ITEMS = window.GC_ITEMS || [];
+function _gcItems() { return Array.isArray(window.GC_ITEMS) ? window.GC_ITEMS : []; }
+// Things needing triage. `ready` acks (F-038) are informational, not blockers — they
+// belong on the Openings sheet, so they never enter the Things-to-Solve inbox/count.
+function _gcOpenItems() { return _gcItems().filter(x => x && !x.handled && x.kind !== 'ready'); }
+function _gcItemsForUnit(unitId) {
+  const k = String(unitId || '').trim().toLowerCase(); if (!k) return [];
+  return _gcOpenItems().filter(x => String(x.unitId || '').trim().toLowerCase() === k);
+}
+function _gcTsDate(ts) { const d = ts ? new Date(ts) : null; return (d && !isNaN(d.getTime())) ? d.toISOString().slice(0, 10) : ''; }
+function _gcSourceBadge(src) {
+  const gc = src !== 'af';
+  const c = gc ? 'var(--purple,#a371f7)' : 'var(--accent,#58a6ff)';
+  return `<span style="font-size:9px;letter-spacing:.4px;border:1px solid ${c};color:${c};border-radius:20px;padding:1px 6px">${gc ? 'GC' : 'AF'}</span>`;
+}
+// Compact read card used in the GC's own unit view ("here's what you already sent").
+function _gcItemReadCard(it) {
+  const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const d = _gcTsDate(it.ts);
+  return `<div style="font-size:12px;padding:6px 2px;border-bottom:1px solid var(--border,rgba(255,255,255,.06))">
+      ${_gcSourceBadge(it.source)} <b>${esc(it.subject || (it.kind === 'reply' ? 'Response' : 'Issue'))}</b>${d ? ` <span style="color:var(--text-dim)">· ${esc(d)}</span>` : ''}
+      <div style="color:var(--text-dim);margin-top:2px">${esc(it.text || '')}</div>
+    </div>`;
+}
+// Submit form — used both for "raise an issue" (no ref) and "respond to RFI" (with ref).
+function openGcIssueForm(unitId, ref, subject, forceReply) {
+  const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  let ov = document.getElementById('gcIssueModal');
+  if (!ov) {
+    ov = document.createElement('div'); ov.id = 'gcIssueModal'; ov.className = 'modal-overlay';
+    document.body.appendChild(ov);
+    ov.addEventListener('click', e => { if (e.target === ov) ov.classList.remove('show'); });
+  }
+  const isReply = !!(forceReply || ref || subject);
+  ov.dataset.unit = unitId || ''; ov.dataset.ref = ref || ''; ov.dataset.subject = subject || '';
+  ov.dataset.kind = isReply ? 'reply' : 'issue';
+  const units = (typeof state !== 'undefined' && state && Array.isArray(state.units)) ? state.units : [];
+  const unitPicker = isReply ? '' : `<label style="display:block;font-size:11px;color:var(--text-dim);margin:0 0 3px">Unit (optional)</label>
+      <input id="gcIssueUnit" list="gc-unit-opts" type="text" value="${esc(unitId || '')}" placeholder="e.g. SF06N — leave blank for a project-wide item" autocomplete="off" ${_EVI_IN}>
+      <datalist id="gc-unit-opts">${units.map(u => `<option value="${esc(u.id)}"></option>`).join('')}</datalist>
+      <label style="display:block;font-size:11px;color:var(--text-dim);margin:10px 0 3px">Subject</label>
+      <input id="gcIssueSubject" type="text" placeholder="short title, e.g. Hinge finish mismatch at east entry" autocomplete="off" ${_EVI_IN}>`;
+  ov.innerHTML = `<div class="modal" style="max-width:520px">
+      <h3>${isReply ? '💬 Respond to RFI' : '➕ Raise an issue'}</h3>
+      ${isReply && (unitId || ref) ? `<div style="font-size:12.5px;color:var(--text-dim);margin-bottom:4px">${esc([unitId, ref].filter(Boolean).join(' · '))}</div>` : ''}
+      ${isReply && subject ? `<div style="font-size:13px;margin-bottom:10px">${esc(subject)}</div>` : ''}
+      ${unitPicker}
+      <label style="display:block;font-size:11px;color:var(--text-dim);margin:10px 0 3px">${isReply ? 'Your response' : 'What is the issue?'}</label>
+      <textarea id="gcIssueText" placeholder="${isReply ? 'Type your response / direction here…' : 'Describe the problem, what you need from Advanced Facade, and by when…'}" style="width:100%;min-height:140px;box-sizing:border-box;font-size:13.5px;line-height:1.5;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:10px"></textarea>
+      <div style="font-size:11px;color:var(--text-dim);margin-top:6px">Goes straight to the Advanced Facade team's board. It won't change any install data.</div>
+      <div class="modal-actions" style="gap:8px;flex-wrap:wrap">
+        <button class="btn" type="button" onclick="document.getElementById('gcIssueModal').classList.remove('show')">Cancel</button>
+        <button class="btn btn-primary" type="button" onclick="_submitGcItem()">${isReply ? '💬 Send response' : '➕ Submit'}</button>
+      </div>
+    </div>`;
+  ov.classList.add('show');
+  setTimeout(() => { const ta = document.getElementById('gcIssueText'); if (ta) ta.focus(); }, 30);
+}
+function _submitGcItem() {
+  const ov = document.getElementById('gcIssueModal'); if (!ov) return;
+  const ta = document.getElementById('gcIssueText');
+  const text = ta ? ta.value.trim() : '';
+  if (!text) { if (typeof toast === 'function') toast('Type something first'); return; }
+  const kind = ov.dataset.kind || 'issue';
+  const unitEl = document.getElementById('gcIssueUnit'), subjEl = document.getElementById('gcIssueSubject');
+  const payload = {
+    kind: kind,
+    unitId: (unitEl ? unitEl.value.trim() : (ov.dataset.unit || '')),
+    ref: ov.dataset.ref || '',
+    subject: (subjEl ? subjEl.value.trim() : (ov.dataset.subject || '')),
+    text: text,
+  };
+  const CS = window.CloudSync;
+  if (!CS || typeof CS.submitGcItem !== 'function') { _gcItemMailtoFallback(payload); ov.classList.remove('show'); return; }
+  CS.submitGcItem(payload).then(() => {
+    ov.classList.remove('show');
+    if (typeof toast === 'function') toast('Sent to Advanced Facade ✓');
+    const uv = document.getElementById('unitViewModal');
+    if (uv && uv.classList.contains('show') && payload.unitId) {
+      const u = (state.units || []).find(x => x.id === payload.unitId); if (u) openUnitReadOnly(u);
+    }
+  }).catch(err => {
+    // Rules not published yet / offline — never lose what they typed.
+    console.warn('[F-037] gcItems write failed, falling back to email:', err && err.message);
+    _gcItemMailtoFallback(payload);
+    ov.classList.remove('show');
+  });
+}
+const _GC_REPLY_TO = 'leosun@advfacade.com';
+function _gcItemMailtoFallback(p) {
+  const tag = [p.unitId, p.ref].filter(Boolean).join(' · ') || 'CP2';
+  const subjectLine = (p.kind === 'reply' ? 'RFI response — ' : 'New issue — ') + tag;
+  const lines = [];
+  if (p.unitId) lines.push(`Unit: ${p.unitId}`);
+  if (p.ref) lines.push(`RFI: ${p.ref}`);
+  if (p.subject) lines.push(`Subject: ${p.subject}`);
+  lines.push('', p.kind === 'reply' ? 'Response:' : 'Issue:', p.text);
+  window.location.href = `mailto:${_GC_REPLY_TO}?subject=${encodeURIComponent(subjectLine)}&body=${encodeURIComponent(lines.join('\n'))}`;
+  if (typeof toast === 'function') toast('Opening email draft ✓');
+}
+// Editor triage: merge a GC entry into the matching RFI thread, or promote it to a new
+// project-level item when nothing matches. Either way the entry is then marked handled.
+function mergeGcItem(id) {
+  const it = _gcItems().find(x => x._id === id); if (!it) return;
+  const entry = { by: it.source === 'af' ? 'us' : 'gc', text: String(it.text || '').trim(), date: _gcTsDate(it.ts) || new Date().toISOString().slice(0, 10) };
+  const k = String(it.ref || it.subject || '').trim().toLowerCase();
+  let target = null, owner = null;
+  if (it.unitId) {
+    const u = (state.units || []).find(x => x.id === it.unitId || x.key === it.unitId);
+    if (u && Array.isArray(u.rfi) && k) target = u.rfi.find(m => _projLinkKey(m) === k) || null;
+    if (target) owner = { scope: u.key, label: u.id };
+  }
+  if (!target && k) { const m = _projItemByKey(k); if (m) { target = m; owner = { scope: 'project', label: 'PROJECT' }; } }
+  if (!target) {
+    // No matching RFI — promote to a new project-level item so it lands on the board.
+    if (!Array.isArray(state.projectItems)) state.projectItems = [];
+    target = { ref: it.ref || '', subject: it.subject || String(it.text || '').slice(0, 60), party: it.source === 'af' ? '' : 'GC',
+      status: 'open', date: entry.date, relatedUnits: it.unitId || '', thread: [] };
+    state.projectItems.push(target);
+    owner = { scope: 'project', label: 'PROJECT' };
+  }
+  target.thread = _threadFrom(target).concat([entry]);
+  try { upsertRfiLog(owner.scope, owner.label, target); } catch (e) {}
+  saveState();
+  markGcItemHandled(id, true);
+}
+function markGcItemHandled(id, quiet) {
+  const CS = window.CloudSync;
+  if (!CS || typeof CS.updateGcItem !== 'function') { if (typeof toast === 'function') toast('Cloud not ready'); return; }
+  const who = (CS.currentUser && CS.currentUser() && CS.currentUser().email) || '';
+  CS.updateGcItem(id, { handled: true, handledBy: who }).then(() => {
+    if (typeof toast === 'function') toast(quiet ? 'Merged ✓' : 'Cleared ✓');
+    openItemsModal();
+  }).catch(err => { console.warn('[F-037] gcItems update failed:', err && err.message); if (typeof toast === 'function') toast('Could not update — check Firebase rules'); });
+}
+/* ==================== end F-037 write path ==================== */
+
+/* -------- GC (read-only) RFI reply flow (F-033) --------
+   Read-only GC accounts respond to an RFI here. F-037: this now posts to /gcItems so
+   the reply lands on our board directly; the old mailto path survives as the fallback
+   when the write is denied (rules not published yet) or CloudSync isn't available. */
+function openRfiRespond(unitId, ref, subject) {
+  if (window.CloudSync && typeof window.CloudSync.submitGcItem === 'function') { openGcIssueForm(unitId, ref, subject, true); return; }
+  return _openRfiRespondMailto(unitId, ref, subject);
+}
+function _openRfiRespondMailto(unitId, ref, subject) {
+  const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  let ov = document.getElementById('rfiRespondModal');
+  if (!ov) {
+    ov = document.createElement('div'); ov.id = 'rfiRespondModal'; ov.className = 'modal-overlay';
+    document.body.appendChild(ov);
+    ov.addEventListener('click', e => { if (e.target === ov) ov.classList.remove('show'); });
+  }
+  ov.dataset.unit = unitId || ''; ov.dataset.ref = ref || ''; ov.dataset.subject = subject || '';
+  const label = [unitId, ref].filter(Boolean).join(' · ');
+  ov.innerHTML = `<div class="modal" style="max-width:520px">
+      <h3>💬 Respond to RFI</h3>
+      ${label ? `<div style="font-size:12.5px;color:var(--text-dim);margin-bottom:4px">${esc(label)}</div>` : ''}
+      ${subject ? `<div style="font-size:13px;margin-bottom:10px">${esc(subject)}</div>` : ''}
+      <textarea id="rfiRespondText" placeholder="Type your response / direction here…" style="width:100%;min-height:150px;box-sizing:border-box;font-size:13.5px;line-height:1.5;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:10px"></textarea>
+      <div class="modal-actions" style="gap:8px;flex-wrap:wrap">
+        <button class="btn" type="button" onclick="document.getElementById('rfiRespondModal').classList.remove('show')">Cancel</button>
+        <button class="btn btn-primary" type="button" onclick="_sendRfiRespond()">✉️ Send response</button>
+      </div>
+    </div>`;
+  ov.classList.add('show');
+  setTimeout(() => { const ta = document.getElementById('rfiRespondText'); if (ta) ta.focus(); }, 30);
+}
+function _sendRfiRespond() {
+  const ov = document.getElementById('rfiRespondModal'); if (!ov) return;
+  const ta = document.getElementById('rfiRespondText');
+  const body = ta ? ta.value.trim() : '';
+  if (!body) { if (typeof toast === 'function') toast('Type a response first'); return; }
+  const unitId = ov.dataset.unit || '', ref = ov.dataset.ref || '', subject = ov.dataset.subject || '';
+  const tag = [unitId, ref].filter(Boolean).join(' · ') || 'RFI';
+  const subjectLine = `RFI response — ${tag}`;
+  const lines = [];
+  if (unitId) lines.push(`Unit: ${unitId}`);
+  if (ref) lines.push(`RFI: ${ref}`);
+  if (subject) lines.push(`Subject: ${subject}`);
+  lines.push('', 'Response:', body);
+  window.location.href = `mailto:${_GC_REPLY_TO}?subject=${encodeURIComponent(subjectLine)}&body=${encodeURIComponent(lines.join('\n'))}`;
+  ov.classList.remove('show');
+  if (typeof toast === 'function') toast('Opening email draft ✓');
+}
+
+/* -------- Project-level Open Items rows (F-032) --------
+   Same row shape/UI convention as the unit RFI tab (renderRfiList/_rfiRowsRaw), just
+   backed by state.projectItems[] instead of u.rfi[] and saved directly (no unit to
+   attach to). Kept in sync with the log the same way, via upsertRfiLog/sweepOrphanRfiLogs
+   with scopeKey='project'. */
+// F-032 follow-up: same two-line layout as renderRfiList, plus a "Related Units" field
+// (line 2) — project-level items almost always DO affect a specific batch of units (a
+// door-hinge substitution only touches doors, a relieving-angle revision only touches
+// storefront units on the affected elevation) even though they don't belong to one unit.
+// Free-text on purpose (e.g. "all SD* doors" or a comma list of unit IDs) rather than a
+// strict picker — good enough to search/read, and not worth the extra UI for how rarely
+// these get added.
+function renderProjectItemsList(rows) {
+  const box = document.getElementById('project-items-list'); if (!box) return;
+  const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const r = (rows && rows.length) ? rows : [{}];
+  const STATUS = ['open','answered','closed'];
+  // Same labeled-cell style as the unit RFI tab (renderRfiList/_eviCell). Each box carries
+  // its own caption; min-width:0 + width:100% keep the date inputs from overflowing the
+  // Open Items modal (this list is not inside a .form-row, so inputs don't inherit width:100%).
+  box.innerHTML = r.map((m,i)=>`
+    <div class="ro-row evi-row" style="padding:8px 0;border-bottom:1px solid var(--border,rgba(255,255,255,.07))">
+      <div class="evi-line1" style="display:grid;grid-template-columns:1fr 1fr 1.8fr 1fr auto;gap:6px;align-items:end">
+        ${_eviCell('Ref', `<input type="text" placeholder="e.g. RFI-014" value="${esc(m.ref)}" autocomplete="off" ${_EVI_IN}>`)}
+        ${_eviCell('Date', `<input type="date" value="${esc(m.date)}" ${_EVI_IN}>`)}
+        ${_eviCell('Subject', `<input type="text" placeholder="subject" value="${esc(m.subject)}" autocomplete="off" ${_EVI_IN}>`)}
+        ${_eviCell('Status', `<select ${_EVI_IN}>${STATUS.map(s=>`<option value="${s}"${(m.status||'open')===s?' selected':''}>${s}</option>`).join('')}</select>`)}
+        <span style="padding-bottom:6px">${(m.status||'open')==='open' ? _daysOpenBadge(_daysOpen(m.date)) : ''}</span>
+      </div>
+      <div class="evi-line2" style="display:grid;grid-template-columns:1fr 1.3fr auto;gap:6px;margin-top:6px;align-items:end">
+        ${_eviCell('Party', `<input type="text" placeholder="party e.g. Architect" value="${esc(m.party)}" autocomplete="off" ${_EVI_IN}>`)}
+        ${_eviCell('Related Units', `<input type="text" placeholder="e.g. all SD* doors" value="${esc(m.relatedUnits)}" autocomplete="off" ${_EVI_IN}>`)}
+        <button type="button" class="btn-remove" onclick="removeProjectItemRow(${i})" title="Remove" style="margin-bottom:4px">×</button>
+      </div>
+      ${_threadBoxHtml(_threadFrom(m))}
+    </div>`).join('');
+}
+function _projectItemRowsRaw() {
+  return Array.from(document.querySelectorAll('#project-items-list .ro-row')).map(row=>{
+    // Scope to the scalar lines so thread inputs don't shift the positional indices.
+    const f = row.querySelectorAll('.evi-line1 input, .evi-line1 select, .evi-line2 input, .evi-line2 select');
+    return { ref:f[0].value.trim(), date:f[1].value, subject:f[2].value.trim(), status:f[3].value, party:f[4].value.trim(), relatedUnits:f[5].value.trim(), thread:_readThread(row) };
+  });
+}
+function readProjectItemRows() { return _projectItemRowsRaw().filter(m=>m.ref||m.subject); }
+function addProjectItemRow() { const rows=_projectItemRowsRaw(); rows.push({date:new Date().toISOString().slice(0,10),status:'open'}); renderProjectItemsList(rows); }
+function removeProjectItemRow(i) { const rows=_projectItemRowsRaw(); rows.splice(i,1); renderProjectItemsList(rows); }
+function saveProjectItems() {
+  state.projectItems = readProjectItemRows();
+  state.projectItems.forEach(row => upsertRfiLog('project', 'PROJECT', row));
+  sweepOrphanRfiLogs('project', state.projectItems);
+  saveState();
+  _projItemsEditMode = false;           // back to read (thread) view after saving
+  openItemsModal(); // re-render (refreshes both sections + day badges + header count)
+  toast('Updated ✓');
+}
+// Toggle the project-level section between read (thread cards) and edit (input rows).
+// From edit → save (which flips the flag back); from read → enter edit and re-render.
+function toggleProjectEdit() {
+  if (_projItemsEditMode) { saveProjectItems(); }
+  else { _projItemsEditMode = true; openItemsModal(); }
+}
+function _injectOpenItemsBtn() {
+  let b = document.getElementById('openItemsBtn');
+  const bar = document.querySelector('.header-actions'); if (!bar) return;
+  if (!b) {
+    b = document.createElement('button'); b.className = 'btn'; b.id = 'openItemsBtn'; b.type = 'button';
+    b.title = 'Things to Solve'; b.onclick = openItemsModal;
+    bar.appendChild(b);
+  }
+  const n = computeOpenItems().length;
+  b.textContent = `🔧 ${n}`;
+  // Colour + bold when there's something to solve so the eye lands on it.
+  if (n > 0) { b.style.background = 'var(--red,#e5484d)'; b.style.color = '#fff'; b.style.fontWeight = '600'; b.title = `${n} thing(s) to solve`; }
+  else { b.style.background = ''; b.style.color = ''; b.style.fontWeight = ''; b.title = 'Things to Solve'; }
+}
+
+/* Attention banner (F-033 v2): a persistent bar at the top of <main> instead of the
+   auto-popping modal (which read on desktop as a page glitch and did not fire reliably
+   on mobile). Renders on every render(), reflects the live count, works on all sizes. */
+function _injectBlockerBanner() {
+  // Live INSIDE the sticky <header> so the banner is truly pinned on all scroll positions.
+  // (A sticky element in <main> got covered by the header, which is itself position:sticky
+  // z-index:100; and body{overflow-x:hidden} on mobile breaks position:sticky outright.)
+  const header = document.querySelector('header');
+  const host = header || document.querySelector('main'); if (!host) return;
+  let bn = document.getElementById('blockerBanner');
+  const n = (typeof computeOpenItems === 'function') ? computeOpenItems().length : 0;
+  if (n <= 0) { if (bn) bn.remove(); return; }
+  const label = n === 1 ? '1 thing to solve' : `${n} things to solve`;
+  if (!bn) {
+    bn = document.createElement('div'); bn.id = 'blockerBanner';
+    bn.style.cssText = 'display:flex;align-items:center;gap:10px;cursor:pointer;margin:12px 0 0;padding:10px 14px;border-radius:9px;background:var(--panel,#161b22);border:1px solid var(--red,#e5484d);box-shadow:inset 0 0 0 999px rgba(229,72,77,.12);color:var(--red,#e5484d);font-weight:600;font-size:14px';
+    bn.onclick = openItemsModal;
+  }
+  if (bn.parentElement !== host) host.appendChild(bn); // ride the sticky header → always pinned
+  bn.innerHTML = `<span style="font-size:16px">🔧</span><span>${label}</span><span style="margin-left:auto;font-weight:500;opacity:.85">Review →</span>`;
+}
+/* Daily GC push (F-033) removed 2026-08-05 (Leo): the push was drafted by hand in the end,
+   and a half-used generator in the header is worse than none. The blocker banner and the
+   Things-to-Solve board — the parts that actually got used — stay. */
+
+// Usage viewer (F-033): reads the append-only /access log Firebase collects on each
+// authed page load, aggregated per email → open count + last seen. Presence panel
+// already shows who's live; this shows who has opened it over the pilot.
+/* ---- Activity panel (F-040) --------------------------------------------------
+   Leo: "可以看到别人的编辑历史吗（主要是 GC，GC 也分 PM 和 super）".
+   Three separate trails existed and none of them were visible together:
+     • our own edits      → /history (cs-history, editors only) — button below
+     • GC actions          → /gcItems, each stamped with `by` (email) + ts
+     • who even opened it  → /access (F-033 opens tracking)
+   This panel puts the last two side by side. People are told apart BY EMAIL, so a GC
+   PM and a GC super only show up separately if each has their own login — worth
+   insisting on when you hand out accounts. Editors only (the /access rules say so). */
+function _gcActionLabel(x, zh) {
+  const u = x.unitId ? ` ${x.unitId}` : '';
+  if (x.kind === 'ready') return x.cleared ? (zh ? `撤销了${u}的「开口已备好」` : `un-marked${u} ready`)
+                                           : (zh ? `确认${u}开口已备好` : `marked${u} ready`);
+  if (x.kind === 'reply') return zh ? `回复了 ${x.ref || 'RFI'}${u}` : `responded to ${x.ref || 'an RFI'}${u}`;
+  return zh ? `提了一条事项${u}` : `raised an issue${u}`;
+}
+function openUsagePanel(){
+  let ov = document.getElementById('usageModal');
+  if (!ov){
+    ov = document.createElement('div'); ov.id = 'usageModal'; ov.className = 'modal-overlay';
+    document.body.appendChild(ov);
+    ov.addEventListener('click', e => { if (e.target === ov) ov.classList.remove('show'); });
+  }
+  const zh = currentLang==='zh';
+  const esc = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  // GC actions come from the already-mirrored window.GC_ITEMS — no extra cloud read.
+  const acts = _gcItems().slice().sort((a,b)=>(b.ts||0)-(a.ts||0));
+  const actBy = {};
+  acts.forEach(x => { const e = x.by || '?'; if (!actBy[e]) actBy[e] = { n:0, last:0 }; actBy[e].n++; if ((x.ts||0) > actBy[e].last) actBy[e].last = x.ts||0; });
+  const feed = acts.slice(0, 40).map(x => `<div style="padding:6px 2px;border-bottom:1px solid var(--border,rgba(255,255,255,.06));font-size:12.5px">
+      ${_gcSourceBadge(x.source)} <b>${esc(x.by || '?')}</b> <span style="color:var(--text-dim)">${esc(_gcActionLabel(x, zh))}</span>
+      <div style="color:var(--text-dim);font-size:11px">${x.ts ? esc(new Date(x.ts).toLocaleString()) : ''}${x.subject ? ' · ' + esc(x.subject) : ''}${x.handled ? (zh?' · 已处理':' · triaged') : ''}</div>
+    </div>`).join('');
+  ov.innerHTML = `<div class="modal" style="max-width:620px">
+      <h3>📊 ${zh?'活动记录':'Activity'}</h3>
+      <div style="font-size:11.5px;color:var(--text-dim);margin:-4px 0 10px">${zh
+        ? '按邮箱区分人 —— GC 的 PM 和 super 各自有账号才分得开。我方的逐条编辑记录在右上角用户菜单 → Edit History。'
+        : 'People are identified by email — a GC PM and super only appear separately if each has their own login. Our own field-by-field edits live in the user menu → Edit History.'}</div>
+      <div style="max-height:52vh;overflow:auto">
+        <div style="font-size:12px;color:var(--text-dim);margin-bottom:6px">${zh?'谁在用':'Who is using it'}</div>
+        <div id="usageBody" style="font-size:13px;color:var(--text-dim)">${zh?'加载中…':'Loading…'}</div>
+        <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border)">
+          <div style="font-size:12px;color:var(--text-dim);margin-bottom:6px">${zh?'最近动作':'Recent actions'} ${acts.length ? `(${acts.length})` : ''}</div>
+          ${feed || `<div style="font-size:12.5px;color:var(--text-dim);padding:8px 2px">${zh?'还没有 GC 侧的动作。':'No GC-side actions yet.'}</div>`}
+        </div>
+      </div>
+      <div class="modal-actions" style="gap:8px;flex-wrap:wrap">
+        <button class="btn" type="button" style="margin-right:auto" onclick="try{CloudSync.openHistory()}catch(e){}">📝 ${zh?'我方编辑历史':'Our edit history'}</button>
+        <button class="btn" type="button" onclick="document.getElementById('usageModal').classList.remove('show')">${zh?'关闭':'Close'}</button>
+      </div>
+    </div>`;
+  ov.classList.add('show');
+  try {
+    const db = (window.firebase && firebase.apps && firebase.apps.length) ? firebase.database() : null;
+    if (!db){ document.getElementById('usageBody').textContent = zh?'云端未连接。':'Cloud not connected.'; return; }
+    db.ref('access').once('value').then(snap => {
+      const rows = Object.values(snap.val() || {});
+      const by = {};
+      rows.forEach(r => { const e = (r && r.email) || '?'; if (!by[e]) by[e] = { n:0, last:0 }; by[e].n++; if ((r.ts||0) > by[e].last) by[e].last = r.ts||0; });
+      Object.keys(actBy).forEach(e => { if (!by[e]) by[e] = { n:0, last:actBy[e].last }; });
+      const list = Object.entries(by).sort((a,b)=> b[1].last - a[1].last);
+      const body = document.getElementById('usageBody'); if (!body) return;
+      if (!list.length){ body.textContent = zh?'还没有访问记录。':'No visits logged yet.'; return; }
+      body.innerHTML = `<div style="display:grid;grid-template-columns:1fr auto auto auto;gap:6px 14px;align-items:center">
+        <b>${zh?'用户':'User'}</b><b style="text-align:right">${zh?'打开':'Opens'}</b><b style="text-align:right">${zh?'动作':'Actions'}</b><b style="text-align:right">${zh?'最近':'Last seen'}</b>
+        ${list.map(([e,v])=>`<span style="overflow:hidden;text-overflow:ellipsis">${esc(e)}</span><span style="text-align:right">${v.n}</span><span style="text-align:right">${(actBy[e]&&actBy[e].n)||0}</span><span style="text-align:right;color:var(--text-dim)">${v.last?esc(new Date(v.last).toLocaleDateString()):'—'}</span>`).join('')}
+      </div>`;
+    }).catch(err => { const body=document.getElementById('usageBody'); if(body) body.textContent = (zh?'读取失败: ':'Read failed: ')+(err&&err.message||err); });
+  } catch(e){ const body=document.getElementById('usageBody'); if(body) body.textContent = String(e); }
+}
+
+// Read-only users (GC / non-allowlist accounts) only need the read-only view: hide the
+// editor-only entry points — Chat updater, Warehouse, Modules toggle, and the Daily GC
+// push generator (a Leo tool). CloudSync.isReadOnly() flips async after the allowlist
+// check, so this runs on every render() and is also re-fired from cloud-sync's
+// enterReadOnlyMode() via window._onReadOnly (below).
+// F-039: Drawings goes too (Leo) — a OneDrive link list is our internal reference, not
+// something the GC should be poking at, and it was the fourth 📐-ish button competing
+// for their attention.
+const _READONLY_HIDE = ['a[href="/chat"]', 'a[href="warehouse.html"]', '#modulesBtn', 'button[onclick="openDrawings()"]'];
+function applyReadOnlyUI(){
+  const ro = !!(window.CloudSync && typeof window.CloudSync.isReadOnly === 'function' && window.CloudSync.isReadOnly());
+  // GC (read-only) simplified view — CSS (body.gc-view + [data-gc-hide]) collapses the
+  // dashboard to progress + map + Things to Solve. Safe to toggle both ways: it only
+  // drives CSS, never touches Modules' own element display.
+  document.body.classList.toggle('gc-view', ro);
+  // F-039: read-only resolves asynchronously (allowlist check), so the first paint may
+  // already have landed on the editor default. Snap a GC to the Openings lens once we
+  // know — unless they've clicked a lens themselves, in which case leave them alone.
+  // F-043: also repaint if they'd already landed on a lens a GC isn't allowed (Progress) —
+  // _lens() will coerce it, but the bar and the plan have to be redrawn to match.
+  if (ro && ((!_lensUserPicked && _planLens !== 'openings') || !_lensAllowed(_planLens))) {
+    _planLens = 'openings';
+    try { renderPlanLensBar(); renderPlan(); } catch (e) {}
+  }
+  if (!ro) return; // below is hide-only (inline) — never un-hide, so we don't clobber Modules' toggling
+  // GC is English-only: force EN once (guard on currentLang so applyLang's re-render can't loop).
+  if (typeof currentLang !== 'undefined' && currentLang !== 'en' && typeof applyLang === 'function') applyLang('en');
+  _READONLY_HIDE.forEach(q => document.querySelectorAll(q).forEach(el => { el.style.display = 'none'; }));
+}
+// Let cloud-sync notify us the moment it flips a session to read-only.
+window._onReadOnly = function(){ try { applyReadOnlyUI(); } catch(e){} };
+// F-037: /gcItems changed (someone raised an issue / an editor triaged one) — refresh the
+// 🔧 badge, the red banner and, if it's on screen, the Things to Solve panel itself.
+window._onGcItems = function(){
+  try {
+    if (typeof _injectOpenItemsBtn === 'function') _injectOpenItemsBtn();
+    if (typeof _injectBlockerBanner === 'function') _injectBlockerBanner();
+    const ov = document.getElementById('openItemsModal');
+    if (ov && ov.classList.contains('show') && !_projItemsEditMode) openItemsModal();
+  } catch(e){}
+};
+
+// Mobile collapse/expand for the floor-plan section (Leo, 2026-07-23). The button is
+// CSS-hidden on desktop, so this only matters on phones.
+function togglePlanCollapse(){
+  const sec = document.getElementById('planSection'); if (!sec) return;
+  const collapsed = sec.classList.toggle('plan-collapsed');
+  const btn = document.getElementById('planCollapseBtn'); if (btn) btn.textContent = collapsed ? '▸' : '▾';
+}
+/* ==================== end F-033 ==================== */
 function moduleLabel(m){ const L=m.label; return (m.emoji?m.emoji+' ':'')+((L&&(L[currentLang]||L.en))||m.k); }
 function _modT(){
   if(currentLang==='zh') return {title:'⚙ Modules · 功能模块', desc:'对整个团队生效（保存后云端同步，Edit History 可查）。关闭只是隐藏入口，数据不会删除。', cancel:'取消', save:'保存'};
   if(currentLang==='ko') return {title:'⚙ Modules · 기능 모듈', desc:'팀 전체에 적용(저장 시 클라우드 동기화, Edit History에 표시). 끄면 입구만 숨기며 데이터는 삭제되지 않습니다.', cancel:'취소', save:'저장'};
   return {title:'⚙ Modules', desc:'Applies to the whole team (cloud-synced on save, shows in Edit History). Off just hides the entry — data is never deleted.', cancel:'Cancel', save:'Save'};
 }
-function featureOn(k){ const f=(typeof state!=='undefined' && state && state.features)||{}; return f[k]!==false; }
+function featureOn(k){
+  const f=(typeof state!=='undefined' && state && state.features)||{};
+  // No explicit team setting yet → honor the module's defaultOff (else default ON).
+  if(f[k]===undefined){ const m=FEATURE_MODULES.find(x=>x.k===k); if(m && m.defaultOff) return false; }
+  return f[k]!==false;
+}
 function applyFeatures(){
   if(typeof state==='undefined' || !state) return;
   FEATURE_MODULES.forEach(m=>{
     const on=featureOn(m.k);
     m.sel.forEach(q=>document.querySelectorAll(q).forEach(el=>{ el.style.display = on ? '' : 'none'; }));
   });
+}
+/* ---- Unit types editor (F-051) -------------------------------------------------
+   Lives behind ⚙ Modules → "Unit types". Writes state.unitTypes and saves through the
+   normal path, so it syncs to everyone and lands in the edit history like any change.
+   Editors only: read-only accounts can look but the Save button is not offered. */
+let _utDraft = null;
+function openUnitTypes() {
+  _utDraft = unitTypes().map(t => Object.assign({}, t));
+  let ov = document.getElementById('unitTypesModal');
+  if (!ov) {
+    ov = document.createElement('div'); ov.id = 'unitTypesModal'; ov.className = 'modal-overlay';
+    document.body.appendChild(ov);
+    ov.addEventListener('click', e => { if (e.target === ov) ov.classList.remove('show'); });
+  }
+  renderUnitTypesPanel();
+  ov.classList.add('show');
+}
+function closeUnitTypes() { const ov = document.getElementById('unitTypesModal'); if (ov) ov.classList.remove('show'); }
+function addUnitTypeRow() {
+  _utDraft.push({ key: 'type' + (_utDraft.length + 1), label: '', match: '', shape: 'circle', color: UT_COLORS[_utDraft.length % UT_COLORS.length].key, badge: '' });
+  renderUnitTypesPanel();
+}
+function removeUnitTypeRow(i) {
+  const t = _utDraft[i]; if (!t) return;
+  const used = (state.units || []).filter(u => unitTypeOf(u) && unitTypeOf(u).key === t.key).length;
+  if (used && !confirm(t.label + ': ' + used + ' unit(s) currently show this type. Remove it anyway?')) return;
+  _utDraft.splice(i, 1); renderUnitTypesPanel();
+}
+function setUnitTypeField(i, field, v) {
+  if (!_utDraft[i]) return;
+  _utDraft[i][field] = (field === 'badge') ? String(v).slice(0, 2) : v;
+  if (field === 'shape' || field === 'color' || field === 'badge') renderUnitTypesPanel();
+}
+function renderUnitTypesPanel() {
+  const ov = document.getElementById('unitTypesModal'); if (!ov) return;
+  const esc = v => String(v == null ? '' : v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  const ro = (typeof _isRO === 'function') && _isRO();
+  const count = t => (state.units || []).filter(u => { const x = unitTypeOf(u); return x && x.key === t.key; }).length;
+  const rows = _utDraft.map((t, i) => `
+    <div style="border:1px solid var(--border);border-left:3px solid ${esc(utColorHex(t.color))};border-radius:8px;padding:9px 10px;margin-bottom:8px">
+      <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px">
+        <span class="ut-swatch ut-${esc(t.shape)}" style="--ut-color:${esc(utColorHex(t.color))};flex:0 0 auto"></span>
+        <input type="text" value="${esc(t.label)}" placeholder="Name (Hollow metal door)" oninput="setUnitTypeField(${i},'label',this.value)" style="flex:2;min-width:0;font-size:12px">
+        <input type="text" value="${esc(t.match)}" placeholder="Id starts with (HM)" oninput="setUnitTypeField(${i},'match',this.value)" style="flex:1;min-width:0;font-size:12px">
+        ${ro ? '' : `<button type="button" class="btn btn-danger" title="Remove" onclick="removeUnitTypeRow(${i})" style="padding:2px 9px;min-height:0">×</button>`}
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <select onchange="setUnitTypeField(${i},'shape',this.value)" style="flex:1;min-width:0;font-size:12px">
+          ${UT_SHAPES.map(sh => `<option value="${sh.key}"${sh.key === t.shape ? ' selected' : ''}>${esc(sh.label)}</option>`).join('')}
+        </select>
+        <select onchange="setUnitTypeField(${i},'color',this.value)" style="flex:1;min-width:0;font-size:12px">
+          ${UT_COLORS.map(c => `<option value="${c.key}"${c.key === t.color ? ' selected' : ''}>${esc(c.label)}</option>`).join('')}
+        </select>
+        <input type="text" value="${esc(t.badge)}" maxlength="2" placeholder="Badge" oninput="setUnitTypeField(${i},'badge',this.value)" style="width:74px;font-size:12px">
+      </div>
+      <div style="font-size:11px;color:var(--text-dim);margin-top:5px">${count(t)} unit(s) match today · fill colour still shows install status</div>
+    </div>`).join('') || `<div style="color:var(--text-dim);font-size:12.5px;margin-bottom:8px">No custom types yet. Storefront / interior storefront / doors keep their built-in shapes.</div>`;
+  ov.innerHTML = `<div class="modal" style="max-width:560px;max-height:88vh;overflow-y:auto">
+      <h3 style="margin-bottom:4px">🔷 Unit types</h3>
+      <div style="font-size:12px;color:var(--text-dim);margin-bottom:12px">Give a kind of unit its own shape and outline on the plan — hollow metal doors, sun shades, canopies. Matching is by id prefix; any unit can be overridden by hand in its Calendar tab.</div>
+      ${rows}
+      ${ro ? '' : `<button class="btn" type="button" onclick="addUnitTypeRow()" style="font-size:12px">+ Add type</button>`}
+      <div class="modal-actions">
+        <button class="btn" type="button" onclick="closeUnitTypes()">Cancel</button>
+        ${ro ? '' : '<button class="btn btn-primary" type="button" onclick="saveUnitTypes()">Save</button>'}
+      </div>
+    </div>`;
+}
+function saveUnitTypes() {
+  const clean = (_utDraft || []).filter(t => (t.label || '').trim() || (t.match || '').trim()).map(t => ({
+    key: (t.key || '').trim() || ((t.label || 'type').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 24) || 'type'),
+    label: (t.label || '').trim() || t.key,
+    match: (t.match || '').trim(),
+    shape: utShapeOk(t.shape) ? t.shape : 'circle',
+    color: t.color || 'cyan',
+    badge: (t.badge || '').trim().slice(0, 2)
+  }));
+  const seen = {};
+  state.unitTypes = clean.filter(t => (seen[t.key] ? false : (seen[t.key] = 1)));
+  closeUnitTypes();
+  if (typeof CloudSync !== 'undefined' && CloudSync.describe) CloudSync.describe('Updated unit types (' + state.unitTypes.length + ')');
+  saveState();
+  toast('Unit types saved ✓');
 }
 function openModules(){
   let ov=document.getElementById('modulesModal');
@@ -3690,7 +6075,11 @@ function openModules(){
   }
   ov.querySelector('#modulesList').innerHTML = FEATURE_MODULES.map(m=>
     '<label style="display:flex;gap:10px;align-items:center;padding:7px 2px;cursor:pointer">'
-    +'<input type="checkbox" data-k="'+m.k+'"'+(featureOn(m.k)?' checked':'')+'> <span>'+moduleLabel(m)+'</span></label>').join('');
+    +'<input type="checkbox" data-k="'+m.k+'"'+(featureOn(m.k)?' checked':'')+'> <span>'+moduleLabel(m)+'</span></label>').join('')
+    // F-051: not a feature toggle — a small editor, so it gets its own row at the bottom.
+    + '<div style="border-top:1px solid var(--border);margin-top:10px;padding-top:10px">'
+    + '<button class="btn" type="button" style="font-size:12px" onclick="closeModules();openUnitTypes()">🔷 Unit types…</button>'
+    + '<div style="font-size:11px;color:var(--text-dim);margin-top:5px">Shapes + outline colours for hollow metal doors, sun shades, canopies…</div></div>';
   ov.classList.add('show');
 }
 function closeModules(){ const ov=document.getElementById('modulesModal'); if(ov)ov.classList.remove('show'); }
@@ -3708,7 +6097,7 @@ function _injectModulesBtn(){
 }
 // Re-apply after every render so remote toggles from teammates take effect live.
 const _renderBase = render;
-render = function(){ _renderBase(); applyFeatures(); _injectModulesBtn(); };
+render = function(){ _renderBase(); applyFeatures(); _injectModulesBtn(); _injectOpenItemsBtn(); renderPlanLensBar(); _injectBlockerBanner(); applyReadOnlyUI(); };
 
 /* boot */
 function initApp() {
