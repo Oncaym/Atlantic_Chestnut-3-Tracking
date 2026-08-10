@@ -81,6 +81,20 @@ plan images · `warehouse.html` · `README/SETUP`.
 6. **After a takeoff code change:** bump the file's `?v=` in `takeoff/index.html`, then
    `node --check`, then remind the user each project pushes its own GitHub repo to deploy.
 7. **Secrets never touch the frontend.** Tokens/keys go in Vercel env vars via serverless.
+8. **Plan images ship in PAIRS and on a TRANSPARENT background (Leo, repeatedly — stop
+   getting this wrong).** The ground-floor assets are transparent-background RGBA PNGs: only
+   the linework is drawn, the page colour shows through. Every plan added or replaced must
+   match that spec and ship two files: `xxx.png` (**black** linework, transparent — print and
+   day mode) and `xxx-white.png` (**white** linework, transparent — the dark UI), wired as
+   `img` + `imgDark` in `PROJECT.floors` (the ground floor uses `data-plan-light`/
+   `data-plan-dark` on its `<img>`). An OPAQUE white plan renders as a black slab in dark mode
+   — that is exactly how this broke on 2026-08-05. Never rely on the runtime canvas inversion;
+   it is only a fallback for old floors with no twin. Self-check before handoff: mode is RGBA,
+   corner pixel alpha 0, transparent fraction > 0.9.
+9. **Manual override everywhere (Leo, 2026-07-20).** Every automated/detected result MUST be
+   hand-adjustable by the user. Auto-detection is only a default guess — always expose UI (or at
+   minimum a documented setter) to correct/override it. Applies to any function that infers,
+   classifies, or computes something the user might disagree with (e.g. fill layout, roles).
 
 ## 5. Token-saving rules (enforced every turn)
 

@@ -54,7 +54,10 @@ function autoLogUnitChanges(u, old) {
     const oldSt = op.status || '', newSt = np.status || '';
     const oldDt = op.date   || '', newDt = np.date   || '';
     if (oldSt === newSt && oldDt === newDt) return;
-    if (!newSt || newSt === 'pending') return;
+    /* F-053 (Leo, 2026-08-05): 'ready' means the glass is on site, not in the wall — it
+       used to be logged as progress and inflated the Glass bar on the daily trend. Only
+       an INSTALLED panel counts as installation; 'issue' still files under issue. */
+    if (newSt !== 'installed' && newSt !== 'issue') return;
     const pDate = newDt || u.date || new Date().toISOString().slice(0,10);
     const cat   = newSt === 'issue' ? 'issue' : 'glass';
     upsertGlassLog(pDate, cat, u.id, np.panel || '', newSt, u.key);

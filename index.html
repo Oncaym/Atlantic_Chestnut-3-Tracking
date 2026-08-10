@@ -74,8 +74,8 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-storage-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 <script src="firebase-config.js"></script>
-<script src="project-config.js?v=20260805w"></script>
-<script src="cloud-sync.js?v=20260805w"></script>
+<script src="project-config.js?v=20260805y"></script>
+<script src="cloud-sync.js?v=20260805y"></script>
 <script src="elev-cloud.js?v=20260710"></script>
 
 
@@ -979,7 +979,42 @@
   }
   .modal h3 { margin-bottom: 16px; font-size: 16px; }
   /* Submittal modal carries the per-reviewer response matrix — wider + scrollable */
-  #submittalModal .modal { max-width: 560px; max-height: 88vh; overflow-y: auto; }
+  /* F-053 (Leo): the submittal editor is a working surface — dozens of rows, long Procore
+     responses. It gets the whole screen, and the fields lay out in two columns once there
+     is room, so the reviewer cards (the tall part) get the space instead of the date boxes. */
+  #submittalModal .modal {
+    max-width: min(1400px, 96vw);
+    width: 96vw;
+    max-height: 94vh;
+    overflow-y: auto;
+    padding: 20px 22px;
+  }
+  #submittalModal .sub-form-grid { display: grid; grid-template-columns: 1fr; gap: 0 18px; }
+  @media (min-width: 900px) {
+    #submittalModal .sub-form-grid { grid-template-columns: 1fr 1fr; }
+    /* Reviewer responses + the note span both columns — they are the tall fields. */
+    #submittalModal .sub-form-grid .span-2 { grid-column: 1 / -1; }
+  }
+  #submittalModal .modal-actions { position: sticky; bottom: -20px; background: var(--panel); padding: 12px 0 2px; margin-top: 4px; }
+  @media (max-width: 720px) {
+    #submittalModal .modal { width: 100%; max-width: 100%; max-height: 92vh; padding: 18px 16px; }
+  }
+  /* F-054: the log is a reading surface — dozens of rows, long Procore responses.
+     Taller viewport, sane column widths, and the note column gets real room instead of
+     being squeezed to a ribbon by the ball-in-court cell. */
+  #submittalsSection .table-wrap { max-height: 72vh; }
+  #submittalsSection table { table-layout: auto; }
+  #submittalsSection th:nth-child(3),                 /* TITLE */
+  #submittalsSection td:nth-child(3) { min-width: 190px; }
+  #submittalsSection th:nth-child(11),                /* NOTE */
+  #submittalsSection td:nth-child(11) { min-width: 260px; max-width: 420px; white-space: normal; }
+  #submittalsSection td { vertical-align: top; }
+  /* Long notes/responses stay 6 lines tall until you open the row — otherwise one wordy
+     Procore reply makes a row taller than the screen (that is what it looked like). */
+  #submittalsSection td:nth-child(11) > div,
+  #submittalsSection td:nth-child(10) .bic-reply {
+    display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden;
+  }
   /* Drag handle for reordering submittal rows */
   .drag-grip {
     cursor: grab;
@@ -3450,6 +3485,7 @@ function importDxfInTracker(e){
 <div class="modal-overlay" id="submittalModal">
   <div class="modal">
     <h3 id="submittalModalTitle">Add Submittal</h3>
+    <div class="sub-form-grid">
     <div class="form-row">
       <label>Number</label>
       <input type="text" id="sub-number" placeholder="e.g. SUB-014">
@@ -3490,13 +3526,14 @@ function importDxfInTracker(e){
       <label>Returned date</label>
       <input type="date" id="sub-returned">
     </div>
-    <div class="form-row">
+    <div class="form-row span-2">
       <label>Ball in court &amp; responses</label>
       <div id="sub-reviews"></div>
     </div>
-    <div class="form-row">
+    <div class="form-row span-2">
       <label>Note</label>
       <textarea id="sub-note" rows="2"></textarea>
+    </div>
     </div>
     <div class="modal-actions">
       <button class="btn btn-danger" id="submittalDeleteBtn" onclick="deleteSubmittalFromModal()" style="margin-right:auto;display:none">Delete</button>
@@ -3553,10 +3590,10 @@ function importDxfInTracker(e){
 <div id="toast" class="toast">Saved ✓</div>
 
 <script type="application/json" id="__embedded_state"></script>
-<script src="app-log.js?v=20260805w"></script>
+<script src="app-log.js?v=20260805y"></script>
 <script src="elevations.js?v=20260716a"></script>
 <script src="dxf-elevations.js?v=20260716a"></script>
-<script src="app.js?v=20260805w"></script>
+<script src="app.js?v=20260805y"></script>
 <!-- boot handled inside app.js (core) -->
 </body>
 </html>

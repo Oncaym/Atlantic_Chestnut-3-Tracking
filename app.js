@@ -4530,7 +4530,7 @@ function renderBicCell(s) {
         : (r.status && r.status !== 'pending' ? `<em style="opacity:.7">${esc(st.label)}</em>${date}` : '');
       return `<div style="font-size:11px;line-height:1.5;white-space:nowrap" title="${esc(st.label)}">` +
           `<span class="status-dot" style="background:${st.color}"></span>${esc(r.party)}</div>` +
-        `<div style="font-size:11px;line-height:1.5;color:var(--text-dim);min-width:0">${reply}</div>`;
+        `<div class="bic-reply" style="font-size:11px;line-height:1.5;color:var(--text-dim);min-width:0">${reply}</div>`;
     }).join('') + '</div>';
 }
 function renderSubmittals() {

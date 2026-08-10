@@ -45,6 +45,33 @@ window.PROJECT = {
     { scope: 'beautyCap', cls: 'scope-fc',    labelKey: 'legend_beautycap' }
   ],
 
+  /* One-time state migrations (F-044 mechanism) — each runs once per project. */
+  migrations: [
+    {
+      id: 'glasslog-installed-only-2026-08',
+      note: 'F-053: drop daily-log glass entries that were written for a panel merely being ' +
+            '"ready" (on site) — only installed panels belong on the installation trend. ' +
+            'Entries record the non-installed status per unit, so they are identifiable; an ' +
+            'entry left with nothing in it is removed.',
+      apply(state) {
+        const log = Array.isArray(state.log) ? state.log : [];
+        let dropped = 0;
+        log.forEach(l => {
+          if (!l || l.auto !== true || l.kind !== 'glass' || !l.autoUnits) return;
+          Object.keys(l.autoUnits).forEach(k => {
+            const v = l.autoUnits[k];
+            const st = (v && typeof v === 'object') ? (v.status || '') : (typeof v === 'string' ? v : '');
+            if (st) { delete l.autoUnits[k]; dropped++; }        // '' === installed
+          });
+          if (typeof rebuildAutoUnitsContent === 'function') rebuildAutoUnitsContent(l);
+        });
+        state.log = log.filter(l => !(l && l.auto === true && l.kind === 'glass' &&
+          (!l.autoUnits || !Object.keys(l.autoUnits).length)));
+        return dropped + ' non-installed glass row(s) removed from the trend';
+      }
+    },
+  ],
+
   // Interior storefront id patterns (F-044) — AC3 has none yet; add "^IS" when it does
   interiorPatterns: [],
 

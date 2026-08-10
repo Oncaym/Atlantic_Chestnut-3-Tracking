@@ -11,6 +11,17 @@
 
 ## Current state / progress
 
+- **2026-08-05 — F-054：`index.html` 加 no-cache**（两个 `vercel.json`，只针对 .html/根路径）。**踩坑记录**：
+  改了 index.html 里的 CSS（submittal 弹窗全屏）之后 Leo 看到的还是旧样式 —— `?v=` 只给 JS 破缓存，
+  HTML 自己是缓存的。以后动 index.html 的 CSS/markup，如果对方说"没变化"，先想这条。顺带把 Submittal Log
+  表调宽（NOTE 列可换行、长回复 6 行 clamp、表格 72vh）。
+
+- **2026-08-05 — F-053：①玻璃 `ready` 不再算进 Daily Installation Trend**（Leo：只算 installed）——
+  `autoLogUnitChanges` 只在 installed 时写 glass 条目，issue 仍归 issue；已写进去的 ready 行由迁移
+  `glasslog-installed-only-2026-08` 清掉（两个项目的 project-config 各带一份，AC3 是第一次有 migrations 数组）。
+  **注意**：Glass 环形图里的 "Ready" 扇区是有意保留的（那是库存口径，不是安装进度）。②AC3 的 submittal
+  编辑弹窗改成接近全屏 + 宽屏两列，逐家回复/Note 横跨两列，Save 吸底 —— 为以后几十条 submittal 连续编辑。
+
 - **2026-08-05 — F-052：submittal 进 Things to Solve**（Leo）。`computeOpenItems()` 把未批准的 submittal
   也算事项，所以 🔧 徽标 / 红横幅 / Issues KPI 自动包含。`revise-resubmit`+`rejected`=球在我方（红
   Resubmit，按**退回日**算天数），`submitted`+`under-review`=球在审核方（琥珀 In review，列出当前 Rev
