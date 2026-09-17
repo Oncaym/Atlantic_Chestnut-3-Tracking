@@ -564,20 +564,39 @@ button, input, select, textarea {
 }
 
 /* Footer with formula + export */
+/* The report footer used to be one flex ROW: formula left, export buttons right. Six export
+   buttons no longer fit — the row pushed past the panel edge and squeezed the formula into a
+   one-word-wide column (Leo, 2026-08-20: "改成竖排，不要超出框"). It is a COLUMN now: the formula
+   gets a full line, the buttons stack under it. `min-width: 0` on the children is what actually
+   stops the overflow — a flex item defaults to min-width:auto and refuses to shrink below its
+   content, which is why the buttons spilled instead of being contained in the first place. */
 .tk-report__foot {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  flex-direction: column;
+  align-items: stretch;
   gap: var(--af-space-3);
   padding: var(--af-space-4) var(--af-space-5);
   background: var(--af-bg-2);
   border-top: 1px solid var(--af-line);
+  min-width: 0;
 }
+.tk-report__foot > * { min-width: 0; max-width: 100%; }
+.tk-report__actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;   /* each button sized to its own label, not stretched across the panel */
+  gap: var(--af-space-2);
+  min-width: 0;
+}
+.tk-report__actions .tk-btn { max-width: 100%; }
+.tk-report__actions .tk-input { max-width: 100%; }
 .tk-formula {
   font-family: var(--af-font-mono);
   font-size: 10.5px;
   color: var(--af-fg-3);
   letter-spacing: var(--af-tracking-mono);
+  line-height: 1.6;
+  overflow-wrap: anywhere;   /* one long mono line, no natural break points at narrow widths */
 }
 .tk-formula b {
   color: var(--af-fg-1);

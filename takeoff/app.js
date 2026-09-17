@@ -3,7 +3,7 @@
    ============================================================ */
 
 const STORAGE_KEY = 'hillview-kawneer-takeoff-v2';
-const PARTS_DB_VERSION = 20260618;
+const PARTS_DB_VERSION = 20260820;   // bump reseeds parts + accessories from systems.js
 // SYSTEMS & POSITIONS derived dynamically from parts data (with fallback defaults)
 const DEFAULT_SYSTEMS = ['IR501T', '450'];
 const DEFAULT_POSITIONS = ['Head', 'Jamb', 'Sill', 'Horizontal', 'Vertical', 'Transom Bar', 'Door Jamb', 'Door Jamb At Transom'];
@@ -24,12 +24,15 @@ const ROLE_REMAP = {
   'Corner':               ['Corner', 'Outside 90° Corner', 'Vertical', 'Jamb'],
   'Transom Bar':          ['Transom Bar', 'Head', 'Horizontal'],
   'Subsill':              ['Subsill', 'Sill'],
-  // #S3: defensive fallback only — systems.js's 750XT parts already list these directly, so
-  // this chain shouldn't normally fire; kept in case a future edit drops them from a part's
-  // roles[] and the whitelist needs somewhere safe to remap to.
-  'Jamb (IMP-1)':         ['Jamb (IMP-1)', 'Jamb (X)', 'Jamb'],
-  'Vertical (IMP-1)':     ['Vertical (IMP-1)', 'Vertical (X)', 'Vertical'],
-  'Vertical (wide IMP-1)':['Vertical (wide IMP-1)', 'Vertical (wide X)', 'Vertical (wide)'],
+  // #imp1-roles-retired (2026-08-20, Leo: "frame wise 不再需要区分 jamb/jamb (IMP-1)、
+  // vertical/vertical (IMP-1) —— 原来两者的区别也只有 gasket，现在不这么算 gasket 了"):
+  // the (IMP-1) variants are gone from SYSTEM_DEFS, so any legacy cut/pin still holding one
+  // collapses straight back to its plain base role. The chains deliberately list ONLY the base
+  // role — never the (X) louver variant — so a retired IMP-1 label can't be laundered into a
+  // louver-zone role by the whitelist cascade.
+  'Jamb (IMP-1)':         ['Jamb'],
+  'Vertical (IMP-1)':     ['Vertical'],
+  'Vertical (wide IMP-1)':['Vertical (wide)'],
   'Horizontal (Glass & Glass)': ['Horizontal (Glass & Glass)', 'Horizontal'],
 };
 const _allowedRolesCache = new Map();
@@ -58,7 +61,14 @@ function allowedRolesForSystem(system) {
 // assignment; this gates what the AUTO-classifier may emit) — see PROPAGATION-DESIGN.md §17.
 function recognizedRolesForSystem(system) {
   const manual = (typeof state !== 'undefined' && state.recognizedRoles) ? state.recognizedRoles[system] : null;
-  if (Array.isArray(manual)) return new Set([...manual, ...((state && state.customRoles) || [])]);
+  // #imp1-roles-retired: a curated list saved before the (IMP-1) variants were retired would keep
+  // re-admitting them through the whitelist gate, so they're filtered out (and their base role
+  // added in their place) at read time — no migration of stored state needed.
+  if (Array.isArray(manual)) {
+    const out = new Set((state && state.customRoles) || []);
+    for (const r of manual) out.add(normalizeImp1RoleToBase(r));
+    return out;
+  }
   return allowedRolesForSystem(system);
 }
 function hasManualRecognizedList(system) {
@@ -87,6 +97,22 @@ function POSITIONS_LIST() {
   const all = Array.from(new Set(fromParts.concat(custom)));
   return all.length ? all : DEFAULT_POSITIONS.slice();
 }
+// #positions-per-system (2026-08-20, Leo: "45TU edit position 选项会出现 750XT 的 role。。。只给
+// 45TU 的 positions"): POSITIONS_LIST() unions the roles of EVERY system, which is right for the
+// parts table (one row can belong to any system) and wrong for the viewer's Position dropdown,
+// where the piece already belongs to one. Offering 750XT's roles there is not just noise — picking
+// one produces a role no 45TU part covers, so the piece silently drops out of the takeoff.
+// `current` is always included, so an existing odd value is never lost just by opening the menu.
+function POSITIONS_FOR(system, current) {
+  const set = new Set();
+  for (const p of (state.parts || [])) if (p.system === system) for (const r of (p.roles || [])) set.add(r);
+  for (const a of (state.accessories || [])) if (a.system === system && !ACC_PART_REF_RULES.includes(a.rule) && a.rule !== 'per_panel')
+    for (const r of (a.positions || [])) set.add(r);
+  for (const r of (state.customRoles || [])) set.add(r);
+  if (current) set.add(current);
+  const out = [...set];
+  return out.length ? out : POSITIONS_LIST();
+}
 // Back-compat aliases (Proxy so existing SYSTEMS.map / SYSTEMS.indexOf still work)
 const SYSTEMS = new Proxy([], { get(_,k){ const a=SYSTEMS_LIST(); return typeof a[k]==='function'?a[k].bind(a):a[k]; } });
 const POSITIONS = new Proxy([], { get(_,k){ const a=POSITIONS_LIST(); return typeof a[k]==='function'?a[k].bind(a):a[k]; } });
@@ -98,6 +124,7 @@ const STOCK_INCHES = 288; // 24 ft
 let LAYER_CONFIG = {
   alum: 'AF_ALUM PROFILE',
   doorSubframe: 'AF-DOOR SUBFRAME',
+  saddle: 'AF_SADDLE',        // #exploded-door: the threshold — only ever drawn under a door
   outline: 'AF_OUTLINE',
   scope: 'AF SCOPE',
   door: 'A-DOOR-1',
@@ -145,10 +172,33 @@ function uid() {
   return Math.random().toString(36).slice(2, 10);
 }
 
+// #reset-safety: refuse to persist a state that has lost hand-made records since the last write.
+// Four separate fixes went into making the pin matcher cleverer while THIS was quietly deleting
+// everything; a matcher cannot help with data that is no longer there.
+let _lastEditCounts = null, _editsLossFlag = false;
+function editRecordCounts() {
+  return { elevEdits: Object.keys(state.elevEdits || {}).length,
+           rolePins: Object.keys(state.rolePins || {}).length,
+           panelEdits: Object.keys(state.panelEdits || {}).length,
+           roleTemplates: (state.roleTemplates || []).length };
+}
 function save() {
   try {
     state.partsDbVersion = PARTS_DB_VERSION;
+    const now = editRecordCounts();
+    const lost = _lastEditCounts ? Object.keys(now).filter(k => now[k] < _lastEditCounts[k]) : [];
+    if (lost.length) {
+      // Records went DOWN. Keep whatever the backup already holds — it is the fuller version — and
+      // say so loudly instead of quietly overwriting it with the diminished one.
+      console.warn('[state] this write drops hand-made records:',
+        lost.map(k => `${k} ${_lastEditCounts[k]} → ${now[k]}`).join(', '),
+        '— the fuller version is stashed; use "↺ Restore my edits" in the Parts Database header.');
+      _editsLossFlag = true;
+    } else {
+      backupUserEdits();   // high-water mark: only ever refreshed when nothing was lost
+    }
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    _lastEditCounts = now;
   } catch(e){}
 }
 function load() {
@@ -199,7 +249,112 @@ function ico(name, cls = 'ico') {
 // ============================================================
 //  RENDER
 // ============================================================
+// #parts-prune (2026-08-20, Leo: "750XT 里面所有 role 里的 E1-0120 和 E1-0127 都删掉，现在用新的
+// 方法算 gasket"): E1-0120/E1-0127 were hand-added to the CLOUD parts library as per-role line
+// items back when the gasket was taken off by framing role. They are not in systems.js, so
+// deleting them there would do nothing — the cloud copy overwrites local on every snapshot.
+// This is a standing sanitizer instead of a one-shot migration for exactly that reason: it runs
+// on every render, and the first time it sees the stale rows it strips them and pushes the clean
+// 750XT doc back up (deferred to a macrotask so the write lands after cloud-sync's applyingRemote
+// guard has cleared). Once the cloud is clean it is a no-op forever. Same pass drops the retired
+// (IMP-1) role variants from any part's roles[].
+// #gasket-parts-retired (2026-08-20, Leo: "part# 里为什么还有两个 gaskets / 现在使用 gasket
+// diagram 里面的算法算"): the gasket part numbers were also sitting in the 750XT PARTS library
+// with framing roles (HEAD (GLASS), JAMB, VERTICAL …), so the order list was billing them a
+// second time off member run-length — 2,598" of E2-0120 and 6,297" of E2-0127 that have nothing
+// to do with the panel takeoff. Gasket comes from the gasket diagram and ONLY from there, so all
+// four numbers are struck from the parts library. (E1-0120 still appears in the takeoff, but as
+// the computed door run — an accessory row, not a role-based part.)
+// #setting-block-not-stock (2026-08-20): E1-3603 (setting block chair) and E2-0513 (setting block)
+// were sitting in the 750XT PARTS library with roles, so the tool was cutting them out of 24′ bar —
+// 48 sticks of setting block. They are loose blocks, and they are now accessory rules instead
+// (run length along the lower member of each lite, per Leo). Left in the parts library they would
+// be billed twice, and they would keep appearing on the cutting diagram.
+// They are also the wrong part numbers for AC3: those are the 1" glazing numbers and AC3 glazing is
+// 1-1/16", which YKK 04-4014-25 does not publish — the accessory rows carry the names with the
+// part number deliberately blank until Leo has them.
+const RETIRED_PARTS = { '750XT': ['E1-0120', 'E1-0127', 'E2-0120', 'E2-0127', 'E1-3603', 'E2-0513'] };
+function pruneRetiredParts() {
+  if (typeof state === 'undefined' || !Array.isArray(state.parts)) return false;
+  const before = state.parts.length;
+  state.parts = state.parts.filter(p => {
+    const kill = RETIRED_PARTS[p.system];
+    return !(kill && kill.includes(String(p.partNumber || '').trim()));
+  });
+  let changed = state.parts.length !== before;
+  for (const p of state.parts) {
+    if (!Array.isArray(p.roles)) continue;
+    const next = Array.from(new Set(p.roles.map(normalizeImp1RoleToBase)));
+    if (next.length !== p.roles.length || next.some((r, i) => r !== p.roles[i])) { p.roles = next; changed = true; }
+  }
+  return changed;
+}
+// #acc-wash (2026-08-20, Leo: "不用管我原来的规则，用新的规则全部洗一遍"): the 750XT accessory
+// rules are owned by systems.js. Not merged with what the cloud holds, not reconciled row by row —
+// replaced outright with the seeded set derived from YKK 04-4014-25.
+//
+// The gate is PRESENCE, not a version stamp. The version stamp was tried first and failed for a
+// reason worth remembering: it made the wash strictly one-shot per browser, and that one shot fired
+// at page load — BEFORE the Firestore snapshot arrived. The snapshot then put the old rows back,
+// the stamp said "already washed", and the tool sat there with the stale set forever. Anything
+// gated on "have I done this yet" loses that race by construction.
+//
+// Presence cannot lose it: if any seeded part number is missing from the 750XT set, the set is
+// stale, whatever put it there and whenever it arrived — so wash and push. Once the cloud holds the
+// seeded set every part number is present, the wash stops firing, and hand edits to a rule's param
+// survive (presence is tested, not equality). Deleting a seeded rule outright brings it back on the
+// next render — these are manual-backed rules, so that is the intended behaviour; change them in
+// systems.js, or edit the param in place.
+// Systems whose accessory rules systems.js owns outright. IR501T / 450 / 1600 are left alone —
+// their rules were never curated here and washing them would throw away whatever is in the cloud.
+const ACC_OWNED_SYSTEMS = ['750XT', '45TU'];
+function washSeedAccessories() {
+  if (typeof state === 'undefined' || !Array.isArray(state.accessories)) return false;
+  let any = false;
+  for (const sys of ACC_OWNED_SYSTEMS) any = washSeedAccessoriesFor(sys) || any;
+  return any;
+}
+function washSeedAccessoriesFor(sysName) {
+  const seed = SEED_ACCESSORIES.filter(a => a.system === sysName);
+  if (!seed.length) return false;
+  // The key carries the rule's STRUCTURE — which part, which rule type, what it reads — but not
+  // `param`/`min`. So changing a rule in systems.js (per_lf → per_panel, or a different role list)
+  // propagates to everyone, while the magnitudes stay Leo's to tune in the table. Structure from
+  // systems.js, numbers from Leo.
+  const sig = a => [String(a.partNumber || a.description || '').trim().toUpperCase(), a.rule,
+                    (a.positions || []).map(p => String(p).trim().toLowerCase()).sort().join(',')].join('|');
+  const have = new Set(state.accessories.filter(a => a.system === sysName).map(sig));
+  const missing = seed.filter(d => !have.has(sig(d)));
+  if (!missing.length) return false;                       // the seeded set is installed — leave it alone
+  const before = state.accessories.filter(a => a.system === sysName).length;
+  // Out: every rule of THIS system, and every legacy blank-system rule. Blank-system rows predate
+  // per-system rules, so they apply to EVERY opening — a blank-system "Glazing Gasket" bills itself
+  // on top of the per-system rule doing the same job. Other systems are untouched.
+  state.accessories = state.accessories.filter(a => a.system !== sysName && String(a.system || '') !== '');
+  for (const def of seed) state.accessories.push({ ...def, id: uid(), positions: [...def.positions] });
+  console.log(`[accessories] ${sysName} ruleset was stale (missing/changed: ${missing.map(d => d.partNumber || d.description).join(', ')}) — `
+    + `replaced ${before} row(s) with the ${seed.length} rules from systems.js`);
+  return true;
+}
+// Standing guard: a row with no system AND no part number can never be ordered and always
+// duplicates a named rule. Applies to every system, and runs whether or not the wash fired.
+function pruneLegacyAccessories() {
+  if (typeof state === 'undefined' || !Array.isArray(state.accessories)) return false;
+  const before = state.accessories.length;
+  state.accessories = state.accessories.filter(a => !(String(a.system || '') === '' && !String(a.partNumber || '').trim()));
+  if (state.accessories.length === before) return false;
+  console.log(`[accessories] dropped ${before - state.accessories.length} unnamed legacy row(s)`);
+  return true;
+}
 function renderAll() {
+  if (washSeedAccessories() | pruneLegacyAccessories()) {
+    setTimeout(() => { try { save(); } catch (_) {} }, 0);
+  }
+  if (pruneRetiredParts()) {
+    console.log('[parts] pruned retired 750XT gasket parts / (IMP-1) roles — pushing clean library');
+    setTimeout(() => { try { save(); } catch (_) {} }, 0);
+  }
+  renderEditsSafety();
   renderParts();
   renderOpenings();
   renderReport();
@@ -208,6 +363,77 @@ function renderAll() {
   renderRoleTemplates();
   save();
 }
+
+// #edits-file (2026-09-04): the browser is not a safe place to keep a month of work, and Leo's
+// gaps between jobs are longer than a browser keeps anything. Everything hand-made goes out as one
+// small JSON file he can keep beside the DXFs, and comes back on any machine.
+function exportUserEdits() {
+  const snap = snapshotUserEdits();
+  const n = editRecordCounts();
+  const payload = { kind: 'af-takeoff-edits', version: 1, exportedAt: new Date().toISOString(),
+                    project: xlProjectName(), counts: n, data: snap };
+  download(`${xlProjectName()} takeoff edits.json`, JSON.stringify(payload, null, 1), 'application/json');
+  const st = document.getElementById('export-status');
+  if (st) { st.textContent = `Exported ${n.elevEdits} saved elevation(s), ${n.rolePins} pinned mark(s), ${n.panelEdits} panel map(s), ${n.roleTemplates} template(s)`; st.className = 'tk-dxf__status is-ok'; }
+}
+function importUserEdits(text) {
+  let p; try { p = JSON.parse(text); } catch (_) { alert('That file is not readable JSON.'); return; }
+  if (!p || p.kind !== 'af-takeoff-edits' || !p.data) { alert('That is not a takeoff edits file.'); return; }
+  const c = p.counts || {};
+  if (!confirm(`Import hand-made edits exported ${new Date(p.exportedAt).toLocaleString()}?\n\n`
+    + `${c.elevEdits || 0} saved elevation(s), ${c.rolePins || 0} pinned mark(s), ${c.panelEdits || 0} panel map(s), ${c.roleTemplates || 0} template(s).\n\n`
+    + 'Marks in the file replace the same marks here. Marks only present here are left alone.')) return;
+  for (const k of USER_AUTHORED_STATE_KEYS) {
+    const v = p.data[k];
+    if (v == null) continue;
+    if (Array.isArray(v)) state[k] = v;
+    else if (typeof v === 'object') state[k] = Object.assign({}, state[k] || {}, v);
+    else state[k] = v;
+  }
+  save(); renderAll();
+  const st = document.getElementById('export-status');
+  if (st) { st.textContent = 'Edits imported — re-import the DXFs to apply them to the elevations.'; st.className = 'tk-dxf__status is-ok'; }
+}
+
+// #reset-safety: the restore control, and a standing warning when a write has dropped records.
+function renderEditsSafety() {
+  const host = document.getElementById('edits-safety');
+  if (!host) return;
+  const n = editRecordCounts();
+  // One number, not four. "3 marks with role pins · 13 panel maps · 1 template" made Leo say
+  // "我已经不会用了" — and he was right: a status line you have to decode is not a status line.
+  const marks = new Set([...Object.keys(state.elevEdits || {}), ...Object.keys(state.rolePins || {}),
+                         ...Object.keys(state.panelEdits || {})]).size;
+  const b = readEditsBackup();
+  const canUndo = b && b.marks > marks;
+  host.innerHTML = `
+    ${canUndo ? `<div style="margin:0 16px 8px;padding:10px 12px;border-radius:8px;background:#7c2d12;color:#fed7aa;font-size:13px;">
+      <b>Some of your saved work is missing.</b> This browser now has ${marks} mark${marks === 1 ? '' : 's'};
+      the last good copy had <b>${b.marks}</b>, from ${new Date(b.at).toLocaleString()}.
+      <button class="tk-btn tk-btn--accent tk-btn--sm" id="edits-restore" style="margin-left:8px;">↺ Bring it back</button>
+    </div>` : ''}
+    <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:6px 16px;font-size:12px;">
+      <span style="color:var(--af-fg-3,#888);">Your saved work: <b>${marks}</b> mark${marks === 1 ? '' : 's'}</span>
+      <button class="tk-btn tk-btn--accent tk-btn--sm" id="edits-export" title="Save everything you have corrected by hand into one file. Keep it beside the DXFs — it does not depend on this browser.">⬇ Back up to a file</button>
+      <input id="edits-file" type="file" accept=".json,application/json" hidden />
+      <button class="tk-btn tk-btn--ghost tk-btn--sm" id="edits-import" title="Load a backup file made by the button on its left">⬆ Restore from a file</button>
+    </div>`;
+}
+document.addEventListener('click', e => {
+  if (!e.target.closest) return;
+  if (e.target.closest('#edits-restore')) { _editsLossFlag = false; restoreEditsBackup(); }
+  else if (e.target.closest('#edits-export')) exportUserEdits();
+  else if (e.target.closest('#edits-import')) { const f = document.getElementById('edits-file'); if (f) f.click(); }
+});
+document.addEventListener('change', e => {
+  if (!e.target || e.target.id !== 'edits-file') return;
+  const f = e.target.files && e.target.files[0];
+  if (!f) return;
+  const r = new FileReader();
+  r.onload = () => importUserEdits(String(r.result || ''));
+  r.readAsText(f);
+  e.target.value = '';
+});
 
 // ---------- Recognized Roles panel (#2, 2026-07-20 Opus) ----------
 let _rrSystem = null;  // which system the panel is currently showing
@@ -434,6 +660,208 @@ function cutDisplayPosition(c, system) {
 function srcKey(s) { return [s.x, s.y, s.w, s.h].map(n => Math.round((n || 0) * 10) / 10).join('|'); }
 
 // ============================================================
+//  #role-pins-v2 (2026-08-24, Leo: "我1个月前修改的 role position 上个礼拜导入都不见了,
+//  需要我重新手改")
+//
+//  Root cause, reproduced: a pin was keyed by the piece's ABSOLUTE drawing coordinates
+//  (`srcKey` = x|y|w|h). Move the elevation anywhere on the sheet — a re-issued drawing, a
+//  re-exported view, a shifted origin — and every key changes at once. The same key is the
+//  `elevGeoSig` fingerprint that guards the full saved edit-set, so BOTH persistence layers died
+//  together, with no message: the import simply came back auto-classified and the work was gone.
+//
+//  Nothing about the elevation had actually changed. So pins are now stored RELATIVE to the
+//  elevation's own origin, matched by shape-and-place with a tolerance instead of by string
+//  equality, and — for pins written by the old build — the move is SOLVED FOR and the pins are
+//  carried across. Three rules this code keeps:
+//    1. A pin is a statement about a piece, not about a coordinate.
+//    2. Never delete a pin on a read path. The old code dropped pins holding a retired role while
+//       merely displaying an elevation; that is a write, and an unrecoverable one.
+//    3. If a pin cannot be placed, SAY SO. Silence is what made this cost a week.
+// ============================================================
+const PIN_SIZE_TOL = 0.3;    // inches — a piece is "the same piece" if its size matches this close
+const PIN_POS_TOL  = 1.5;    // inches — ...and it sits this close to where the pin says, relative
+                             //           to the elevation's own bottom-left corner
+const _pinReport = new Map();   // mark -> { matched, unmatched, shifted } for the viewer to show
+const _savedRoleReport = new Map();   // mark -> { total, matched, changed } from a partial restore
+function savedRoleReport(mark) { return _savedRoleReport.get(mark) || null; }
+
+function rectsOrigin(rects) {
+  const xs = [], ys = [];
+  for (const r of rects) if (r) { xs.push(r.x); ys.push(r.y); }
+  return xs.length ? { x: Math.min(...xs), y: Math.min(...ys) } : { x: 0, y: 0 };
+}
+function cutsOrigin(cuts) { return rectsOrigin((cuts || []).map(c => c && c.src).filter(Boolean)); }
+// The corner every pin is measured from. Prefer the elevation's own bbox: it is fixed by the whole
+// drawing, so dragging the leftmost jamb cannot move the origin out from under every other pin.
+// Falls back to the cuts' own extent when there is no bbox (a hand-built opening).
+function pinOrigin(cuts, bbox) {
+  return (bbox && isFinite(bbox.minX) && isFinite(bbox.minY)) ? { x: bbox.minX, y: bbox.minY } : cutsOrigin(cuts);
+}
+function openingPinOrigin(o) { return pinOrigin(o && o.cuts, o && o._bands && o._bands.bbox); }
+const _r1 = n => Math.round((n || 0) * 10) / 10;
+
+// A pin: where the piece sits inside its own elevation, how big it is, and what Leo called it.
+function makePin(src, org, role) {
+  return { rx: _r1(src.x - org.x), ry: _r1(src.y - org.y), w: _r1(src.w), h: _r1(src.h), role };
+}
+function rolePinsFor(mark) {
+  const a = state.rolePins && state.rolePins[mark];
+  return Array.isArray(a) ? a : [];
+}
+function writeRolePins(mark, arr) {
+  state.rolePins = state.rolePins || {};
+  if (!arr || !arr.length) delete state.rolePins[mark];
+  else state.rolePins[mark] = arr;
+}
+
+// Pair pins to cuts: exact placements first, then the nearest tolerable one, closest pair first so
+// two similar pieces can't steal each other's pin. Each pin is used at most once.
+// #pin-offset (2026-08-26, Leo: "when i import elevations which already have saved role pins, it
+// should show saved role pins directly instead of still being auto-classified"):
+// pins are stored relative to the elevation's bbox corner, and that corner is derived from ALL the
+// geometry in the cluster — so a revised DXF that merely adds a dimension, a note or a bit of
+// detail at the edge moves the corner, every pin shifts with it, and they all miss at once even
+// though not one framing member moved. That produced "7 of 9 found no matching piece".
+//
+// The origin is now only a starting guess. Before matching, the shift is SOLVED: each pin votes
+// for the offset that would carry it onto a same-sized cut, and the offset the most pins agree on
+// is the one applied to all of them. A frame that did not move votes (0,0) and this is a no-op, so
+// it runs unconditionally. What matters is the SHAPE of the elevation, never where its corner is.
+function solvePinOffset(pins, cuts, org) {
+  const cands = [];
+  for (const p of pins) for (const c of cuts) {
+    if (!c.src) continue;
+    if (Math.abs(p.w - c.src.w) > PIN_SIZE_TOL || Math.abs(p.h - c.src.h) > PIN_SIZE_TOL) continue;
+    cands.push({ dx: (c.src.x - org.x) - p.rx, dy: (c.src.y - org.y) - p.ry });
+  }
+  if (!cands.length) return null;
+  let best = null, bn = -1;
+  for (const a of cands) {
+    let n = 0;
+    for (const b of cands) if (Math.abs(a.dx - b.dx) <= PIN_SIZE_TOL && Math.abs(a.dy - b.dy) <= PIN_SIZE_TOL) n++;
+    const mag = Math.hypot(a.dx, a.dy);
+    if (n > bn || (n === bn && best && mag < Math.hypot(best.dx, best.dy) - 1e-9)) { best = a; bn = n; }
+  }
+  // Two independent pins agreeing is evidence; one is a coincidence between same-sized pieces.
+  if (!best || bn < 2 || (Math.abs(best.dx) < 0.05 && Math.abs(best.dy) < 0.05)) return null;
+  return { dx: best.dx, dy: best.dy, votes: bn };
+}
+function matchRolePins(pins, cuts, org) {
+  const out = new Map();
+  if (!pins.length) return { out, unmatched: [], offset: null };
+  const off = solvePinOffset(pins, cuts, org);
+  if (off) pins = pins.map(p => ({ ...p, rx: p.rx + off.dx, ry: p.ry + off.dy, _pin: p }));
+  const cand = [];
+  cuts.forEach((c, ci) => {
+    if (!c.src) return;
+    const rx = c.src.x - org.x, ry = c.src.y - org.y;
+    pins.forEach((p, pi) => {
+      if (Math.abs(p.w - c.src.w) > PIN_SIZE_TOL || Math.abs(p.h - c.src.h) > PIN_SIZE_TOL) return;
+      const d = Math.hypot(rx - p.rx, ry - p.ry);
+      if (d > PIN_POS_TOL) return;
+      cand.push({ ci, pi, d });
+    });
+  });
+  cand.sort((a, b) => a.d - b.d);
+  const usedC = new Set(), usedP = new Set();
+  for (const k of cand) {
+    if (usedC.has(k.ci) || usedP.has(k.pi)) continue;
+    usedC.add(k.ci); usedP.add(k.pi); out.set(k.ci, pins[k.pi]);
+  }
+  return { out, unmatched: pins.filter((_, i) => !usedP.has(i)).map(p => p._pin || p), offset: off };
+}
+
+// Legacy pins are absolute, so recovering them means recovering the move. Every legacy rect votes
+// for the translation that would carry it onto a fresh cut of the same size; the translation the
+// most rects agree on is the move that happened. An elevation that never moved votes (0,0) and
+// this is a no-op — which is why it can run unconditionally.
+function solveLegacyTranslation(legacyRects, cuts) {
+  const cands = [];
+  for (const L of legacyRects) for (const c of cuts) {
+    if (!c.src) continue;
+    if (Math.abs(c.src.w - L.w) > PIN_SIZE_TOL || Math.abs(c.src.h - L.h) > PIN_SIZE_TOL) continue;
+    cands.push({ dx: c.src.x - L.x, dy: c.src.y - L.y });
+  }
+  if (!cands.length) return null;
+  let best = null, bn = -1;
+  for (const a of cands) {
+    let n = 0;
+    for (const b of cands) if (Math.abs(a.dx - b.dx) <= PIN_SIZE_TOL && Math.abs(a.dy - b.dy) <= PIN_SIZE_TOL) n++;
+    const mag = Math.hypot(a.dx, a.dy);
+    if (n > bn || (n === bn && best && mag < Math.hypot(best.dx, best.dy) - 1e-9)) { best = a; bn = n; }
+  }
+  // One vote is not evidence — with a single legacy pin, every same-sized piece in the elevation
+  // is an equally good "match" and the winner is arbitrary. Two independent pins agreeing on the
+  // same move is. Below that, assume the drawing did not move rather than invent a translation.
+  if (!best || bn < 2) return null;
+  return { dx: best.dx, dy: best.dy, votes: bn };
+}
+
+// One-time, per mark: carry `state.roleEdits` (absolute keys, written by every build before today)
+// into the relative store. The legacy map is READ, never written or deleted — if this migration
+// ever gets it wrong the original is still sitting there to re-run against.
+function migrateLegacyRolePins(mark, cuts, org) {
+  const legacy = (state.roleEdits && state.roleEdits[mark]) || null;
+  if (!legacy || !Object.keys(legacy).length) return 0;
+  const done = (state.rolePinsMigrated && state.rolePinsMigrated[mark]) || false;
+  if (done) return 0;
+  const rects = [];
+  for (const k in legacy) {
+    const p = String(k).split('|').map(Number);
+    if (p.length !== 4 || p.some(n => !isFinite(n))) continue;
+    rects.push({ x: p[0], y: p[1], w: p[2], h: p[3], role: legacy[k] });
+  }
+  if (!rects.length) return 0;
+  const t = solveLegacyTranslation(rects, cuts) || { dx: 0, dy: 0, votes: 0 };
+  const have = rolePinsFor(mark);
+  const key = p => [p.rx, p.ry, p.w, p.h].join('|');
+  const seen = new Set(have.map(key));
+  let added = 0;
+  for (const r of rects) {
+    const pin = makePin({ x: r.x + t.dx, y: r.y + t.dy, w: r.w, h: r.h }, org, r.role);
+    if (seen.has(key(pin))) continue;
+    seen.add(key(pin)); have.push(pin); added++;
+  }
+  writeRolePins(mark, have);
+  // A legacy key recorded when this mark sat somewhere else converts to a coordinate that is not
+  // on this elevation at all. Better to drop it now than to warn about it forever.
+  const junk = prunePinsOutsideElevation(mark, cuts);
+  added -= junk;
+  state.rolePinsMigrated = state.rolePinsMigrated || {};
+  state.rolePinsMigrated[mark] = true;
+  if (added) console.log(`[pins] ${mark}: recovered ${added} role pin(s) from the legacy store`
+    + (Math.hypot(t.dx, t.dy) > 0.05 ? ` — the elevation had moved ${_r1(t.dx)}, ${_r1(t.dy)} on the sheet` : ''));
+  return added;
+}
+
+function setRolePin(mark, org, src, role) {
+  if (!mark || !src || !org) return;
+  const pins = rolePinsFor(mark).slice();
+  const pin = makePin(src, org, role);
+  const i = pins.findIndex(p => Math.abs(p.rx - pin.rx) <= 0.05 && Math.abs(p.ry - pin.ry) <= 0.05
+                             && Math.abs(p.w - pin.w) <= 0.05 && Math.abs(p.h - pin.h) <= 0.05);
+  if (i >= 0) pins[i] = pin; else pins.push(pin);
+  writeRolePins(mark, pins);
+}
+// Dragging a piece longer or shorter must carry its pin with it, or the next import silently
+// reverts the role of the very piece that was just edited.
+function moveRolePin(mark, org, oldSrc, newSrc) {
+  if (!mark || !oldSrc || !newSrc || !org) return;
+  const o0 = makePin(oldSrc, org, null);
+  const pins = rolePinsFor(mark).slice();
+  const i = pins.findIndex(p => Math.abs(p.rx - o0.rx) <= 0.05 && Math.abs(p.ry - o0.ry) <= 0.05
+                             && Math.abs(p.w - o0.w) <= 0.05 && Math.abs(p.h - o0.h) <= 0.05);
+  if (i < 0) return;
+  pins[i] = makePin(newSrc, org, pins[i].role);
+  writeRolePins(mark, pins);
+}
+function clearRolePins(mark) {
+  if (state.rolePins) delete state.rolePins[mark];
+  if (state.rolePinsMigrated) delete state.rolePinsMigrated[mark];
+}
+function rolePinReport(mark) { return _pinReport.get(mark) || null; }
+
+// ============================================================
 //  #persist (#1): manual elevation edits (splits/merges/role/length/count) survive
 //  reload AND are shared across browsers/Vercel via Firestore (project elevDb,
 //  collection `elevEdits`, one doc per mark). Local state.elevEdits mirrors the cloud
@@ -441,15 +869,35 @@ function srcKey(s) { return [s.x, s.y, s.w, s.h].map(n => Math.round((n || 0) * 
 //  its geometry signature matches the fresh parse (see parseRawDxfOpenings).
 //  Note: this is also the training data #4's auto-propagation will learn from.
 // ============================================================
-function elevGeoSig(cuts) {
-  // Role-independent fingerprint of the parsed source geometry for one elevation.
+function elevGeoSigAbs(cuts) {
   return (cuts || []).filter(c => c && c.src).map(c => srcKey(c.src)).sort().join(';');
+}
+function elevGeoSig(cuts) {
+  // Role-independent fingerprint of the parsed source geometry for one elevation, taken RELATIVE
+  // to the elevation's own origin (#role-pins-v2). The absolute form meant that moving the
+  // elevation on the sheet changed the fingerprint, so the saved edit-set silently stopped
+  // matching and every split, merge and length edit was thrown away along with the role pins.
+  const list = (cuts || []).filter(c => c && c.src);
+  const org = cutsOrigin(list);
+  return list.map(c => [_r1(c.src.x - org.x), _r1(c.src.y - org.y), _r1(c.src.w), _r1(c.src.h)].join('|')).sort().join(';');
+}
+// A saved signature may be in either form — accept both, so today's build restores edit-sets saved
+// by yesterday's. The next persist rewrites it in the new form.
+function geoSigMatches(saved, cuts) {
+  if (!saved) return false;
+  return saved === elevGeoSig(cuts) || saved === elevGeoSigAbs(cuts);
 }
 function elevEditRecord(o) {
   return {
     cuts: (o.cuts || []).map(c => ({ position: c.position, length: c.length, count: c.count || 1, src: c.src ? { ...c.src } : null })),
     geoSig: o.geoSig || elevGeoSig(o.cuts),
     width: o.width, height: o.height, system: o.system || '',
+    // #pins-in-cloud (2026-09-04, Leo: "修改记录是存在browser里面的吗 / 我每次间隔会超过1个礼拜"):
+    // yes, and that was the hole. elevEdits has always been per-mark in Firestore, but role pins
+    // lived in localStorage alone — so a browser that cleared its storage between two jobs a week
+    // apart lost them with nothing to fall back on. They travel in the same doc now: one write,
+    // one read, same mark, and they come back on any machine that opens the project.
+    rolePins: rolePinsFor(o.mark),
   };
 }
 // #history (2026-07-19, Leo — SF01 data loss): keep at most this many prior versions per mark,
@@ -497,13 +945,14 @@ function restoreElevEditsVersion(mark, historyIdx) {
   const o = state.openings.find(x => x.mark === mark);
   if (!o) return false;
   o.cuts = (entry.cuts || []).map(c => ({ position: c.position, length: c.length, count: c.count || 1, src: c.src ? { ...c.src } : null }));
-  o.geoSig = entry.geoSig || elevGeoSig(o.cuts);
+  o.geoSig = elevGeoSig(o.cuts);   // always re-stamped in the current (relative) form
   persistElevEdits(o);   // saves the restored version as current, pushing today's (pre-restore) version into history
   return true;
 }
 function clearElevEdits(mark) {
   if (!mark) return;
   if (state.roleEdits) delete state.roleEdits[mark];
+  clearRolePins(mark);
   if (state.elevEdits) delete state.elevEdits[mark];
   save();
   const fb = window.__fb;
@@ -525,11 +974,29 @@ function loadElevEditsFromCloud() {
       _cloudMarks.add(d.id);
       const data = d.data() || {};
       if (data && Array.isArray(data.cuts)) {
-        if (data.cuts.length) state.elevEdits[d.id] = { cuts: data.cuts, geoSig: data.geoSig || '', width: data.width, height: data.height, system: data.system || '', updatedAt: data.updatedAt || 0, history: Array.isArray(data.history) ? data.history : [] };
+        if (data.cuts.length) state.elevEdits[d.id] = { cuts: data.cuts, geoSig: data.geoSig || '', width: data.width, height: data.height, system: data.system || '', updatedAt: data.updatedAt || 0, history: Array.isArray(data.history) ? data.history : [], rolePins: Array.isArray(data.rolePins) ? data.rolePins : [] };
         else delete state.elevEdits[d.id];   // a cleared mark
+        // #pins-in-cloud: adopt the cloud's pins only where this browser has none — a local set is
+        // either the same or newer, and silently replacing it would be the old bug wearing a hat.
+        // NOTE (2026-09-04): this block was first inserted BETWEEN the if and its else above, so the
+        // `else delete` re-bound to it — and every cloud doc written before rolePins existed (all of
+        // them) deleted its own local elevEdits entry on page load. That is what took Leo's 35 saved
+        // elevations to zero while he watched. Never split an if/else to insert anything.
+        if (Array.isArray(data.rolePins) && data.rolePins.length) {
+          state.rolePins = state.rolePins || {};
+          if (!(state.rolePins[d.id] || []).length) state.rolePins[d.id] = data.rolePins;
+        }
+      }
+      // #panel-gasket: per-panel type/gasket overrides ride along in the same doc.
+      if (data && data.panels && typeof data.panels === 'object') {
+        state.panelEdits = state.panelEdits || {};
+        if (Object.keys(data.panels).length) state.panelEdits[d.id] = data.panels;
+        else delete state.panelEdits[d.id];
       }
     });
+    if (typeof recomputeAllGaskets === 'function') recomputeAllGaskets();
     save();
+    if (typeof renderReport === 'function') renderReport();
     // #11: one-time self-heal — a mark edited locally before the elevEdits Firestore rule was
     // published/deployed only ever saved to localStorage; now that cloud is reachable, push any
     // such local-only mark up. No-op once everything's synced (skips marks the cloud already has).
@@ -552,93 +1019,633 @@ if (typeof window !== 'undefined') {
   else window.addEventListener('fb-ready', loadElevEditsFromCloud, { once: true });
 }
 
+// ============================================================
+//  #panel-gasket (2026-08-20, Leo: "现在有一个 gasket diagram，但基本不能用…可以自定义每块
+//  panel 是什么（glass/IMP-1)，上方 louver 不用动…glass/imp-1 你先识别出来，用现在的算法就能
+//  做到，但允许我手动调整" + "glass&IMP-1 现在都是 E2-0127x1 + E2-0120x1，但还是要分，以后也许
+//  会变")
+//
+//  The gasket takeoff is now a PANEL takeoff. Every infill cell the parser finds becomes a panel
+//  with (a) a type — glass / IMP-1 — auto-detected exactly as before from the IMP-1 hatch bands,
+//  and (b) its own gasket spec: a list of {part, loops}. LF for a panel = perimeter × loops, per
+//  part. Type and spec are BOTH hand-overridable per panel; the auto value is kept alongside so
+//  "Reset to auto" is always available and a re-import never silently discards a manual call.
+//  Type is still stored even where both types currently resolve to the same gasket spec, because
+//  Leo expects the two to diverge again later.
+//
+//  Louver and door cells are carried in the panel list (so the diagram is complete) but are NOT
+//  editable and take no infill gasket — "上方 louver 不用动".
+//
+//  Storage: state.panelEdits[mark][panelKey] = { t0?, gaskets? }, mirrored into the SAME
+//  Firestore `elevEdits/{mark}` doc under a `panels` field. Deliberately not a new collection —
+//  a new one would need its own security rule published in the Firebase Console before any write
+//  would land, and silently-failing writes are exactly the trap this project has hit before.
+// ============================================================
+// #gasket-per-system (2026-08-20, Leo: "45TU 为什么没有 gasket diagram，也得算"): the gasket model
+// was written for 750XT and hard-coded its part numbers, so every other system got no panel map at
+// all. It is per-system now. A system that is not listed gets no panel gasket — silence is right
+// where nothing is known; inventing E2-0127 for an unknown system would be worse than a blank.
+//
+// 45TU: **2 loops of E2-0052 per panel**, which is EXACTLY the old per-role rule re-expressed.
+// The old rules were 2×LF on the perimeter roles (Jamb/Door Jamb/Head/Sill) and 4×LF on the
+// interior ones (Vertical/Corner/Horizontal). A perimeter member borders one panel and an interior
+// member borders two, so summing 2 loops per panel gives 2·L for every perimeter member and
+// 2·L·2 = 4·L for every interior member — the same total, now drawn and editable panel by panel.
+// The two per-role E2-0052 rows were removed from systems.js at the same time; leaving both would
+// have doubled the gasket.
+// #gasket-any-system (2026-08-24, Leo: "I need gasket view for all systems … because this tool
+// needs to be an independent tool that doesn't rely on position detection algorithm. It's expected
+// to manually set panels/pieces/gaskets"):
+// the gasket spec is no longer a hard-coded table of two systems — it is DATA, seeded per system
+// and overridable by hand from the Accessories section. A system nobody has configured yet still
+// gets a full gasket diagram: an empty spec draws no loops, and every panel's gasket is editable
+// panel by panel, so the tool never depends on the detector or on a system being "known".
+// Precedence: state.systemGaskets[sys]  >  SYSTEM_DEFS[sys].gasket  >  built-in seed below.
+const SEED_SYSTEM_GASKET = {
+  '750XT': {
+    panel: {
+      glass: [{ part: 'E2-0127', loops: 1 }, { part: 'E2-0120', loops: 1 }],
+      panel: [{ part: 'E2-0127', loops: 1 }, { part: 'E2-0120', loops: 1 }],
+      louver: [],
+      // #door-gasket: a door panel takes NO loop of its own. The door's gasket is the two jambs
+      // and only the two jambs (doorPart below) — a perimeter loop here would count them twice.
+      door: [],
+    },
+    // storefront perimeter ×1 per independent zone, and the door's two jambs. Same part number
+    // today, kept as separate runs so each stays auditable and they can diverge later.
+    perimeterPart: 'E2-0120',
+    doorPart: 'E2-0120',
+  },
+  '45TU': {
+    panel: {
+      glass: [{ part: 'E2-0052', loops: 2 }],
+      panel: [{ part: 'E2-0052', loops: 2 }],
+      louver: [],
+      door: [],
+    },
+    // 45TU's schedule has no separate storefront-perimeter or door-jamb gasket run.
+    perimeterPart: null,
+    doorPart: null,
+  },
+};
+(function mergeGasketDefsFromSystemsJs() {
+  const defs = (typeof window !== 'undefined' && window.SYSTEM_DEFS) || {};
+  for (const sys in defs) if (defs[sys] && defs[sys].gasket) SEED_SYSTEM_GASKET[sys] = defs[sys].gasket;
+})();
+const GASKET_PANEL_TYPES = ['glass', 'panel', 'louver', 'door'];
+// Every read goes through here, so a half-filled hand-edited spec can never crash a render.
+function normGasketSpec(g) {
+  const src = g || {};
+  const panel = {};
+  for (const t of GASKET_PANEL_TYPES) {
+    panel[t] = ((src.panel || {})[t] || [])
+      .map(x => ({ part: String(x.part || '').trim(), loops: +x.loops || 0 }))
+      .filter(x => x.part && x.loops > 0);
+  }
+  const pn = s0 => { const v = String(s0 == null ? '' : s0).trim(); return v || null; };
+  return { panel, perimeterPart: pn(src.perimeterPart), doorPart: pn(src.doorPart) };
+}
+function seedSystemGasket(system) { return normGasketSpec(SEED_SYSTEM_GASKET[system]); }
+function systemGasket(system) {
+  const ov = (typeof state !== 'undefined' && state && state.systemGaskets) ? state.systemGaskets[system] : null;
+  return ov ? normGasketSpec(ov) : seedSystemGasket(system);
+}
+function isSystemGasketCustom(system) { return !!((state.systemGaskets || {})[system]); }
+function setSystemGasket(system, spec) {
+  state.systemGaskets = state.systemGaskets || {};
+  state.systemGaskets[system] = normGasketSpec(spec);
+}
+function resetSystemGasket(system) { if (state.systemGaskets) delete state.systemGaskets[system]; }
+// "E2-0127×1, E2-0120x2" (or ×, x, *, :, or a bare part number meaning ×1) ⇄ [{part,loops}].
+// A text field, not a dropdown of known parts: a system the tool has never seen must be typeable.
+function parseGasketSpecText(txt) {
+  return String(txt || '').split(/[,;\n]+/).map(t => t.trim()).filter(Boolean).map(t => {
+    const m = t.match(/^(.+?)\s*[x×*:]\s*([0-9.]+)$/i);
+    return m ? { part: m[1].trim(), loops: +m[2] } : { part: t, loops: 1 };
+  }).filter(g => g.part && g.loops > 0);
+}
+function gasketSpecText(arr) { return (arr || []).map(g => `${g.part}×${+(+g.loops).toFixed(2)}`).join(', '); }
+// Coil length per box, by part number — seeded, and extendable by hand for a part the seed has
+// never heard of (otherwise a new system's gasket reports LF with no box count).
+const SEED_GASKET_BOX_LF = { 'E2-0127': 250, 'E2-0120': 500, 'E2-0052': 250 };
+function gasketBoxLF(part) {
+  const k = String(part || '').trim().toUpperCase();
+  const ov = state.gasketBoxLF || {};
+  if (ov[k] != null) return +ov[k] || 0;
+  for (const p0 in SEED_GASKET_BOX_LF) if (p0.toUpperCase() === k) return SEED_GASKET_BOX_LF[p0];
+  return 0;
+}
+function gasketBoxLFText() {
+  const merged = {};
+  for (const p0 in SEED_GASKET_BOX_LF) merged[p0.toUpperCase()] = SEED_GASKET_BOX_LF[p0];
+  for (const k in (state.gasketBoxLF || {})) merged[k] = state.gasketBoxLF[k];
+  return Object.keys(merged).sort().filter(k => merged[k] > 0).map(k => `${k}:${merged[k]}`).join(', ');
+}
+function parseGasketBoxLFText(txt) {
+  const out = {};
+  for (const t of String(txt || '').split(/[,;\n]+/)) {
+    const m = t.trim().match(/^(.+?)\s*[:=]\s*([0-9.]+)$/);
+    if (m) out[m[1].trim().toUpperCase()] = +m[2] || 0;
+  }
+  return out;
+}
+// Which panels offer the glass↔IMP-1 type switch, vs. which simply have an editable gasket spec.
+// A door is a door — you don't re-type it — but its gasket is still yours to change.
+const PANEL_TYPE_CHOICES = ['glass', 'panel'];      // an AUTO-detected panel may be re-typed between these
+const PANEL_ALL_TYPES = ['glass', 'panel', 'door', 'louver'];   // a HAND-DRAWN panel can be any of these
+// #gasket-any-system: a louver used to be hard-locked to "no gasket, nothing to set". That was a
+// 750XT fact wearing the costume of a rule — another system may well gasket its louver band, and
+// now that the default is a per-system setting the panel-level editor has to be able to follow it.
+// A DOOR stays locked on purpose (#door-gasket): its gasket is the two jambs and only the two
+// jambs, and a loop set on the leaf would double-count them.
+const PANEL_EDITABLE_TYPES = ['glass', 'panel', 'louver'];
+const PANEL_TYPE_LABEL = { glass: 'Glass', panel: 'IMP-1', louver: 'Louver', door: 'Door' };
+const PANEL_TYPE_FILL = { glass: '#bcd6ee', panel: '#c9c9c9', louver: '#bfe6c8', door: '#f2c48a' };
+const GASKET_PART_COLOR = { 'E2-0127': '#2dd4bf', 'E2-0120': '#f97316', 'E2-0052': '#38bdf8' };
+function gasketPartColor(part) { return GASKET_PART_COLOR[part] || '#a78bfa'; }
+
+// #perimeter-outline (2026-08-20, Leo: "perimeter 永远是绕着外围的 frame 一圈你能理解吗" +
+// "15.2，左右 2 个 opening 中间没有任何 frame 连接，所以算分开的"):
+// the storefront perimeter is the OUTLINE OF THE FRAME ITSELF — trace the outside edge of the
+// metal and that is the run. Every earlier version approximated it (a bbox rectangle, then a
+// rectangle with door notches cut out) and every approximation broke on the next drawing: a
+// stepped sill, a louver band, two bays that share no member. So this stops approximating and
+// computes the real thing.
+//
+// Method: the framing members are all axis-aligned rectangles (cuts[].src). Lay their edges out
+// as a grid, mark which cells the metal covers, flood the OUTSIDE, and every cell face where
+// metal meets outside is a piece of the perimeter. That single computation gets, for free:
+//   · disconnected zones — SF15.2's two bays share no frame member, so they are two separate
+//     components and each gets its own loop; the empty space between/below them is outside,
+//     not enclosed. Same mechanism makes a louver band its own zone with no special case.
+//   · a stepped sill, a bay that stops short, any non-rectangular outline — traced as drawn.
+//   · the door — no sill crosses a door opening, so the notch is open to the outside and the
+//     outline walks down one jamb face and up the other by itself.
+// Interior faces (a glass pocket, fully enclosed by metal) are NOT outside-reachable, so they are
+// excluded — those pockets are the panel gasket's job, not the perimeter's.
+//
+// The traced path is then split into two reported runs, disjoint by construction so nothing can
+// be double-counted: the vertical faces bounding a door opening are the DOOR run; everything else
+// is the STOREFRONT run. The horizontal face under a door header is dropped from both — a door
+// header takes no gasket (Leo).
+// #parser-version (2026-08-20, Leo — SF15.2 "出来怎么是这样"): openings persist in localStorage,
+// so an elevation on screen may have been parsed by an older build. Anything decided WHILE reading
+// the DXF — which cells are panels, where the doors are — cannot be recomputed later from stored
+// state; only a re-import fixes it. Every parse stamps this number onto the opening, and the
+// viewer says so when it does not match. BUMP THIS whenever the parse changes what it produces.
+const PARSER_VERSION = 20260820;   // bump when the PARSE changes what it produces (panels/doors)
+const PERIM_DOOR_PAD = 10;      // inches — how far outside the leaf a door's own jamb face can sit
+// A door header takes no gasket at all (Leo). Not its underside, not its top, not its ends — so
+// the whole header sits in a dead band above the opening and every face in it is dropped. The band
+// has to be a bit taller than the member itself: the header is drawn as its own extrusion with a
+// hairline void between it and the head above, and that void is open to the door notch, so without
+// the band the outline walks up and around the header and bills it as storefront.
+const PERIM_DOOR_HEADER_ZONE = 6;   // inches above the opening
+function perimeterRuns(bb, cuts, louverBand, doorRegions) {
+  const empty = { storefront: { segs: [], inches: 0 }, door: { segs: [], inches: 0 } };
+  const rects = (cuts || []).filter(c => c.src && c.src.w > 0 && c.src.h > 0)
+    .map(c => ({ x1: c.src.x, y1: c.src.y, x2: c.src.x + c.src.w, y2: c.src.y + c.src.h }));
+  if (!rects.length) return empty;
+  // Snap the grid lines. Two members that butt together are drawn with edges that agree only to
+  // float noise (2422.2200000 vs 2422.2200001); left un-snapped that pair becomes a ZERO-WIDTH
+  // column of cells no rectangle can cover, and the outside floods straight through it into every
+  // sealed pocket — which is exactly what made the first version trace a gold line around every
+  // glass cell in the two end bays. 0.02" is far below any real gap in these drawings (the
+  // smallest genuine one is the 0.5" reveal between a mullion and its neighbouring column, which
+  // must stay open — that is what tells two bays apart).
+  const COORD_EPS = 0.02;
+  const snap = vals => { const out = []; for (const v of vals.sort((a, b) => a - b)) if (!out.length || v - out[out.length - 1] > COORD_EPS) out.push(v); return out; };
+  const xs = snap(rects.flatMap(r => [r.x1, r.x2]));
+  const ys = snap(rects.flatMap(r => [r.y1, r.y2]));
+  const idxOf = (arr, v) => { let lo = 0, hi = arr.length - 1; while (lo < hi) { const mid = (lo + hi) >> 1; if (arr[mid] < v - COORD_EPS) lo = mid + 1; else hi = mid; } return lo; };
+  const nx = xs.length - 1, ny = ys.length - 1;
+  if (nx < 1 || ny < 1) return empty;
+  const at = (i, j) => i * ny + j;
+  const cov = new Uint8Array(nx * ny);
+  for (const r of rects) {
+    for (let i = idxOf(xs, r.x1); i < idxOf(xs, r.x2); i++)
+      for (let j = idxOf(ys, r.y1); j < idxOf(ys, r.y2); j++) cov[at(i, j)] = 1;
+  }
+  // flood the outside through uncovered cells, entering from every border cell
+  const outside = new Uint8Array(nx * ny);
+  const stack = [];
+  const push = (i, j) => { if (i < 0 || j < 0 || i >= nx || j >= ny) return; const k = at(i, j); if (cov[k] || outside[k]) return; outside[k] = 1; stack.push(i, j); };
+  for (let i = 0; i < nx; i++) { push(i, 0); push(i, ny - 1); }
+  for (let j = 0; j < ny; j++) { push(0, j); push(nx - 1, j); }
+  while (stack.length) { const j = stack.pop(), i = stack.pop(); push(i - 1, j); push(i + 1, j); push(i, j - 1); push(i, j + 1); }
+  const doors = (doorRegions || [])
+    .filter(d => d.maxX > (bb ? bb.minX : -Infinity) && d.minX < (bb ? bb.maxX : Infinity))
+    .map(d => ({ minX: d.minX, maxX: d.maxX, headY: d.headY != null ? d.headY : ys[ny] }));
+  // Which side of the line a face falls on is decided by the CELL it faces, not by a coordinate
+  // test on the merged run. A door notch is an outside cell that sits in a door's column below its
+  // header; anything facing one of those cells belongs to the door. Doing it per cell — before the
+  // faces are merged into long runs — is what makes a jamb split correctly: the part of its inner
+  // face beside the door goes to the door, the part above the header stays with the storefront.
+  // Coordinate tests on the merged run cannot do that, and got SF15.1's whole left edge wrong.
+  // 'notch' = the door opening itself; 'header' = the dead band holding the door header.
+  const doorZoneAt = (i, j) => {
+    const cx = (xs[i] + xs[i + 1]) / 2, cy = (ys[j] + ys[j + 1]) / 2;
+    for (const d of doors) {
+      if (cx <= d.minX - PERIM_DOOR_PAD || cx >= d.maxX + PERIM_DOOR_PAD) continue;
+      if (cy < d.headY) return 'notch';
+      if (cy < d.headY + PERIM_DOOR_HEADER_ZONE) return 'header';
+    }
+    return null;
+  };
+  const faceKind = (i, j) => {
+    if (i < 0 || j < 0 || i >= nx || j >= ny) return 'store';         // the sheet edge — plain outside
+    const k = at(i, j);
+    if (cov[k] || !outside[k]) return null;                            // metal, or an enclosed pocket
+    const z = doorZoneAt(i, j);
+    return z === 'header' ? 'skip' : (z === 'notch' ? 'door' : 'store');
+  };
+  const vStore = [], vDoor = [], hStore = [];
+  for (let i = 0; i < nx; i++) for (let j = 0; j < ny; j++) {
+    if (!cov[at(i, j)]) continue;
+    let k = faceKind(i - 1, j); if (k && k !== 'skip') (k === 'door' ? vDoor : vStore).push([xs[i], ys[j], ys[j + 1]]);
+    k = faceKind(i + 1, j);     if (k && k !== 'skip') (k === 'door' ? vDoor : vStore).push([xs[i + 1], ys[j], ys[j + 1]]);
+    // horizontals facing a door notch are the header underside — a door header takes no gasket
+    // (Leo), and there is never a member across the threshold, so they are simply dropped.
+    k = faceKind(i, j - 1);     if (k === 'store') hStore.push([ys[j], xs[i], xs[i + 1]]);
+    k = faceKind(i, j + 1);     if (k === 'store') hStore.push([ys[j + 1], xs[i], xs[i + 1]]);
+  }
+  // merge collinear neighbours so the drawing is a few long lines, not a thousand cell faces
+  const merge = list => {
+    const by = new Map();
+    for (const [a, p1, p2] of list) { const k = a.toFixed(4); if (!by.has(k)) by.set(k, { a, runs: [] }); by.get(k).runs.push([p1, p2]); }
+    const out = [];
+    for (const { a, runs } of by.values()) {
+      runs.sort((p, q) => p[0] - q[0]);
+      let cur = null;
+      for (const [p1, p2] of runs) {
+        if (cur && p1 <= cur[1] + 1e-6) cur[1] = Math.max(cur[1], p2);
+        else { if (cur) out.push([a, cur[0], cur[1]]); cur = [p1, p2]; }
+      }
+      if (cur) out.push([a, cur[0], cur[1]]);
+    }
+    return out;
+  };
+  const store = [], door = [];
+  for (const [x, y1, y2] of merge(vStore)) store.push([x, y1, x, y2]);
+  for (const [x, y1, y2] of merge(vDoor)) door.push([x, y1, x, y2]);
+  for (const [y, x1, x2] of merge(hStore)) store.push([x1, y, x2, y]);
+  const len = a => a.reduce((t, [x1, y1, x2, y2]) => t + Math.hypot(x2 - x1, y2 - y1), 0);
+  return { storefront: { segs: store, inches: len(store) }, door: { segs: door, inches: len(door) } };
+}
+// #cut-drag (2026-08-20, Leo, while doing 45TU: "识别得很不好 / 增加手动 edit piece 功能，现在可以
+// add 但只是文字，需要在图上可以改长，改短，新添，需要有磁吸，像画 panel 那样"): the framing view was
+// read-only apart from a text form. On a system the detector reads badly, retyping numbers for every
+// member is unusable — the drawing is right there, so the drawing is where the fixing should happen.
+// Same interaction as the panel map: drag an end to lengthen or shorten, drag a rectangle to add,
+// everything snapping to the faces of the members that are already there.
+const CUT_SNAP_IN = 4;          // inches — same feel as PANEL_SNAP_IN
+/* #place-chip (2026-08-27, Leo: "I enter the length and role for a piece, then when I click it
+   at the bottom, the piece will show up on the canvas, then I only need to move it").
+   Drawing a member freehand asks you to get its LENGTH right by dragging, which is the one
+   number you already know exactly — so a chip is placed at its true length and you only supply
+   the position, which is the part a drag is actually good at.
+   Face width is 2" for everything except corners and the wide profiles, so 2" is the default
+   and the Width box in the editor covers the rest. */
+const PIECE_W_IN = 2;
+function _roleIsVertical(pos) { return /jamb|vertical|corner|mullion|stile/i.test(String(pos || '')); }
+/* Put a chip on the canvas at its role's natural home — sill on the bottom, head at the top,
+   jambs on the sides — then step out of the way of anything already placed there. It is a
+   starting point, not a guess at the design: the whole point is that you drag it from here. */
+function placeCutOnCanvas(o, idx) {
+  const c = o && o.cuts && o.cuts[idx];
+  if (!c || c.src) return null;
+  const W = +o.width, H = +o.height, L = +c.length;
+  if (!(W > 0 && H > 0 && L > 0)) return null;
+  const t = Math.min(PIECE_W_IN, Math.max(W, H) / 4);
+  const vert = _roleIsVertical(c.position);
+  const role = String(c.position || '');
+  const cands = [];
+  if (vert) {
+    const y = Math.max(0, Math.min(H - L, 0));
+    cands.push({ x: 0, y }, { x: Math.max(0, W - t), y });
+    for (let k = 1; k <= 12; k++) cands.push({ x: Math.min(W - t, k * Math.max(t * 2, W / 8)), y });
+  } else {
+    const yFor = /sill/i.test(role) ? 0 : (/head/i.test(role) ? Math.max(0, H - t) : Math.max(0, H / 2 - t / 2));
+    const x = Math.max(0, Math.min(W - L, 0));
+    cands.push({ x, y: yFor });
+    for (let k = 1; k <= 12; k++) cands.push({ x, y: Math.min(H - t, Math.max(0, yFor + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * Math.max(t * 2, H / 8))) });
+  }
+  // Only a piece of the SAME orientation blocks a spot. A jamb and a sill share the bottom-left
+  // corner — that is what a frame IS — so comparing origins across orientations pushed both jambs
+  // off the edges they belong on.
+  const taken = (o.cuts || []).filter((x, i) => i !== idx && x.src && (x.src.h >= x.src.w) === vert).map(x => x.src);
+  const free = cands.find(p => !taken.some(sq => Math.abs(sq.x - p.x) < 0.6 && Math.abs(sq.y - p.y) < 0.6)) || cands[0];
+  const src = { x: +free.x.toFixed(3), y: +free.y.toFixed(3),
+                w: +(vert ? t : L).toFixed(3), h: +(vert ? L : t).toFixed(3), layer: '' };
+  // A chip standing for several identical pieces places ONE of them and keeps the rest as a chip,
+  // so clicking it twice puts both jambs up and the billed totals never change.
+  if ((c.count || 1) > 1) {
+    c.count = (c.count | 0) - 1;
+    o.cuts.push({ position: c.position, length: c.length, count: 1, src: src });
+    return o.cuts.length - 1;
+  }
+  c.src = src;
+  return idx;
+}
+const CUT_HANDLE_FRAC = 0.10;   // grab-zone at each end of the selected piece, as a fraction of its length
+// Snap candidates come from every OTHER member's faces — a piece must not snap to itself, or an end
+// drag would stick where it started and look broken.
+function cutSnapAxes(o, skipIdx) {
+  const xs = [], ys = [];
+  (o.cuts || []).forEach((c, i) => {
+    if (i === skipIdx || !c.src) return;
+    xs.push(c.src.x, c.src.x + c.src.w); ys.push(c.src.y, c.src.y + c.src.h);
+  });
+  // #blank-canvas: on a hand-added opening the frame outline is the only fixed reference there
+  // is, so a sill or jamb drawn near an edge lands ON it instead of 1/8" off it.
+  if (o && !o._bands && +o.width > 0 && +o.height > 0) { xs.push(0, +o.width); ys.push(0, +o.height); }
+  return { xs, ys };
+}
+function snapAxis(vals, v, eps) {
+  let best = v, bd = eps == null ? CUT_SNAP_IN : eps;
+  for (const f of vals) { const d = Math.abs(f - v); if (d < bd) { bd = d; best = f; } }
+  return best;
+}
+// A cut's length follows its long side; keep the two in step so the cut list never disagrees with
+// the picture. Also carries the role pin across, so the piece keeps the role you gave it.
+function setCutGeometry(o, idx, src) {
+  const c = o.cuts[idx];
+  if (!c || !c.src) return;
+  const oldSrc = { ...c.src }, org = openingPinOrigin(o);
+  c.src = { x: +src.x.toFixed(3), y: +src.y.toFixed(3), w: +src.w.toFixed(3), h: +src.h.toFixed(3), layer: c.src.layer };
+  c.length = dxfRound(Math.max(c.src.w, c.src.h));
+  moveRolePin(o.mark, org, oldSrc, c.src);
+}
+function panelKey(p) { return [p.x1, p.y1, p.x2, p.y2].map(n => Math.round((n || 0) * 10) / 10).join('|'); }
+function defaultGasketsFor(t0, system) { return (systemGasket(system).panel[t0] || []).map(g => ({ part: g.part, loops: g.loops })); }
+// #hand-drawn-panels (2026-08-20, Leo: "now classic elevations all pretty well / but if it's not,
+// then many issues / allow me to draw panels and doors on gasket diagram"): the detector reads a
+// regular grid of bays well and an irregular elevation badly, and no amount of tuning changes that
+// — so the answer is not a better guess, it is a pencil. A mark's panel record now holds three
+// things instead of one:
+//   overrides — per auto-detected panel: its type / its gasket spec  (what existed before)
+//   manual    — panels drawn by hand, each a rectangle with its own type and gasket spec
+//   hidden    — auto-detected panels struck out, for cells the detector invented
+// A hand-drawn DOOR is a real door: it feeds the door-gasket run just like a parsed one, so an
+// elevation whose doors the parser missed entirely can still be taken off correctly (SF01, EL-01).
+// The old flat {key: override} shape is still read, so nothing saved earlier is lost.
+function panelEditRec(mark) {
+  const r = (state.panelEdits && state.panelEdits[mark]) || null;
+  if (!r) return { overrides: {}, manual: [], hidden: [] };
+  if (r.overrides || r.manual || r.hidden)
+    return { overrides: r.overrides || {}, manual: r.manual || [], hidden: r.hidden || [] };
+  return { overrides: r, manual: [], hidden: [] };   // legacy flat map
+}
+function writePanelEditRec(mark, rec) {
+  state.panelEdits = state.panelEdits || {};
+  const empty = !Object.keys(rec.overrides || {}).length && !(rec.manual || []).length && !(rec.hidden || []).length;
+  if (empty) delete state.panelEdits[mark];
+  else state.panelEdits[mark] = { overrides: rec.overrides || {}, manual: rec.manual || [], hidden: rec.hidden || [] };
+  persistPanelEdits(mark);
+}
+function panelOverridesFor(mark) { return panelEditRec(mark).overrides; }
+// Resolve one raw parsed cell into its effective panel: auto type/spec, with any manual override
+// laid on top. `autoT0`/`autoGaskets` are preserved so the UI can show what the detector said and
+// offer a reset.
+function resolvePanel(mark, cell, system) {
+  const k = panelKey(cell);
+  const ov = (panelOverridesFor(mark) || {})[k] || null;
+  const autoT0 = cell.t0;
+  const t0 = (ov && ov.t0 && PANEL_TYPE_CHOICES.includes(autoT0) && PANEL_TYPE_CHOICES.includes(ov.t0)) ? ov.t0 : autoT0;
+  const autoGaskets = defaultGasketsFor(t0, system);
+  const gaskets = (ov && Array.isArray(ov.gaskets)) ? ov.gaskets.map(g => ({ part: String(g.part || '').trim(), loops: +g.loops || 0 })).filter(g => g.part) : autoGaskets;
+  return { k, x1: cell.x1, y1: cell.y1, x2: cell.x2, y2: cell.y2, t0, autoT0, gaskets, autoGaskets,
+    editable: PANEL_EDITABLE_TYPES.includes(autoT0),
+    typeSwitchable: PANEL_TYPE_CHOICES.includes(autoT0),
+    overridden: !!(ov && (ov.t0 || ov.gaskets)) };
+}
+// A hand-drawn panel. Every type is allowed and everything about it is editable — it exists only
+// because a person put it there, so there is no "auto" value to defer to and nothing to lock.
+function resolveManualPanel(mark, m, system) {
+  const t0 = PANEL_ALL_TYPES.includes(m.t0) ? m.t0 : 'glass';
+  const gaskets = Array.isArray(m.gaskets)
+    ? m.gaskets.map(g => ({ part: String(g.part || '').trim(), loops: +g.loops || 0 })).filter(g => g.part)
+    : defaultGasketsFor(t0, system);
+  return { k: m.k, x1: m.x1, y1: m.y1, x2: m.x2, y2: m.y2, t0, autoT0: t0, gaskets,
+    autoGaskets: defaultGasketsFor(t0, system), editable: true, typeSwitchable: true,
+    overridden: false, manual: true };
+}
+// The panels an elevation actually has: auto-detected minus struck-out, plus hand-drawn.
+function resolvedPanels(o) {
+  if (!o) return [];
+  const rec = panelEditRec(o.mark);
+  const hidden = new Set(rec.hidden || []);
+  const autos = (o.panelCells || []).filter(c => !hidden.has(panelKey(c))).map(c => resolvePanel(o.mark, c, o.system));
+  return autos.concat((rec.manual || []).map(m => resolveManualPanel(o.mark, m, o.system)));
+}
+// Doors the perimeter tracer must know about: the ones the DXF gave us, plus every hand-drawn
+// door panel. Without this a drawn door would colour in on the diagram but bill no gasket, and
+// the storefront run would still march straight across its opening.
+function effectiveDoorRegions(o) {
+  const parsed = ((o && o._bands && o._bands.doorRegions) || []).slice();
+  for (const p of resolvedPanels(o)) if (p.t0 === 'door' && p.manual)
+    parsed.push({ kind: 'DRAWN', minX: p.x1, maxX: p.x2, headY: p.y2 });
+  return parsed;
+}
+function panelPerimeterIn(p) { return 2 * ((p.x2 - p.x1) + (p.y2 - p.y1)); }
+// #gasket-in-cutting (2026-08-20, Leo: "用 gasket diagram 里面的数量加起来发在 cutting diagram 里
+// … 不需要排列，只需要给我总长和就行"): the gasket diagram's OWN numbers — panel infill + storefront
+// perimeter + door jambs — collapsed to one total per part number. Gasket is coil stock, so there
+// is nothing to nest onto 24′ sticks; the cut list just needs the running length. Returns inches
+// (what the cutting sheet is dimensioned in) with LF alongside.
+function openingGasketTotals(o) {
+  if (!o) return [];
+  const q = o.qty || 1, m = new Map();
+  const add = (part, lf) => { if (part && lf > 0) m.set(part, (m.get(part) || 0) + lf * q); };
+  for (const part in (o.gasketByPart || {})) add(part, +o.gasketByPart[part] || 0);
+  const sg = systemGasket(o.system);
+  if (state.includePerimeterGasket !== false) add(sg.perimeterPart, +o.gasketPerimeterLF || 0);
+  add(sg.doorPart, +o.gasketDoorLF || 0);
+  return [...m.entries()].filter(([, lf]) => lf > 0.05).sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([part, lf]) => ({ part, lf: +lf.toFixed(2), inches: +(lf * 12).toFixed(1) }));
+}
+function allOpeningsGasketTotals() {
+  const m = new Map();
+  for (const o of scopedOpenings()) for (const g of openingGasketTotals(o)) m.set(g.part, (m.get(g.part) || 0) + g.lf);
+  return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([part, lf]) => ({ part, lf: +lf.toFixed(2), inches: +(lf * 12).toFixed(1) }));
+}
+// Sum every panel's (perimeter × loops) into a { partNumber: LF } map. This is the whole gasket
+// takeoff — there is no separate glass/IMP-1 bucket any more, because the part number a panel
+// consumes is now data on the panel, not a consequence of its type.
+function gasketByPartFromPanels(panels) {
+  const out = {};
+  for (const p of panels || []) {
+    const perim = panelPerimeterIn(p);
+    for (const g of p.gaskets || []) {
+      if (!g.part || !(g.loops > 0)) continue;
+      out[g.part] = (out[g.part] || 0) + (perim * g.loops) / 12;
+    }
+  }
+  for (const k in out) out[k] = +out[k].toFixed(2);
+  return out;
+}
+// Re-resolve an opening's stored raw cells against the current overrides and refresh its totals.
+// Called after any panel edit and after a parse, so o.gasketByPart is always in step with o.panels.
+function recomputeOpeningGaskets(o) {
+  if (!o || !Array.isArray(o.panelCells)) return;
+  o.panels = resolvedPanels(o);
+  o.gasketByPart = gasketByPartFromPanels(o.panels);
+  // #perimeter-live (2026-08-20, Leo — SF15.2 "出来怎么是这样"): the perimeter and door runs are
+  // RE-DERIVED here, every time, from the opening's own geometry — never read back from a value
+  // frozen at import. Openings live in localStorage across reloads, so a stored number is a number
+  // from whatever version of the algorithm happened to be running the day it was parsed: the
+  // drawing (always recomputed) and the legend (previously stored) then disagree, which is exactly
+  // what the SF15.2 screenshot showed — a picture from the new tracer next to a total from the old
+  // one. One source, computed on the spot, cannot drift.
+  // NOTE: what a re-derive still cannot recover is DOOR DETECTION itself — doors are found while
+  // reading the DXF, so an opening parsed before a detector improvement has no doorRegions and
+  // must be re-imported. `_gasketStale` marks that case for the viewer.
+  const b = o._bands;
+  if (b && b.bbox) {
+    const runs = perimeterRuns(b.bbox, o.cuts, b.louverBand, effectiveDoorRegions(o));
+    o.gasketPerimeterLF = +(runs.storefront.inches / 12).toFixed(2);
+    o.gasketDoorLF = +(runs.door.inches / 12).toFixed(2);
+    o._gasketStale = o._pv !== PARSER_VERSION;
+  }
+}
+function recomputeAllGaskets() { for (const o of (state.openings || [])) recomputeOpeningGaskets(o); }
+function setPanelOverride(mark, key, patch) {
+  if (!mark || !key) return;
+  const rec = panelEditRec(mark);
+  const man = (rec.manual || []).find(m => m.k === key);
+  if (man) {                                   // a hand-drawn panel stores its own state directly
+    Object.assign(man, patch);
+    if (man.t0 == null) man.t0 = 'glass';
+    if (patch.gaskets === null) delete man.gaskets;
+    writePanelEditRec(mark, rec);
+    return;
+  }
+  const cur = rec.overrides[key] = rec.overrides[key] || {};
+  Object.assign(cur, patch);
+  if (cur.t0 == null && !Array.isArray(cur.gaskets)) delete rec.overrides[key];
+  writePanelEditRec(mark, rec);
+}
+function addManualPanel(mark, rect, t0) {
+  const r = { x1: Math.min(rect.x1, rect.x2), y1: Math.min(rect.y1, rect.y2),
+              x2: Math.max(rect.x1, rect.x2), y2: Math.max(rect.y1, rect.y2) };
+  if (r.x2 - r.x1 < 1 || r.y2 - r.y1 < 1) return null;   // a stray click, not a panel
+  const rec = panelEditRec(mark);
+  const m = { k: 'M' + panelKey(r), x1: +r.x1.toFixed(3), y1: +r.y1.toFixed(3),
+              x2: +r.x2.toFixed(3), y2: +r.y2.toFixed(3), t0: PANEL_ALL_TYPES.includes(t0) ? t0 : 'glass' };
+  if ((rec.manual || []).some(p => p.k === m.k)) return m.k;   // same rectangle twice — ignore
+  rec.manual = (rec.manual || []).concat([m]);
+  writePanelEditRec(mark, rec);
+  return m.k;
+}
+function deletePanel(mark, key) {
+  const rec = panelEditRec(mark);
+  if ((rec.manual || []).some(m => m.k === key)) rec.manual = rec.manual.filter(m => m.k !== key);
+  else if (!(rec.hidden || []).includes(key)) rec.hidden = (rec.hidden || []).concat([key]);
+  delete rec.overrides[key];
+  writePanelEditRec(mark, rec);
+}
+function clearPanelOverrides(mark) {
+  if (state.panelEdits) delete state.panelEdits[mark];
+  persistPanelEdits(mark);
+}
+function persistPanelEdits(mark) {
+  const o = (state.openings || []).find(x => x.mark === mark);
+  if (o) recomputeOpeningGaskets(o);
+  save();
+  const fb = window.__fb;
+  if (fb && fb.setDoc) {
+    try {
+      fb.setDoc(fb.doc(fb.elevDb || fb.db, 'elevEdits', String(mark)),
+        { panels: (state.panelEdits && state.panelEdits[mark]) || {}, updatedAt: fb.serverTimestamp() }, { merge: true })
+        .catch(err => console.warn('[panelEdits] push failed:', err));
+    } catch (err) { console.warn('[panelEdits] push failed:', err); }
+  }
+}
+
 // (#LayerB learned-role propagation removed 2026-07-20 — Leo's call, error rate too high.
 //  computeOpeningZones/zoneShapeOf/computeRoleSignature/roleSigKey/persistRoleRule/
 //  applyLearnedRoleRules/loadRoleRulesFromCloud all deleted; state.roleRules no longer used.
 //  Layer A geometric classification below is unchanged. See PROPAGATION-DESIGN.md §3/§9/§9b
 //  (marked ABANDONED) and the template-based approach in §16.)
-// #fix (2026-07-18): IMP-1 base role ↔ IMP-1-variant role mapping, shared by both classification
-// stages below. Keeping this as the single source of truth means "which family is this
-// member" (Jamb vs Vertical vs Vertical (wide)) is never lost, even after normalizing an
-// already-IMP-1-labeled segment back to its base role for re-evaluation.
+// #imp1-roles-retired (2026-08-20, Leo): the (IMP-1) role variants no longer exist — a jamb is a
+// jamb whether glass or IMP-1 sits behind it, because the ONLY thing that ever differed was the
+// gasket, and the gasket is now taken off per infill panel (see PANEL_* below) rather than per
+// framing role. `normalizeImp1RoleToBase` is kept (not deleted) purely as the collapse path for
+// legacy data: cuts, saved elevEdits snapshots and roleEdits pins written before this change all
+// still carry the old labels, and every one of them must land back on its plain base role.
 const IMP1_VERTICAL_ROLES = ['Jamb', 'Vertical', 'Vertical (wide)'];
+const RETIRED_IMP1_ROLES = { 'Jamb (IMP-1)': 'Jamb', 'Vertical (IMP-1)': 'Vertical', 'Vertical (wide IMP-1)': 'Vertical (wide)' };
 function normalizeImp1RoleToBase(position) {
-  if (position === 'Jamb (IMP-1)') return 'Jamb';
-  if (position === 'Vertical (IMP-1)') return 'Vertical';
-  if (position === 'Vertical (wide IMP-1)') return 'Vertical (wide)';
-  return position;
+  return RETIRED_IMP1_ROLES[position] || position;
 }
-function toImp1Role(baseRole) {
-  if (baseRole === 'Jamb') return 'Jamb (IMP-1)';
-  if (baseRole === 'Vertical (wide)') return 'Vertical (wide IMP-1)';
-  if (baseRole === 'Vertical') return 'Vertical (IMP-1)';
-  return baseRole;
+// #imp1-roles-retired: the old Stage 1 cut a whole vertical into above/through/below at every
+// IMP-1 band so the middle third could carry the (IMP-1) label. With the label gone that split is
+// pure damage — one 12′ mullion would still be ordered as three short pieces. This puts already-
+// split members back together: adjacent, collinear (same x and width), same-role vertical segments
+// whose ends touch are fused into one cut. Only ever merges pieces that are geometrically one
+// continuous member, so a genuine two-piece stack (different x, different width, or a real gap)
+// is untouched. Runs on fresh parses and on restored snapshots alike, and is idempotent.
+const COLLINEAR_MERGE_EPS = 0.75;   // inches — a hairline gap left by the old split, not a real break
+function mergeCollinearVerticals(cuts) {
+  const isVert = c => c && c.src && c.src.h > c.src.w;
+  const key = c => [c.position, Math.round(c.src.x * 4) / 4, Math.round(c.src.w * 4) / 4, c.count || 1, c.src.layer || ''].join('|');
+  const groups = new Map();
+  const passthrough = [];
+  cuts.forEach((c, i) => {
+    if (!isVert(c)) { passthrough.push([i, c]); return; }
+    const k = key(c);
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push([i, c]);
+  });
+  const merged = [];
+  let changed = false;
+  for (const list of groups.values()) {
+    list.sort((a, b) => a[1].src.y - b[1].src.y);
+    let run = null;
+    for (const [i, c] of list) {
+      if (run && c.src.y <= run.top + COLLINEAR_MERGE_EPS) {
+        run.top = Math.max(run.top, c.src.y + c.src.h);
+        run.parts.push(c);
+        changed = true;
+      } else {
+        if (run) merged.push(run);
+        run = { idx: i, base: c, top: c.src.y + c.src.h, bot: c.src.y, parts: [c] };
+      }
+    }
+    if (run) merged.push(run);
+  }
+  if (!changed) return false;
+  const out = [];
+  for (const [i, c] of passthrough) out.push([i, c]);
+  for (const r of merged) {
+    if (r.parts.length === 1) { out.push([r.idx, r.base]); continue; }
+    const s = r.base.src;
+    out.push([r.idx, {
+      position: r.base.position,
+      length: dxfRound(r.top - r.bot),
+      count: r.base.count || 1,
+      src: { x: s.x, y: dxfRound(r.bot), w: s.w, h: dxfRound(r.top - r.bot), layer: s.layer },
+    }]);
+  }
+  out.sort((a, b) => a[0] - b[0]);
+  cuts.length = 0;
+  for (const [, c] of out) cuts.push(c);
+  return true;
 }
-// #fix (2026-07-18, per Leo's spec "750XT IMP-1/Glass/Louver 识别与构件分类修复"): the full
-// 750XT role-classification pipeline. Two-STAGE IMP-1 vertical handling, per Leo's explicit
-// requirement — stage 1 alone (whole-member-spans-the-band split) is not sufficient because a
-// vertical member is not always one continuous whole piece by the time this runs:
-//   - it may already be several separate DXF-native segments (broken at intersections), or
-//   - it may be a RESTORED state.elevEdits[mark] snapshot already split into 3+ pieces (e.g. by
-//     an earlier manual edit), each already carrying a plain (non-IMP-1) role.
-// In either case no single segment "fully spans past the band on both sides", so the old
-// single-stage check never fired and the piece stayed permanently mislabeled. Stage 2 fixes
-// this: it re-evaluates EVERY vertical-family segment (freshly split, DXF-native multi-segment,
-// or restored) purely by its own geometric overlap with the band, independent of whether it was
-// ever a single whole piece. Called from both a fresh parse and a restored-snapshot re-pass —
-// see parseRawDxfOpenings call sites — and is idempotent either way.
+// #imp1-roles-retired (2026-08-20, Leo: "frame wise，不再需要区分 jamb/jamb (IMP-1)、
+// vertical/vertical (IMP-1)，原来 2 者的区别也只有 gasket，现在不需要这么算 gasket 了，就可以"):
+// the two-stage IMP-1 vertical split/relabel that used to live here is GONE. What replaces it is
+// two much smaller passes: collapse any legacy (IMP-1) label back to its base role, then fuse the
+// three-way splits that the old Stage 1 left behind so a mullion is one piece of stock again.
+// The IMP-1 band geometry itself is still detected and still passed in via ctx — it is now used
+// only to seed each infill panel's glass/IMP-1 type (buildElevExport), which is where the gasket
+// takeoff comes from, and which Leo can override per panel.
 function classifyRoles(cuts, ctx) {
   const { system, bbox, imp1Bands = [], louverBand, doorRegions, mark } = ctx;
   const inX = (b, midX) => midX >= b.minX - 6 && midX <= b.maxX + 6;
-  if (system === '750XT' && imp1Bands.length) {
-    // ---- Stage 1: split a WHOLE (unsplit) vertical that fully spans a band into 3 pieces
-    // (above/through/below). Only creates new segments where none exist yet; a no-op for
-    // members that are already segmented (DXF-native or restored) — those are handled by Stage 2.
-    const next = [];
-    for (const cut of cuts) {
-      const s = cut.src;
-      if (!s || s.w > s.h) { next.push(cut); continue; } // horizontal — never touched by IMP-1 split (Head/Sill/Horizontal stay as classified)
-      const midX = s.x + s.w / 2;
-      const baseRole = normalizeImp1RoleToBase(cut.position);
-      const xb = IMP1_VERTICAL_ROLES.includes(baseRole)
-        ? imp1Bands.find(b => inX(b, midX) && s.y < b.minY - 2 && (s.y + s.h) > b.maxY + 2) : null;
-      if (xb) {
-        const mk = (y0, y1, pos) => ({ position: pos, length: dxfRound(y1 - y0), count: cut.count || 1,
-          src: { x: s.x, y: dxfRound(y0), w: s.w, h: dxfRound(y1 - y0), layer: s.layer } });
-        next.push(mk(s.y, xb.minY, baseRole));
-        next.push(mk(xb.minY, xb.maxY, toImp1Role(baseRole)));
-        next.push(mk(xb.maxY, s.y + s.h, baseRole));
-        continue;
-      }
-      next.push(cut);
-    }
-    cuts.length = 0; cuts.push(...next);
-    // ---- Stage 2: reclassify EVERY vertical-family segment (just-split, DXF-native multi-
-    // segment, or restored-from-snapshot) by its own overlap with the relevant band — not by
-    // whether it happens to span the whole band itself. Always normalizes to the base role
-    // first so a stale IMP-1 label never survives un-reevaluated (Leo: "先将旧的 Jamb (IMP-1)
-    // 等 role normalize 回基础 role;再根据当前几何重新判断;否则旧 role 可能永久残留").
-    // Boundary (Jamb) vs interior (Vertical/Vertical (wide)) identity is preserved throughout —
-    // normalize→reclassify never merges the two families into one label.
-    for (const cut of cuts) {
-      const s = cut.src;
-      if (!s || s.w > s.h) continue; // horizontals are never part of this vertical split
-      const baseRole = normalizeImp1RoleToBase(cut.position);
-      if (!IMP1_VERTICAL_ROLES.includes(baseRole)) continue;
-      const midX = s.x + s.w / 2;
-      const band = imp1Bands.find(b => inX(b, midX));
-      if (!band) { cut.position = baseRole; continue; }
-      // "majority inside the band" — segment overlaps the band by more than half its own
-      // height. A segment that just touches a band edge (e.g. the above/below remainder after
-      // Stage 1's split) has ~0 overlap and correctly stays the base role; a segment that IS
-      // the band crossing (fresh, DXF-native, or restored) has high/full overlap.
-      const segTop = s.y, segBot = s.y + s.h;
-      const ovTop = Math.max(segTop, band.minY), ovBot = Math.min(segBot, band.maxY);
-      const overlap = Math.max(0, ovBot - ovTop);
-      const frac = s.h > 0 ? overlap / s.h : 0;
-      cut.position = frac > 0.5 ? toImp1Role(baseRole) : baseRole;
-    }
-  }
+  for (const cut of cuts) cut.position = normalizeImp1RoleToBase(cut.position);
+  mergeCollinearVerticals(cuts);
   // #S3-followup (2026-07-17, Leo): "if it's glass top and bottom, then it's
   // horizontal(glass&glass)". Everything that borders IMP-1 or louver already got its own
   // label above (this step only ever sees whatever is still plain 'Horizontal'), so any
@@ -666,7 +1673,7 @@ function classifyRoles(cuts, ctx) {
   // LAST, after every automatic step, so an explicit per-piece pin always wins. Only covers
   // pieces pinned via the dropdown (state.roleEdits) — see the "changed vs. saved" detection at
   // the elevEdits restore call site for a broader safety net that also catches non-pinned drift.
-  applyRolePins(cuts, mark, system);
+  applyRolePins(cuts, mark, system, bbox);
 }
 // #recognized-roles (#2, 2026-07-20, Opus): re-apply the viewer Position-dropdown pins
 // (state.roleEdits[mark]), EXCEPT any pin whose role Leo has since retired from this system's
@@ -677,20 +1684,154 @@ function classifyRoles(cuts, ctx) {
 // byte-for-byte the old behaviour — every pin re-applied — so the SF01 pin-protection guarantee is
 // fully preserved for un-curated systems. Dropping a pin only happens after Leo has explicitly
 // retired that role from the list, which is his deliberate instruction, not a silent override.
-function applyRolePins(cuts, mark, system) {
-  if (!(mark && typeof state !== 'undefined' && state.roleEdits && state.roleEdits[mark])) return;
-  const pins = state.roleEdits[mark];
-  const recognized = hasManualRecognizedList(system) ? recognizedRolesForSystem(system) : null;
-  for (const cut of cuts) {
-    if (!cut.src) continue;
-    const k = srcKey(cut.src);
-    const pinned = pins[k];
-    if (pinned == null) continue;
-    if (recognized && !recognized.has(pinned)) { delete pins[k]; continue; }  // retired role → drop stale pin
-    cut.position = pinned;
+// #saved-roles (2026-09-04, Leo: "saved pin 提示都不见了，显示的还是自动识别"):
+// a pin only exists for a piece you explicitly re-labelled through the dropdown, but `elevEdits`
+// holds EVERY piece of an elevation you have ever corrected, with its role. That record used to be
+// all-or-nothing: the geometry signature had to match exactly, and one changed member threw the
+// whole thing away and dropped you back to auto-classification. So the drawing gets revised, forty
+// correct roles evaporate, and the handful of explicit pins are all that is left to catch you.
+//
+// Now a saved edit-set that does not match wholesale is still used PIECE BY PIECE: each saved cut
+// becomes a pseudo-pin (shape + place within the elevation) and is matched by the same tolerant,
+// offset-solving matcher the real pins use. Pieces that still exist keep the role you gave them;
+// genuinely new or changed pieces fall through to auto-classification, where they belong. Explicit
+// pins are applied afterwards, so they still win.
+// #pin-diag (2026-09-04, Leo: "the drawing never changed"): if the drawing did not change then
+// the saved edit-set should have restored wholesale and the pins should have matched exactly — so
+// one of the things this code believes is false, and from the outside I cannot see which. Rather
+// than guess a third time, the viewer can now dump exactly what the tool has: what is stored, what
+// the fresh parse produced, and where the two stop agreeing.
+// #pin-junk (2026-09-04, from Leo's EL-01 dump): 7 of his 10 pins sat at rx≈13293, ry≈7221 on an
+// elevation 110" wide and 114" tall, and carried 750XT role names ("Jamb (X)", "Sill (Glass)") on a
+// 45TU opening. They came out of migrateLegacyRolePins: the legacy roleEdits map for EL-01 held
+// absolute keys recorded when that mark sat somewhere else entirely, solveLegacyTranslation could
+// not find two that agreed, so it assumed no move and subtracted the CURRENT origin from
+// coordinates that never belonged to this frame. The result can never match anything, and warned
+// about it on every single import.
+//
+// A pin outside its own elevation is not a pin. Prune them — the legacy map is still untouched, so
+// nothing that was real is lost, and the noise stops.
+const PIN_OUTSIDE_MARGIN = 24;   // inches of slack beyond the frame before a pin is called junk
+function prunePinsOutsideElevation(mark, cuts) {
+  const pins = rolePinsFor(mark);
+  if (!pins.length) return 0;
+  const src = (cuts || []).map(c => c && c.src).filter(Boolean);
+  if (src.length < 2) return 0;
+  const org = rectsOrigin(src);   // rects, not cuts — cutsOrigin() would read c.src of a raw rect
+  const W = Math.max(...src.map(r => r.x + r.w)) - org.x;
+  const H = Math.max(...src.map(r => r.y + r.h)) - org.y;
+  if (!(W > 0 && H > 0)) return 0;
+  const ok = pins.filter(p => p.rx >= -PIN_OUTSIDE_MARGIN && p.ry >= -PIN_OUTSIDE_MARGIN
+                           && p.rx <= W + PIN_OUTSIDE_MARGIN && p.ry <= H + PIN_OUTSIDE_MARGIN);
+  const dropped = pins.length - ok.length;
+  if (dropped) {
+    writeRolePins(mark, ok);
+    console.warn(`[pins] ${mark}: dropped ${dropped} pin(s) that sit outside the elevation (${_r1(W)}" × ${_r1(H)}") — stale legacy data, the original roleEdits map is untouched`);
   }
+  return dropped;
 }
-// #recognized-roles (#2): re-run the whitelist gate + pin pass over EVERY existing opening, so a
+// #pin-report-live (2026-09-04, "saved pin 提示都不见了"): the parse-time report lives in memory,
+// so the banner vanished on the next page load even though nothing about the pins had changed.
+// After a reload there is no parse to report on — so the viewer works it out from what is on
+// screen instead of reading a Map that is empty by then.
+function livePinReport(o) {
+  if (!o) return null;
+  const pins = rolePinsFor(o.mark);
+  if (!pins.length) return null;
+  const { out, unmatched, offset } = matchRolePins(pins, o.cuts, openingPinOrigin(o));
+  return { total: pins.length, applied: out.size, retired: 0,
+           unmatched: unmatched.length, shifted: 0,
+           offset: offset ? { dx: _r1(offset.dx), dy: _r1(offset.dy) } : null, live: true };
+}
+function pinDiagnostics(o) {
+  if (!o) return null;
+  const cuts = (o.cuts || []).filter(c => c.src);
+  const saved = (state.elevEdits || {})[o.mark] || null;
+  const savedCuts = saved && Array.isArray(saved.cuts) ? saved.cuts.filter(c => c && c.src) : [];
+  const pins = rolePinsFor(o.mark);
+  const org = openingPinOrigin(o);
+  const m = pins.length ? matchRolePins(pins, o.cuts, org) : null;
+  const rel = list => list.slice(0, 60).map(c => [_r1(c.src.x), _r1(c.src.y), _r1(c.src.w), _r1(c.src.h)].join('|'));
+  return {
+    mark: o.mark, system: o.system, parserVersion: o._pv || null, buildParser: PARSER_VERSION,
+    freshCuts: cuts.length, freshGeoSig: elevGeoSig(o.cuts).slice(0, 120),
+    saved: !saved ? null : {
+      cuts: savedCuts.length,
+      storedGeoSig: String(saved.geoSig || '').slice(0, 120),
+      matchesRelative: saved.geoSig === elevGeoSig(o.cuts),
+      matchesAbsolute: saved.geoSig === elevGeoSigAbs(o.cuts),
+      wouldRestoreWholesale: geoSigMatches(saved.geoSig, o.cuts),
+    },
+    savedRoleReport: savedRoleReport(o.mark),
+    pinsStored: pins.length,
+    pinMarksInStore: Object.keys(state.rolePins || {}),
+    legacyRoleEditMarks: Object.keys(state.roleEdits || {}),
+    migrated: !!((state.rolePinsMigrated || {})[o.mark]),
+    pinOrigin: { x: _r1(org.x), y: _r1(org.y) },
+    cutsOrigin: (() => { const c0 = cutsOrigin(o.cuts); return { x: _r1(c0.x), y: _r1(c0.y) }; })(),
+    pinMatch: !m ? null : { applied: m.out.size, unmatched: m.unmatched.length, offset: m.offset },
+    report: rolePinReport(o.mark),
+    pins: pins.slice(0, 40),
+    unmatchedPins: m ? m.unmatched.slice(0, 40) : [],
+    freshRects: rel(cuts),
+    savedRects: rel(savedCuts),
+  };
+}
+function applySavedRoles(saved, cuts, mark) {
+  if (!saved || !Array.isArray(saved.cuts) || !saved.cuts.length) return null;
+  const src = saved.cuts.filter(c => c && c.src);
+  if (!src.length) return null;
+  const so = cutsOrigin(src), org = cutsOrigin(cuts);
+  const pseudo = src.map(c => ({ rx: _r1(c.src.x - so.x), ry: _r1(c.src.y - so.y),
+                                 w: _r1(c.src.w), h: _r1(c.src.h), role: c.position }));
+  const { out } = matchRolePins(pseudo, cuts, org);
+  let applied = 0;
+  cuts.forEach((cut, i) => {
+    const p = out.get(i);
+    if (!p || !p.role) return;
+    const role = normalizeImp1RoleToBase(p.role);
+    if (cut.position !== role) applied++;
+    cut.position = role;
+  });
+  return { total: pseudo.length, matched: out.size, changed: applied };
+}
+function applyRolePins(cuts, mark, system, bbox) {
+  if (!mark || typeof state === 'undefined' || !state) return;
+  const org = pinOrigin(cuts, bbox);
+  migrateLegacyRolePins(mark, cuts, org);
+  prunePinsOutsideElevation(mark, cuts);
+  const pins = rolePinsFor(mark);
+  if (!pins.length) { _pinReport.delete(mark); return; }
+  const recognized = hasManualRecognizedList(system) ? recognizedRolesForSystem(system) : null;
+  const { out, unmatched, offset } = matchRolePins(pins, cuts, org);
+  let applied = 0, retired = 0, exact = 0;
+  cuts.forEach((cut, ci) => {
+    const pin = out.get(ci);
+    if (!pin) return;
+    // #imp1-roles-retired: a pin written before the (IMP-1) variants were retired is rewritten in
+    // place to the base role rather than dropped — the user's intent was "this piece is a jamb",
+    // and losing the pin entirely would re-expose the piece to automatic reclassification.
+    const base = normalizeImp1RoleToBase(pin.role);
+    if (base !== pin.role) { pin.role = base; if (pin._pin) pin._pin.role = base; }
+    // A pin holding a role Leo has since retired is SKIPPED, not deleted. The old code deleted it
+    // — on a read path — so putting the role back on the recognized list could never bring the
+    // pin back. Skipping costs nothing and is reversible.
+    if (recognized && !recognized.has(pin.role)) { retired++; return; }
+    cut.position = pin.role;
+    applied++;
+    const cx = cut.src ? cut.src.x - org.x : 0, cy = cut.src ? cut.src.y - org.y : 0;
+    if (Math.abs(cx - pin.rx) <= 0.05 && Math.abs(cy - pin.ry) <= 0.05) exact++;
+  });
+  // Re-anchor the store to what actually matched, so this is solved once and not re-solved on every
+  // import — and so a later drawing revision is measured against the current frame.
+  if (offset && applied) {
+    writeRolePins(mark, pins.map(p => ({ ...p, rx: _r1(p.rx + offset.dx), ry: _r1(p.ry + offset.dy) })));
+    console.log(`[pins] ${mark}: re-anchored by ${_r1(offset.dx)}, ${_r1(offset.dy)} — the elevation's bounding box moved, its framing did not`);
+  }
+  _pinReport.set(mark, { total: pins.length, applied, retired, unmatched: unmatched.length,
+                         shifted: applied - exact, offset: offset ? { dx: _r1(offset.dx), dy: _r1(offset.dy) } : null });
+  if (unmatched.length) console.warn(`[pins] ${mark}: ${unmatched.length} of ${pins.length} saved role pin(s) found no matching piece in this import`, unmatched);
+}// #recognized-roles (#2): re-run the whitelist gate + pin pass over EVERY existing opening, so a
 // change to a system's recognized list takes effect immediately on the openings already parsed
 // (not only on the next DXF import). Deliberately does NOT re-run the geometric Stage 1/2 split
 // (that's only needed when the DXF geometry itself changes) — it just re-gates roles and drops any
@@ -854,7 +1995,7 @@ function applyTemplateToOpening(o, templateId, opts) {
   if (opts.commit) {
     for (const ch of changes) {
       ch.cut.position = ch.to;
-      if (o.mark && ch.cut.src) { state.roleEdits = state.roleEdits || {}; (state.roleEdits[o.mark] = state.roleEdits[o.mark] || {})[srcKey(ch.cut.src)] = ch.to; }
+      if (o.mark && ch.cut.src) setRolePin(o.mark, pinOrigin(o.cuts, bbox), ch.cut.src, ch.to);
     }
     o.appliedTemplate = t.id;
     if (typeof persistElevEdits === 'function') persistElevEdits(o);
@@ -906,6 +2047,188 @@ let _viewerGeom = null;      // #2: {minX,maxY} to map a click back to src coord
 let viewerSplitSrc = null;   // #2: src-coord point where the user last clicked (for precise split)
 let viewerShowGasket = false;  // #gasket-viz (2026-07-19): toggle framing view ↔ gasket diagram
 let viewerShowCutting = false; // #cutting-diagram (2026-07-20): toggle framing view ↔ per-elevation cutting diagram
+let viewerPanelKey = null;     // #panel-gasket (2026-08-20): panelKey of the panel being edited
+let viewerDrawType = null;     // #hand-drawn-panels: 'glass'|'panel'|'door'|'louver' while drawing
+let viewerCutDraw = false;     // #cut-drag: drawing a NEW framing piece on the framing view
+let viewerCutDrag = null;      // live drag state: { mode:'draw'|'end', idx, end, rect }
+let viewerDrawRect = null;     // live rubber-band rectangle, in DXF coords
+// Drag an edge to within this of a real frame face and it lands ON it. Hand-drawn panels feed the
+// gasket takeoff, so "close enough by eye" is not close enough — the snap is what makes a drawn
+// panel measure the same as a detected one.
+const PANEL_SNAP_IN = 4;
+function frameSnapAxes(o) {
+  const xs = [], ys = [];
+  for (const c of (o.cuts || [])) if (c.src) {
+    xs.push(c.src.x, c.src.x + c.src.w); ys.push(c.src.y, c.src.y + c.src.h);
+  }
+  // #gasket-any-system: on an elevation with no framing to snap to (nothing parsed, or an opening
+  // typed in by hand) there would be nothing magnetic at all. The canvas edges and the panels
+  // already drawn are real edges too — snapping to them is how a map gets built from scratch.
+  const bb = panelCanvasBox(o);
+  if (bb) { xs.push(bb.minX, bb.maxX); ys.push(bb.minY, bb.maxY); }
+  for (const p of (o.panels || [])) { xs.push(p.x1, p.x2); ys.push(p.y1, p.y2); }
+  return { xs, ys };
+}
+function snapTo(vals, v) {
+  let best = v, bd = PANEL_SNAP_IN;
+  for (const f of vals) { const d = Math.abs(f - v); if (d < bd) { bd = d; best = f; } }
+  return best;
+}
+
+// #panel-gasket: the DXF→SVG frame for one opening, shared by the panel map here and by the frame
+// diagram embedded in the cutting DXF, so both always draw the same elevation.
+function openingFrameBox(o) {
+  const srcs = (o.cuts || []).filter(c => c.src);
+  const cells = o.panelCells || [];
+  if (!srcs.length && !cells.length) return null;
+  const xs = [], ys = [];
+  for (const c of srcs) { xs.push(c.src.x, c.src.x + c.src.w); ys.push(c.src.y, c.src.y + c.src.h); }
+  for (const c of cells) { xs.push(c.x1, c.x2); ys.push(c.y1, c.y2); }
+  return { minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys) };
+}
+// #gasket-any-system: what the PANEL MAP is drawn on. openingFrameBox() answers "what did the DXF
+// give us" and stays that way (the cutting sheet's frame diagram must not invent geometry) — this
+// answers "what can Leo draw on", which must never be nothing. It also counts hand-drawn panels,
+// so a map built entirely by hand on a typed-in opening still frames itself correctly.
+function panelCanvasBox(o) {
+  if (!o) return null;
+  const bb = openingFrameBox(o);
+  const xs = [], ys = [];
+  if (bb) { xs.push(bb.minX, bb.maxX); ys.push(bb.minY, bb.maxY); }
+  for (const p of (o.panels || [])) { xs.push(p.x1, p.x2); ys.push(p.y1, p.y2); }
+  if (!bb) { xs.push(0, +o.width || 48); ys.push(0, +o.height || 96); }
+  return { minX: Math.min(...xs), maxX: Math.max(...xs),
+           minY: Math.min(...ys), maxY: Math.max(...ys), synthetic: !bb };
+}
+
+// The editable panel map. Panels first (so framing draws over them), then the framing members as
+// outlines, then one dashed loop per gasket part on each panel, then the perimeter loop.
+function renderPanelSvg(o) {
+  const bb = panelCanvasBox(o);
+  if (!bb || !(bb.maxX > bb.minX) || !(bb.maxY > bb.minY))
+    return '<div style="padding:18px;color:#888;font-size:13px;">This elevation has no size yet — give it a width and height, or import its DXF, and the panel map will open.</div>';
+  const W = bb.maxX - bb.minX, H = bb.maxY - bb.minY, pad = Math.max(W, H) * 0.04 + 2;
+  const sw = Math.max(W, H) * 0.0018;
+  const X = v => (v - bb.minX).toFixed(2), Y = v => (bb.maxY - v).toFixed(2);
+  // `inner` (optional) becomes the rect's child content — a <title> for the hover tooltip. Kept
+  // as a separate argument rather than smuggled into the attribute string, which silently produced
+  // `<rect …><title>…</title>/>` and broke the whole SVG.
+  const rect = (x1, y1, x2, y2, attrs, inner) => {
+    const head = `<rect x="${X(x1)}" y="${Y(y2)}" width="${(x2 - x1).toFixed(2)}" height="${(y2 - y1).toFixed(2)}" ${attrs}`;
+    return inner ? `${head}>${inner}</rect>` : `${head}/>`;
+  };
+  let svg = '';
+  // Nothing was parsed — draw the opening's own outline so there is something to aim at.
+  if (bb.synthetic) svg += rect(bb.minX, bb.minY, bb.maxX, bb.maxY,
+    `fill="none" pointer-events="none" stroke="#4b5563" stroke-width="${(sw * 3).toFixed(3)}" stroke-dasharray="${(sw * 12).toFixed(2)},${(sw * 8).toFixed(2)}"`);
+  for (const p of (o.panels || [])) {
+    const title = `${PANEL_TYPE_LABEL[p.t0] || p.t0} · ${formatNumber((p.x2 - p.x1))}" × ${formatNumber((p.y2 - p.y1))}"`
+      + (p.gaskets.length ? ' · ' + p.gaskets.map(g => `${g.part}×${g.loops}`).join(', ') : ' · no infill gasket')
+      + (p.manual ? ' · drawn by hand' : p.overridden ? ' · hand-set' : '') + (p.editable ? ' (click to edit)' : ' (locked)');
+    svg += rect(p.x1, p.y1, p.x2, p.y2,
+      `data-panel="${escAttr(p.k)}" fill="${PANEL_TYPE_FILL[p.t0] || '#ddd'}" fill-opacity="0.75" stroke="none" style="cursor:${viewerDrawType ? 'crosshair' : (p.editable ? 'pointer' : 'not-allowed')};"`,
+      `<title>${escHtml(title)}</title>`);
+  }
+  for (const c of (o.cuts || [])) {
+    if (!c.src) continue;
+    svg += rect(c.src.x, c.src.y, c.src.x + c.src.w, c.src.y + c.src.h, `fill="#4b5563" fill-opacity="0.85" stroke="none"`);
+  }
+  const inset = (p, d) => [p.x1 + d, p.y1 + d, p.x2 - d, p.y2 - d];
+  for (const p of (o.panels || [])) {
+    let d = Math.max(0.6, Math.min(W, H) * 0.004);
+    for (const g of p.gaskets) {
+      if (!g.part || !(g.loops > 0)) continue;
+      const [a, b, cx, cy] = inset(p, d);
+      if (cx > a && cy > b) svg += rect(a, b, cx, cy, `fill="none" stroke="${gasketPartColor(g.part)}" stroke-width="${(sw * 2).toFixed(3)}" stroke-dasharray="${(sw * 6).toFixed(2)},${(sw * 4).toFixed(2)}"`);
+      d += Math.max(1.2, Math.min(W, H) * 0.008);
+    }
+  }
+  // #door-perimeter: draw the ACTUAL perimeter path (same segments the LF is summed from), not a
+  // bounding rectangle — at a door it drops down the jambs and skips the threshold, visibly.
+  const _sg = systemGasket(o.system);
+  if (state.includePerimeterGasket !== false && (_sg.perimeterPart || _sg.doorPart)) {
+    const b = (o._bands || {});
+    const runs = perimeterRuns(b.bbox || bb, o.cuts, b.louverBand, effectiveDoorRegions(o));
+    const draw = (segs, color) => {
+      if (!segs.length) return '';
+      const d = segs.map(([x1, y1, x2, y2]) => `M${X(x1)} ${Y(y1)}L${X(x2)} ${Y(y2)}`).join('');
+      return `<path d="${d}" fill="none" pointer-events="none" stroke="${color}" stroke-width="${(sw * 4).toFixed(3)}" stroke-linecap="butt"/>`;
+    };
+    if (_sg.perimeterPart) svg += draw(runs.storefront.segs, '#eab308');   // gold  — storefront
+    if (_sg.doorPart) svg += draw(runs.door.segs, '#f472b6');               // pink  — door opening
+  }
+  // The SELECTED panel gets an outline, and nothing else does (Leo, 2026-08-20: "画出来的没必要
+  // 再加青色虚线，改过的也不用加紫色虚线"). Hand-drawn and hand-retyped panels used to carry their
+  // own coloured dashes; on a real elevation that is a third and fourth dashed rectangle stacked
+  // on the gasket loops already there, and the one thing that has to read instantly — which panel
+  // am I editing — got lost in it. What a panel IS shows in its fill; how it got that way is in
+  // the editor and the counts. Drawn LAST so the selection sits above the framing and the loops.
+  for (const p of (o.panels || [])) {
+    if (p.k !== viewerPanelKey) continue;
+    svg += rect(p.x1, p.y1, p.x2, p.y2,
+      `fill="none" pointer-events="none" stroke="#ff2d2d" stroke-width="${(sw * 7).toFixed(3)}"`);
+  }
+  // the rubber band, while a new panel is being dragged out
+  if (viewerDrawRect) {
+    const r = viewerDrawRect;
+    svg += rect(Math.min(r.x1, r.x2), Math.min(r.y1, r.y2), Math.max(r.x1, r.x2), Math.max(r.y1, r.y2),
+      `fill="${PANEL_TYPE_FILL[viewerDrawType] || '#fff'}" fill-opacity="0.35" pointer-events="none" stroke="#22d3ee" stroke-width="${(sw * 5).toFixed(3)}" stroke-dasharray="${(sw * 10).toFixed(2)},${(sw * 6).toFixed(2)}"`);
+  }
+  return `<svg id="panel-map-svg" data-x0="${bb.minX}" data-y1="${bb.maxY}" viewBox="${(-pad).toFixed(2)} ${(-pad).toFixed(2)} ${(W + 2 * pad).toFixed(2)} ${(H + 2 * pad).toFixed(2)}" style="width:100%;max-height:520px;display:block;background:#0b0e12;${viewerDrawType ? 'cursor:crosshair;' : ''}">${svg}</svg>`;
+}
+// #hand-drawn-panels: screen point → DXF point, via the SVG's own CTM so it works at any zoom or
+// container width, then snapped to the nearest real frame face.
+function panelMapPoint(evt, o, snap) {
+  const svgEl = document.getElementById('panel-map-svg');
+  if (!svgEl || !svgEl.getScreenCTM) return null;
+  const m = svgEl.getScreenCTM(); if (!m) return null;
+  const pt = svgEl.createSVGPoint(); pt.x = evt.clientX; pt.y = evt.clientY;
+  const loc = pt.matrixTransform(m.inverse());
+  let x = (+svgEl.dataset.x0) + loc.x, y = (+svgEl.dataset.y1) - loc.y;
+  if (snap !== false) { const ax = frameSnapAxes(o); x = snapTo(ax.xs, x); y = snapTo(ax.ys, y); }
+  return { x, y };
+}
+// Inline editor for the selected panel: what it is, and what gasket it takes. Both are free —
+// the part number is a text field, not a dropdown, because Leo expects the spec to change.
+function renderPanelEditor(o) {
+  const p = (o.panels || []).find(x => x.k === viewerPanelKey);
+  if (!p) return `<div style="margin-top:8px;font-size:11px;color:#999;">Select a panel above to edit it.</div>`;
+  if (!p.editable) return `<div style="margin-top:8px;font-size:11px;color:#999;">
+    <button class="tk-btn tk-btn--ghost tk-btn--sm" id="vp-del" style="margin-right:8px;">🗑 Not a panel — remove</button>${p.t0 === 'door'
+    ? (systemGasket(o.system).doorPart
+        ? `A door's gasket is the two jambs (${escHtml(systemGasket(o.system).doorPart)}, full height) — counted once, in the run below the diagram. Nothing to set on the panel itself.`
+        : `${escHtml(o.system)} has no door-jamb gasket run — nothing to set here.`)
+    : `${escHtml(PANEL_TYPE_LABEL[p.t0] || p.t0)} panels are locked — no gasket, nothing to set.`}</div>`;
+  const rows = p.gaskets.map((g, i) => `
+    <div style="display:flex;align-items:center;gap:6px;">
+      <input class="tk-cell-input mono" data-gpart="${i}" value="${escAttr(g.part)}" placeholder="Part #" style="width:110px;" />
+      <span style="color:#888;">×</span>
+      <input class="tk-cell-input num" data-gloops="${i}" type="number" min="0" step="0.5" value="${g.loops}" style="width:64px;" />
+      <span style="font-size:11px;color:#888;">loop${g.loops === 1 ? '' : 's'} · ${formatNumber(panelPerimeterIn(p) * g.loops / 12)} LF</span>
+      <button class="tk-btn tk-btn--ghost tk-btn--sm" data-gdel="${i}" title="Remove this gasket from this panel">×</button>
+    </div>`).join('');
+  return `
+    <div style="margin-top:10px;padding:10px 12px;border:1px solid var(--af-line,#ddd);border-radius:8px;background:var(--af-bg-2,#f6f6f6);font-size:13px;">
+      <div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px;">
+        <b>Panel ${formatNumber(p.x2 - p.x1)}" × ${formatNumber(p.y2 - p.y1)}"</b>
+        ${p.typeSwitchable ? `<label>This panel is
+          <select id="vp-type" class="tk-cell-select">
+            ${(p.manual ? PANEL_ALL_TYPES : PANEL_TYPE_CHOICES).map(t => `<option value="${t}" ${t === p.t0 ? 'selected' : ''}>${PANEL_TYPE_LABEL[t]}</option>`).join('')}
+          </select>
+        </label>
+        <span style="font-size:11px;color:#888;">${p.manual ? 'drawn by hand' : 'auto-detected: ' + escHtml(PANEL_TYPE_LABEL[p.autoT0] || p.autoT0)}</span>`
+        : `<span style="font-size:12px;">${escHtml(PANEL_TYPE_LABEL[p.t0] || p.t0)} panel</span>`}
+        ${p.overridden ? `<button class="tk-btn tk-btn--ghost tk-btn--sm" id="vp-reset">↺ Reset this panel to auto</button>` : ''}
+        <button class="tk-btn tk-btn--ghost tk-btn--sm" id="vp-del">🗑 ${p.manual ? 'Delete this panel' : 'Not a panel — remove'}</button>
+        <button class="tk-btn tk-btn--ghost tk-btn--sm" id="vp-close">Done</button>
+      </div>
+      <div style="margin-top:8px;display:flex;flex-direction:column;gap:5px;">
+        ${rows || '<span style="font-size:11px;color:#888;">No gasket on this panel.</span>'}
+        <div><button class="tk-btn tk-btn--ghost tk-btn--sm" id="vp-gadd">+ Add gasket</button></div>
+      </div>
+      <div style="margin-top:6px;font-size:11px;color:#999;">Perimeter ${formatNumber(panelPerimeterIn(p))}" — each loop takes one full perimeter. Changing the type re-seeds the gasket rows from the default for that type; edit them afterwards to override.</div>
+    </div>`;
+}
 // #5: floating tooltip showing a role's section drawing (from role-sections.js) on hover.
 function _ensureRoleTip() {
   let t = document.getElementById('role-tip');
@@ -917,13 +2240,25 @@ function _ensureRoleTip() {
   }
   return t;
 }
+// #sections-are-750xt-only (2026-08-20, Leo: "45TU 的 piece 鼠标浮上去显示的还是 750XT 的剖面。。。
+// 你觉得合理吗"): role-sections.js and part-sections.js were both extracted from 750XT drawings and
+// are keyed by ROLE NAME alone, so a 45TU 'Head' happily matched the 750XT 'Head' profile and showed
+// a picture of the wrong extrusion. A wrong section drawing is worse than none — it looks
+// authoritative. Gated on the system the library came from; for anything else the tooltip lists the
+// part numbers that cover that role in THAT system, which is the useful answer we actually have.
+const SECTION_LIBRARY_SYSTEM = '750XT';
 function showRoleTip(e, cut, system) {
   if (!cut) return;
   const pos = cutDisplayPosition(cut, system);
-  const sec = (window.ROLE_SECTIONS || {})[pos];
+  const sec = system === SECTION_LIBRARY_SYSTEM ? (window.ROLE_SECTIONS || {})[pos] : null;
+  const parts = (state.parts || []).filter(p => p.system === system && (p.roles || []).includes(pos));
   const t = _ensureRoleTip();
   t.innerHTML = `<div style="font-weight:600;margin-bottom:4px;">${escHtml(pos)}</div>` +
-    (sec ? `<div style="width:128px;height:92px;display:flex;align-items:center;justify-content:center;">${sec}</div>` : `<div style="color:#999;">no section drawing</div>`);
+    (sec ? `<div style="width:128px;height:92px;display:flex;align-items:center;justify-content:center;">${sec}</div>`
+         : `<div style="color:#666;">${parts.length
+              ? parts.map(p => `<div><b>${escHtml(p.partNumber)}</b> ${escHtml(p.description || '')}</div>`).join('')
+              : 'no parts mapped to this role'}</div>`
+           + `<div style="color:#999;margin-top:4px;font-size:11px;">no section drawing for ${escHtml(system || '?')}</div>`);
   t.style.display = 'block';
   moveRoleTip(e);
 }
@@ -958,8 +2293,12 @@ function renderViewer(openingId) {
   // needing Firestore — this is exactly the geometry the gasketLF numbers are computed from.
   const _exExport = ELEV_EXPORTS.get(o.mark);
   const _cutGroups = viewerShowCutting ? buildOpeningPacking(o) : null;
+  // #gasket-any-system: ALWAYS offered. It used to appear only where the detector had already
+  // found infill cells — which is exactly backwards: the elevation the detector read badly (or did
+  // not read at all) is the one that most needs a map you can draw by hand.
+  const _hasPanels = Array.isArray(o.panelCells) && o.panelCells.length;
   const toggleHtml =
-    (_exExport ? `<button class="tk-btn tk-btn--ghost tk-btn--sm" id="vc-toggle-gasket" style="float:right;margin-left:6px;">${viewerShowGasket ? '📐 Framing view' : '🧵 Gasket diagram'}</button>` : '') +
+    `<button class="tk-btn tk-btn--ghost tk-btn--sm" id="vc-toggle-gasket" style="float:right;margin-left:6px;">${viewerShowGasket ? '📐 Framing view' : '🧵 Gasket diagram'}</button>` +
     `<button class="tk-btn tk-btn--ghost tk-btn--sm" id="vc-toggle-cutting" style="float:right;">${viewerShowCutting ? '📐 Framing view' : '📏 Cutting diagram'}</button>`;
   const subEl = document.getElementById('viewer-sub');
   if (subEl && subEl.parentElement) {
@@ -980,7 +2319,7 @@ function renderViewer(openingId) {
     if (!_cutGroups.length) {
       box.innerHTML = `<div style="padding:18px;color:#888;font-size:13px;">No parts with stock cuts for ${escHtml(o.mark)} yet.</div>`;
     } else {
-      box.innerHTML = renderCuttingSvg(_cutGroups, o.mark);
+      box.innerHTML = renderCuttingSvg(_cutGroups, o.mark, openingGasketTotals(o));
     }
     box.onmouseover = null; box.onmousemove = null; box.onmouseout = null;
     legend.innerHTML = `
@@ -992,37 +2331,104 @@ function renderViewer(openingId) {
     if (editBox) editBox.innerHTML = '';
     return;
   }
-  if (viewerShowGasket && _exExport) {
-    const d = _exExport.data;
-    const elRects = (d.elements || []).map(el => {
-      const col = { glass: '#bcd6ee', panel: '#c9c9c9', louver: '#bfe6c8', door: '#f2c48a' }[el.t0] || '#ddd';
-      return `<rect x="${el.x}" y="${el.y}" width="${el.w}" height="${el.h}" fill="${col}" fill-opacity="0.55" stroke="none"><title>${escHtml(el.t0)}</title></rect>`;
-    }).join('');
-    box.innerHTML = `<svg viewBox="${d.viewBox}" style="width:100%;max-height:520px;display:block;background:#0b0e12;">${elRects}${d.base}</svg>`;
+  // #panel-gasket (2026-08-20, Leo: "现在有一个 gasket diagram，但基本不能用"): the gasket view is
+  // now built from the opening's OWN stored panel list, not from the session-only ELEV_EXPORTS
+  // payload — so it survives a reload, and every glass/IMP-1 panel is a live click target. Click a
+  // panel → the editor below lets you flip its type and edit its gasket parts/loops; the LF totals
+  // and the accessories table update on the spot, without re-importing the DXF.
+  if (viewerShowGasket) {
+    if (!Array.isArray(o.panelCells)) o.panelCells = [];
+    recomputeOpeningGaskets(o);
+    box.innerHTML = renderPanelSvg(o);
     box.onmouseover = null; box.onmousemove = null; box.onmouseout = null;
+    const parts = o.gasketByPart || {};
+    const partKeys = Object.keys(parts).sort();
+    const nEdited = (o.panels || []).filter(p => p.overridden || p.manual).length;
+    const nDrawn = (o.panels || []).filter(p => p.manual).length;
+    const nHidden = (panelEditRec(o.mark).hidden || []).length;
+    // #gasket-any-system: the two ways this diagram can be blank, each said plainly rather than
+    // left as an empty black rectangle. Neither is a dead end — both are things Leo can fix here.
+    const _sgNow = systemGasket(o.system);
+    const _specEmpty = !GASKET_PANEL_TYPES.some(t => _sgNow.panel[t].length) && !_sgNow.perimeterPart && !_sgNow.doorPart;
+    const _emptyHint = !(o.panels || []).length
+      ? `<div style="margin-top:6px;padding:6px 9px;border-radius:6px;background:#1e293b;color:#cbd5e1;font-size:12px;">
+           No panels here yet — the detector found none, or this opening was typed in by hand.
+           Pick a type above and <b>drag rectangles</b> to build the map yourself; the takeoff follows what you draw.
+         </div>`
+      : _specEmpty
+      ? `<div style="margin-top:6px;padding:6px 9px;border-radius:6px;background:#1e293b;color:#cbd5e1;font-size:12px;">
+           <b>${escHtml(o.system)}</b> has no gasket parts set, so these panels bill nothing yet.
+           Set them once for the whole system under <b>Accessories → Gasket defaults</b>, or click a panel to set just that one.
+         </div>`
+      : '';
     legend.innerHTML = `
-      <div style="display:flex;flex-wrap:wrap;gap:14px;font-size:12px;">
-        <span><span style="display:inline-block;width:12px;height:12px;background:#bcd6ee;margin-right:5px;"></span>Glass cell</span>
-        <span><span style="display:inline-block;width:12px;height:12px;background:#c9c9c9;margin-right:5px;"></span>IMP-1/panel cell</span>
-        <span><span style="display:inline-block;width:12px;height:12px;background:#bfe6c8;margin-right:5px;"></span>Louver (no infill gasket)</span>
-        <span><span style="display:inline-block;width:12px;height:12px;background:#f2c48a;margin-right:5px;"></span>Door (no infill gasket)</span>
-        <span><span style="display:inline-block;width:16px;height:0;border-top:2px dashed #2dd4bf;margin-right:5px;vertical-align:middle;"></span>E2-0127 glass gasket (2 loops/cell = interior+exterior)</span>
-        <span><span style="display:inline-block;width:16px;height:0;border-top:2px dashed #f97316;margin-right:5px;vertical-align:middle;"></span>E2-0120 IMP-1 infill gasket (2 loops/cell)</span>
-        <span><span style="display:inline-block;width:16px;height:0;border-top:2px solid #eab308;margin-right:5px;vertical-align:middle;"></span>E2-0120 storefront perimeter (1 loop/independent zone)</span>
+      <div style="display:flex;flex-wrap:wrap;gap:14px;font-size:12px;align-items:center;">
+        ${['glass', 'panel', 'louver', 'door'].map(t => `<span><span style="display:inline-block;width:12px;height:12px;background:${PANEL_TYPE_FILL[t]};margin-right:5px;"></span>${PANEL_TYPE_LABEL[t]}${t === 'louver' && !systemGasket(o.system).panel.louver.length ? ' (no gasket)' : ''}${t === 'door' && systemGasket(o.system).doorPart ? ` (gasket = 2 jambs, ${systemGasket(o.system).doorPart})` : ''}</span>`).join('')}
+        ${partKeys.map(p => `<span><span style="display:inline-block;width:16px;height:0;border-top:2px dashed ${gasketPartColor(p)};margin-right:5px;vertical-align:middle;"></span>${escHtml(p)}</span>`).join('')}
+        ${systemGasket(o.system).perimeterPart ? `<span><span style="display:inline-block;width:16px;height:0;border-top:2px solid #eab308;margin-right:5px;vertical-align:middle;"></span>${escHtml(systemGasket(o.system).perimeterPart)} storefront perimeter (×1 / zone)</span>` : ''}
+        ${(o.gasketDoorLF || 0) > 0 && systemGasket(o.system).doorPart ? `<span><span style="display:inline-block;width:16px;height:0;border-top:2px solid #f472b6;margin-right:5px;vertical-align:middle;"></span>${escHtml(systemGasket(o.system).doorPart)} door jambs (full height, ×2)</span>` : ''}
       </div>
       <div style="margin-top:6px;font-size:11px;color:#999;">
-        Glass ${_exExport.gaskets ? formatNumber(_exExport.gaskets.glass) : 0}LF · IMP-1 infill ${_exExport.gaskets ? formatNumber(_exExport.gaskets.imp1) : 0}LF · Perimeter ${_exExport.gaskets ? formatNumber(_exExport.gaskets.perimeter) : 0}LF
-      </div>`;
-    if (editBox) editBox.innerHTML = '';
+        ${(o.panels || []).length} panel${(o.panels || []).length === 1 ? '' : 's'}${nEdited ? ` · <b>${nEdited} hand-set</b>` : ''} ·
+        ${partKeys.length ? partKeys.map(p => `${escHtml(p)} ${formatNumber(parts[p])}LF`).join(' · ') : 'no infill gasket'} ·
+        Perimeter ${formatNumber(o.gasketPerimeterLF || 0)}LF${(o.gasketDoorLF || 0) > 0 ? ` · Door ${formatNumber(o.gasketDoorLF)}LF` : ''}
+        ${nEdited ? ` · <button class="tk-btn tk-btn--ghost tk-btn--sm" id="vc-panels-reset">× reset all panels to auto</button>` : ''}
+      </div>
+      ${o._gasketStale ? `<div style="margin-top:6px;padding:6px 9px;border-radius:6px;background:#7c2d12;color:#fed7aa;font-size:12px;">
+        ⚠ This elevation was parsed by an older build — panels and doors are worked out while reading the DXF and cannot be recovered from saved data. <b>Re-import the DXF</b> to refresh it.
+      </div>` : ''}
+      <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:12px;">
+        <span style="color:#888;">✏ Draw a panel:</span>
+        ${PANEL_ALL_TYPES.map(t => `<button class="tk-btn tk-btn--sm ${viewerDrawType === t ? 'tk-btn--accent' : 'tk-btn--ghost'}" data-draw="${t}">${PANEL_TYPE_LABEL[t]}</button>`).join('')}
+        ${viewerDrawType ? `<button class="tk-btn tk-btn--ghost tk-btn--sm" data-draw="">✕ stop drawing</button>` : ''}
+        ${nDrawn || nHidden ? `<span style="color:#888;">· ${nDrawn} drawn${nHidden ? `, ${nHidden} removed` : ''}</span>` : ''}
+      </div>
+      <div style="margin-top:4px;font-size:11px;color:#999;">${viewerDrawType
+        ? `Drag a rectangle on the elevation to add a <b>${escHtml(PANEL_TYPE_LABEL[viewerDrawType])}</b> panel — edges snap to the nearest framing member, panel edge or opening edge within ${PANEL_SNAP_IN}". A drawn door bills the same two-jamb run as a detected one.`
+        : 'Click a panel to change what it is, to change the gasket it takes, or to remove it. Use ✏ above where the detector missed a panel or a door — hand-drawn panels survive re-import.'}</div>
+      ${_emptyHint}`;
+    if (editBox) editBox.innerHTML = renderPanelEditor(o);
     return;
   }
 
+  const frameTools = document.getElementById('viewer-frame-tools');
+  if (frameTools) frameTools.innerHTML = `
+    <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:12px;">
+      <span style="color:#888;">✏ Framing:</span>
+      <button class="tk-btn tk-btn--sm ${viewerCutDraw ? 'tk-btn--accent' : 'tk-btn--ghost'}" id="vc-draw-cut">${viewerCutDraw ? '✕ stop drawing' : 'Draw a piece'}</button>
+      <span style="color:#888;">${viewerCutDraw
+        ? `Drag a rectangle — a wide one becomes a horizontal, a tall one a vertical; edges snap within ${CUT_SNAP_IN}".`
+        : 'Select a piece, then drag the red handle at either end to change its length.'}</span>
+    </div>`;
   const srcs = cuts.filter(c => c.src);
-  if (srcs.length) {
-    const minX = Math.min(...srcs.map(c => c.src.x));
-    const maxX = Math.max(...srcs.map(c => c.src.x + c.src.w));
-    const minY = Math.min(...srcs.map(c => c.src.y));
-    const maxY = Math.max(...srcs.map(c => c.src.y + c.src.h));
+  /* #blank-canvas (2026-08-27, Leo): an opening created by hand has no DXF geometry, so no cut
+     carried a `src`, and the frame view fell straight through to the "no source geometry" note
+     below. That note is a plain <div> — it is NOT <svg id="frame-map-svg">, which is the surface
+     every drawing and dragging handler binds to. So "Draw a piece" was telling you to drag a
+     rectangle onto something that did not exist, and pieces you added could only ever be chips.
+
+     The canvas extent was being derived from the PIECES. It should come from the OPENING, which
+     knows its own size — it is printed in the header two lines up. Same viewer, same drawing
+     tool; it just has a surface now.
+
+     `_bands` is the DXF-parsed marker (templateControlsHtml already tests it the same way). A
+     PARSED opening whose pieces were all deleted deliberately keeps the old message: its
+     coordinates live in DXF space, where a 0-based opening box would put the canvas nowhere
+     near the geometry. */
+  const blankBox = (!o._bands && +o.width > 0 && +o.height > 0)
+    ? { minX: 0, maxX: +o.width, minY: 0, maxY: +o.height }
+    : null;
+  if (srcs.length || blankBox) {
+    let minX = srcs.length ? Math.min(...srcs.map(c => c.src.x)) : blankBox.minX;
+    let maxX = srcs.length ? Math.max(...srcs.map(c => c.src.x + c.src.w)) : blankBox.maxX;
+    let minY = srcs.length ? Math.min(...srcs.map(c => c.src.y)) : blankBox.minY;
+    let maxY = srcs.length ? Math.max(...srcs.map(c => c.src.y + c.src.h)) : blankBox.maxY;
+    // Keep the opening's own box in view once pieces exist, or the canvas would collapse onto
+    // the first piece drawn and everything after it would be drawn at the wrong scale.
+    if (blankBox) {
+      minX = Math.min(minX, blankBox.minX); maxX = Math.max(maxX, blankBox.maxX);
+      minY = Math.min(minY, blankBox.minY); maxY = Math.max(maxY, blankBox.maxY);
+    }
     _viewerGeom = { minX, maxY };   // #2
     const W = maxX - minX, H = maxY - minY, pad = Math.max(W, H) * 0.04 + 2;
     const minVis = Math.max(W, H) * 0.005;
@@ -1039,9 +2445,36 @@ function renderViewer(openingId) {
       const dp = cutDisplayPosition(c, o.system);
       const col = cutColor(dp, o.system);
       const sel = idx === viewerEditIdx;
-      return `<rect data-cut="${idx}" x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${Math.max(s.w, minVis).toFixed(2)}" height="${Math.max(hh, minVis).toFixed(2)}" fill="${col}" fill-opacity="0.85" stroke="${sel ? '#ff2d2d' : '#222'}" stroke-width="${(Math.max(W, H) * (sel ? 0.006 : 0.0015)).toFixed(3)}" style="cursor:pointer;"><title>${escHtml(dp)} — ${formatNumber(c.length)}"${s.layer ? ' · ' + escHtml(s.layer) : ''}  (click to edit)</title></rect>`;
+      return `<rect data-cut="${idx}" x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${Math.max(s.w, minVis).toFixed(2)}" height="${Math.max(hh, minVis).toFixed(2)}" fill="${col}" fill-opacity="0.85" stroke="${sel ? '#ff2d2d' : '#222'}" stroke-width="${(Math.max(W, H) * (sel ? 0.006 : 0.0015)).toFixed(3)}" style="cursor:${viewerCutDraw ? 'crosshair' : 'move'};"><title>${escHtml(dp)} — ${formatNumber(c.length)}"${s.layer ? ' · ' + escHtml(s.layer) : ''}  (click to edit)</title></rect>`;
     }).join('');
-    box.innerHTML = `<svg viewBox="${(-pad).toFixed(2)} ${(-pad).toFixed(2)} ${(W + 2 * pad).toFixed(2)} ${(H + 2 * pad).toFixed(2)}" style="width:100%;max-height:520px;display:block;">${rects}</svg>`;
+    // #cut-drag: grab handles on the selected piece, and the rubber band while drawing a new one.
+    let overlay = '';
+    // #blank-canvas: draw the opening itself, so there is something to aim at and to snap to.
+    if (blankBox) {
+      const bw = blankBox.maxX - blankBox.minX, bh = blankBox.maxY - blankBox.minY;
+      overlay += `<rect x="${(blankBox.minX - minX).toFixed(2)}" y="${(maxY - blankBox.maxY).toFixed(2)}" width="${bw.toFixed(2)}" height="${bh.toFixed(2)}" fill="none" stroke="#8a97a3" stroke-width="${(Math.max(W, H) * 0.004).toFixed(3)}" stroke-dasharray="${(Math.max(W, H) * 0.014).toFixed(2)},${(Math.max(W, H) * 0.009).toFixed(2)}" pointer-events="none"><title>Opening ${escHtml(formatNumber(o.width))}" \u00d7 ${escHtml(formatNumber(o.height))}"</title></rect>`;
+      if (!srcs.length) {
+        overlay += `<text x="${(blankBox.minX - minX + bw / 2).toFixed(2)}" y="${(maxY - blankBox.maxY + bh / 2).toFixed(2)}" text-anchor="middle" font-size="${(Math.max(W, H) * 0.05).toFixed(2)}" fill="#8a97a3" pointer-events="none">${escHtml(formatNumber(o.width))}" \u00d7 ${escHtml(formatNumber(o.height))}"</text>`;
+      }
+    }
+    const sc = c => c.src.w > c.src.h ? 'ew-resize' : 'ns-resize';
+    if (viewerEditIdx != null && cuts[viewerEditIdx] && cuts[viewerEditIdx].src) {
+      const s2 = cuts[viewerEditIdx].src, horiz = s2.w > s2.h;
+      const L = horiz ? s2.w : s2.h, grab = Math.max(L * CUT_HANDLE_FRAC, Math.min(W, H) * 0.012);
+      const hx = Math.max(W, H) * 0.0035;
+      for (const end of [0, 1]) {
+        const gx = horiz ? (end ? s2.x + s2.w - grab : s2.x) : s2.x;
+        const gy = horiz ? s2.y : (end ? s2.y + s2.h - grab : s2.y);
+        const gw = horiz ? grab : s2.w, gh = horiz ? s2.h : grab;
+        overlay += `<rect data-handle="${end}" x="${(gx - minX).toFixed(2)}" y="${(maxY - (gy + gh)).toFixed(2)}" width="${gw.toFixed(2)}" height="${gh.toFixed(2)}" fill="#ff2d2d" fill-opacity="0.55" stroke="#fff" stroke-width="${hx.toFixed(3)}" style="cursor:${sc(cuts[viewerEditIdx])};"><title>drag to lengthen or shorten</title></rect>`;
+      }
+    }
+    if (viewerCutDrag && viewerCutDrag.rect) {
+      const r = viewerCutDrag.rect;
+      const rx = Math.min(r.x1, r.x2), ry = Math.min(r.y1, r.y2);
+      overlay += `<rect x="${(rx - minX).toFixed(2)}" y="${(maxY - Math.max(r.y1, r.y2)).toFixed(2)}" width="${Math.abs(r.x2 - r.x1).toFixed(2)}" height="${Math.abs(r.y2 - r.y1).toFixed(2)}" fill="#22d3ee" fill-opacity="0.35" pointer-events="none" stroke="#22d3ee" stroke-width="${(Math.max(W, H) * 0.004).toFixed(3)}" stroke-dasharray="${(Math.max(W, H) * 0.01).toFixed(2)},${(Math.max(W, H) * 0.006).toFixed(2)}"/>`;
+    }
+    box.innerHTML = `<svg id="frame-map-svg" data-x0="${minX}" data-y1="${maxY}" viewBox="${(-pad).toFixed(2)} ${(-pad).toFixed(2)} ${(W + 2 * pad).toFixed(2)} ${(H + 2 * pad).toFixed(2)}" style="width:100%;max-height:520px;display:block;${viewerCutDraw ? 'cursor:crosshair;' : ''}">${rects}${overlay}</svg>`;
     box.onmouseover = e => { const r = e.target.closest && e.target.closest('rect[data-cut]'); if (r) showRoleTip(e, cuts[+r.getAttribute('data-cut')], o.system); };   // #5: role section on hover
     box.onmousemove = moveRoleTip;
     box.onmouseout = e => { if (e.target.closest && e.target.closest('rect[data-cut]')) hideRoleTip(); };
@@ -1052,13 +2485,39 @@ function renderViewer(openingId) {
   // 无溯源料(手动加的/手填) → 可点 chip
   const manual = cuts.map((c, i) => ({ c, i })).filter(x => !x.c.src);
   let html = '';
-  const _ovm = state.roleEdits && state.roleEdits[o.mark];   // legacy role-only overrides
+  const _pinN = rolePinsFor(o.mark).length;
   const _elevRec = state.elevEdits && state.elevEdits[o.mark];
   const _sev = _elevRec && (_elevRec.cuts || []).length;   // #persist: full saved edit-set (synced)
-  if (_sev || (_ovm && Object.keys(_ovm).length)) {
-    const _n = _sev || Object.keys(_ovm).length;
-    const _label = _sev ? `Saved manual edits on ${escHtml(o.mark)}: ${_n} pieces · synced` : `Manual role overrides on ${escHtml(o.mark)}: ${_n} remembered`;
-    html += `<div style="margin:6px 0;font-size:11px;color:#999;">${_label} · <button class="tk-btn tk-btn--ghost tk-btn--sm" id="vc-clear-ov" title="Forget saved edits for this mark (next import reverts to pure auto-detection)">× clear</button></div>`;
+  if (_sev || _pinN) {
+    const _bits = [];
+    if (_sev) _bits.push(`${_sev} pieces saved · synced`);
+    if (_pinN) _bits.push(`${_pinN} role pin${_pinN === 1 ? '' : 's'}`);
+    html += `<div style="margin:6px 0;font-size:11px;color:#999;">Manual edits on ${escHtml(o.mark)}: ${_bits.join(' · ')} · <button class="tk-btn tk-btn--ghost tk-btn--sm" id="vc-clear-ov" title="Forget saved edits for this mark (next import reverts to pure auto-detection)">× clear</button> <button class="tk-btn tk-btn--ghost tk-btn--sm" id="vc-pin-diag" title="Copy what the tool has stored for this mark vs what this import produced — paste it to Claude">🔍 why?</button></div>`;
+  } else {
+    html += `<div style="margin:6px 0;font-size:11px;color:#999;">No saved edits or role pins for ${escHtml(o.mark)} · <button class="tk-btn tk-btn--ghost tk-btn--sm" id="vc-pin-diag" title="Copy what the tool has stored vs what this import produced — paste it to Claude">🔍 why?</button></div>`;
+  }
+  // #role-pins-v2: pins that found no piece in this import are SAID OUT LOUD. Losing them quietly
+  // is the bug — an import that silently reverts a month of hand-classification looks identical to
+  // one that worked, and you only find out when the numbers are already in a bid.
+  const _sr = savedRoleReport(o.mark);
+  if (_sr && _sr.matched) {
+    html += `<div style="margin:6px 0;font-size:11px;color:#7a8;">✓ The drawing changed since you last saved ${escHtml(o.mark)} — <b>${_sr.matched} of ${_sr.total}</b> saved roles were carried across by shape${
+      _sr.total > _sr.matched ? `; the other ${_sr.total - _sr.matched} had no matching piece and those were auto-classified` : ''}.</div>`;
+  }
+  if (prunePinsOutsideElevation(o.mark, o.cuts)) save();
+  const _pr = rolePinReport(o.mark) || livePinReport(o);
+  if (_pr && (_pr.unmatched || _pr.retired)) {
+    html += `<div style="margin:6px 0;padding:6px 9px;border-radius:6px;background:#7c2d12;color:#fed7aa;font-size:12px;">
+      ⚠ ${_pr.unmatched ? `<b>${_pr.unmatched} of ${_pr.total} saved role pin${_pr.total === 1 ? '' : 's'}</b> found no matching piece in this import` : ''}
+      ${_pr.unmatched && _pr.retired ? ' · ' : ''}
+      ${_pr.retired ? `${_pr.retired} pin${_pr.retired === 1 ? '' : 's'} hold a role retired from ${escHtml(o.system)} (skipped, not deleted — put the role back and they return)` : ''}
+      ${_pr.unmatched ? ' — those pieces were auto-classified. The drawing may have changed shape here.' : ''}
+    </div>`;
+  } else if (_pr && _pr.applied && !_pr.shifted && !_pr.offset) {
+    html += `<div style="margin:6px 0;font-size:11px;color:#7a8;">✓ ${_pr.applied} saved role pin${_pr.applied === 1 ? '' : 's'} applied to this elevation.</div>`;
+  } else if (_pr && (_pr.shifted || _pr.offset)) {
+    html += `<div style="margin:6px 0;font-size:11px;color:#7a8;">✓ ${_pr.applied} role pin${_pr.applied === 1 ? '' : 's'} re-applied${
+      _pr.offset ? ` — this elevation sits ${formatNumber(_pr.offset.dx)}, ${formatNumber(_pr.offset.dy)} from where it was; the pins were matched by shape and moved with it` : ' — matched by shape and position'}.</div>`;
   }
   html += templateControlsHtml(o);   // #template (2026-07-20): Save-as / Apply template row
   // #history (2026-07-19, Leo — SF01 data loss): show the last N saved versions for this mark
@@ -1099,9 +2558,10 @@ function renderViewer(openingId) {
     html += `
       <div style="margin-top:10px;padding:10px 12px;border:1px solid var(--af-line,#ddd);border-radius:8px;background:var(--af-bg-2,#f6f6f6);display:flex;flex-wrap:wrap;align-items:center;gap:10px;font-size:13px;">
         <b>Edit piece #${viewerEditIdx + 1}</b>
-        <label>Position <select id="vc-pos" class="tk-cell-select">${POSITIONS.map(p => `<option value="${escAttr(p)}" ${p === c.position ? 'selected' : ''}>${p}</option>`).join('')}</select></label>
+        <label>Position <select id="vc-pos" class="tk-cell-select">${POSITIONS_FOR(o.system, c.position).map(p => `<option value="${escAttr(p)}" ${p === c.position ? 'selected' : ''}>${p}</option>`).join('')}</select></label>
         <label>Length <input id="vc-len" class="tk-cell-input num" type="number" step="0.125" value="${c.length}" style="width:84px;" />″</label>
         <label>Count <input id="vc-cnt" class="tk-cell-input num" type="number" min="1" step="1" value="${c.count || 1}" style="width:60px;" /></label>
+        ${c.src ? `<label title="Face width — 2&quot; for everything except corners and the wide profiles">Width <input id="vc-wid" class="tk-cell-input num" type="number" step="0.125" min="0.125" value="${formatNumber(Math.min(c.src.w, c.src.h))}" style="width:72px;" />″</label>` : ''}
         ${c.src ? `<button class="tk-btn tk-btn--ghost tk-btn--sm" id="vc-split" title="Split this piece in two at the point you clicked">✂ Split here</button>
         <button class="tk-btn tk-btn--ghost tk-btn--sm" id="vc-merge" title="Merge with the adjacent in-line piece of the same role">⧉ Merge</button>` : ''}
         <button class="tk-btn tk-btn--ghost tk-btn--sm" id="vc-del">Delete piece</button>
@@ -1138,12 +2598,60 @@ document.addEventListener('click', e => {
   if (e.target.closest('#vc-toggle-gasket') && viewerOpeningId != null) {   // #gasket-viz: framing ↔ gasket diagram toggle
     viewerShowGasket = !viewerShowGasket;
     if (viewerShowGasket) viewerShowCutting = false;
+    if (!viewerShowGasket) viewerPanelKey = null;
     renderViewer(viewerOpeningId);
     return;
+  }
+  // ---- #panel-gasket (2026-08-20): panel map interactions ----
+  if (viewerShowGasket && viewerOpeningId != null) {
+    const o = state.openings.find(x => x.id === viewerOpeningId);
+    const after = () => { if (o) recomputeOpeningGaskets(o); renderReport(); renderViewer(viewerOpeningId); };
+    // ✏ draw-mode toggle
+    const drawBtn = e.target.closest && e.target.closest('[data-draw]');
+    if (drawBtn && o) {
+      const t = drawBtn.getAttribute('data-draw');
+      viewerDrawType = (!t || viewerDrawType === t) ? null : t;
+      viewerDrawRect = null;
+      if (viewerDrawType) viewerPanelKey = null;
+      renderViewer(viewerOpeningId);
+      return;
+    }
+    if (viewerDrawType) return;   // clicks on the map belong to the rubber band, not to selection
+    const pRect = e.target.closest && e.target.closest('rect[data-panel]');
+    if (pRect && o) {
+      const k = pRect.getAttribute('data-panel');
+      const panel = (o.panels || []).find(x => x.k === k);
+      if (panel) { viewerPanelKey = (viewerPanelKey === k) ? null : k; renderViewer(viewerOpeningId); }
+      return;
+    }
+    if (e.target.closest('#vc-panels-reset') && o) { clearPanelOverrides(o.mark); viewerPanelKey = null; after(); return; }
+    if (e.target.closest('#vp-close')) { viewerPanelKey = null; renderViewer(viewerOpeningId); return; }
+    if (e.target.closest('#vp-reset') && o && viewerPanelKey) { setPanelOverride(o.mark, viewerPanelKey, { t0: null, gaskets: null }); after(); return; }
+    if (e.target.closest('#vp-del') && o && viewerPanelKey) { deletePanel(o.mark, viewerPanelKey); viewerPanelKey = null; after(); return; }
+    if (e.target.closest('#vp-gadd') && o && viewerPanelKey) {
+      const panel = (o.panels || []).find(x => x.k === viewerPanelKey);
+      if (panel) setPanelOverride(o.mark, viewerPanelKey, { gaskets: [...panel.gaskets, { part: '', loops: 1 }] });
+      after();
+      return;
+    }
+    const gdel = e.target.closest && e.target.closest('[data-gdel]');
+    if (gdel && o && viewerPanelKey) {
+      const panel = (o.panels || []).find(x => x.k === viewerPanelKey);
+      if (panel) setPanelOverride(o.mark, viewerPanelKey, { gaskets: panel.gaskets.filter((_, i) => i !== +gdel.getAttribute('data-gdel')) });
+      after();
+      return;
+    }
   }
   if (e.target.closest('#vc-toggle-cutting') && viewerOpeningId != null) {   // #cutting-diagram: framing ↔ cutting diagram toggle
     viewerShowCutting = !viewerShowCutting;
     if (viewerShowCutting) viewerShowGasket = false;
+    renderViewer(viewerOpeningId);
+    return;
+  }
+  if (e.target.closest('#vc-draw-cut') && viewerOpeningId != null) {   // #cut-drag: draw-a-piece toggle
+    viewerCutDraw = !viewerCutDraw;
+    viewerCutDrag = null;
+    if (viewerCutDraw) viewerEditIdx = null;
     renderViewer(viewerOpeningId);
     return;
   }
@@ -1241,7 +2749,20 @@ document.addEventListener('click', e => {
   // 选中某根料(立面图色块 或 底部 chip)
   const cutEl = e.target.closest('[data-cut]');
   if (cutEl && (cutEl.closest('#viewer-box') || cutEl.closest('#viewer-edit')) && viewerOpeningId != null) {
-    viewerEditIdx = parseInt(cutEl.getAttribute('data-cut'), 10);
+    // #place-chip: a chip is a piece with no geometry. Clicking one drops it onto the canvas at
+    // its own length, ready to be dragged into place, instead of only selecting it for editing.
+    const _ci = parseInt(cutEl.getAttribute('data-cut'), 10);
+    const _co = state.openings.find(x => x.id === viewerOpeningId);
+    if (_co && _co.cuts && _co.cuts[_ci] && !_co.cuts[_ci].src && cutEl.closest('#viewer-edit')) {
+      const _pi = placeCutOnCanvas(_co, _ci);
+      if (_pi != null) {
+        viewerEditIdx = _pi; viewerSplitSrc = null;
+        if (typeof toast === 'function') toast('Placed — drag it into position');
+        refreshAfterCutEdit();
+        return;
+      }
+    }
+    viewerEditIdx = _ci;
     viewerSplitSrc = null;   // #2: capture the clicked point (in src coords) for a precise split
     const svg = cutEl.ownerSVGElement;
     if (svg && _viewerGeom && svg.getScreenCTM) { try { const pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY; const p = pt.matrixTransform(svg.getScreenCTM().inverse()); viewerSplitSrc = { x: p.x + _viewerGeom.minX, y: _viewerGeom.maxY - p.y }; } catch (_) {} }
@@ -1273,6 +2794,30 @@ document.addEventListener('change', e => {
     if (o) { setOpeningFillLayout(o, e.target.value); renderViewer(viewerOpeningId); }
     return;
   }
+  // #panel-gasket (2026-08-20): panel type / gasket-spec edits. Changing the TYPE re-seeds the
+  // gasket rows from that type's default (and drops any previous per-panel gasket override), so
+  // "this is actually IMP-1" does the obvious thing in one click; editing a part/loops field after
+  // that pins the whole spec for this panel only.
+  if (viewerShowGasket && viewerOpeningId != null && viewerPanelKey && e.target.closest && e.target.closest('#viewer-edit')) {
+    const o = state.openings.find(x => x.id === viewerOpeningId);
+    const panel = o && (o.panels || []).find(x => x.k === viewerPanelKey);
+    if (!o || !panel) return;
+    if (e.target.id === 'vp-type') {
+      const t = e.target.value;
+      setPanelOverride(o.mark, viewerPanelKey, { t0: (t === panel.autoT0 ? null : t), gaskets: null });
+    } else if (e.target.hasAttribute('data-gpart') || e.target.hasAttribute('data-gloops')) {
+      const next = panel.gaskets.map(g => ({ part: g.part, loops: g.loops }));
+      const i = +(e.target.getAttribute('data-gpart') ?? e.target.getAttribute('data-gloops'));
+      if (!next[i]) return;
+      if (e.target.hasAttribute('data-gpart')) next[i].part = String(e.target.value || '').trim().toUpperCase();
+      else next[i].loops = Math.max(0, parseFloat(e.target.value) || 0);
+      setPanelOverride(o.mark, viewerPanelKey, { gaskets: next.filter(g => g.part) });
+    } else return;
+    recomputeOpeningGaskets(o);
+    renderReport();
+    renderViewer(viewerOpeningId);
+    return;
+  }
   if (viewerOpeningId == null || viewerEditIdx == null) return;
   if (!e.target.closest || !e.target.closest('#viewer-edit')) return;
   const o = state.openings.find(x => x.id === viewerOpeningId);
@@ -1280,34 +2825,531 @@ document.addEventListener('change', e => {
   const c = o.cuts[viewerEditIdx];
   if (e.target.id === 'vc-pos') {
     c.position = e.target.value;
-    if (c.src && o.mark) {   // T3: remember this manual role override (survives DXF re-import)
-      state.roleEdits = state.roleEdits || {};
-      (state.roleEdits[o.mark] = state.roleEdits[o.mark] || {})[srcKey(c.src)] = c.position;
+    // #role-pins-v2: remember this manual role override, keyed to where the piece sits inside
+    // its own elevation — so it survives the drawing being moved, not just re-imported.
+    if (c.src && o.mark) setRolePin(o.mark, openingPinOrigin(o), c.src, c.position);
+  }
+  else if (e.target.id === 'vc-len') {
+    c.length = parseFloat(e.target.value) || 0;
+    // #place-chip: once a piece is on the canvas the drawing IS the piece, so a typed length has
+    // to resize it. Leaving src stale made the picture and the cut list disagree silently.
+    if (c.src && c.length > 0) {
+      const vert = c.src.h >= c.src.w;
+      setCutGeometry(o, viewerEditIdx, vert ? { x: c.src.x, y: c.src.y, w: c.src.w, h: c.length }
+                                            : { x: c.src.x, y: c.src.y, w: c.length, h: c.src.h });
     }
   }
-  else if (e.target.id === 'vc-len') c.length = parseFloat(e.target.value) || 0;
+  else if (e.target.id === 'vc-wid') {
+    const wv = parseFloat(e.target.value) || 0;
+    if (c.src && wv > 0) {
+      const vert = c.src.h >= c.src.w;
+      setCutGeometry(o, viewerEditIdx, vert ? { x: c.src.x, y: c.src.y, w: wv, h: c.src.h }
+                                            : { x: c.src.x, y: c.src.y, w: c.src.w, h: wv });
+    }
+  }
   else if (e.target.id === 'vc-cnt') c.count = Math.max(1, parseInt(e.target.value) || 1);
   else return;
   refreshAfterCutEdit();
 });
 
-// ---------- Accessories takeoff (rules engine) ----------
-const ACC_RULES = {
-  per_piece:   { label: '/ piece',   paramLabel: 'qty per piece' },
-  per_spacing: { label: 'spacing',   paramLabel: 'o.c. inches'   },
-  per_lf:      { label: '× LF',      paramLabel: 'factor'        },
-  per_lite:    { label: '/ lite',    paramLabel: 'qty per lite'  },
-  per_opening: { label: '/ opening', paramLabel: 'qty per opening' },
+// #hand-drawn-panels: drag a rectangle on the panel map. Bound once at module level (the map is
+// re-rendered constantly, so per-render listeners would leak); everything is guarded on draw mode
+// being on, so with the pencil off these are three no-ops.
+(function bindPanelDrawing() {
+  if (typeof document === 'undefined' || !document.addEventListener) return;
+  let drawing = false;
+  const opening = () => (typeof state !== 'undefined' && state.openings)
+    ? state.openings.find(x => x.id === viewerOpeningId) : null;
+  const repaint = () => {
+    const box = document.getElementById('viewer-box');
+    const o = opening();
+    if (box && o) box.innerHTML = renderPanelSvg(o);   // redraw the map only — the legend is stable mid-drag
+  };
+  document.addEventListener('mousedown', e => {
+    if (!viewerShowGasket || !viewerDrawType || viewerOpeningId == null) return;
+    if (!e.target.closest || !e.target.closest('#panel-map-svg')) return;
+    const o = opening(); if (!o) return;
+    const p = panelMapPoint(e, o); if (!p) return;
+    e.preventDefault();
+    drawing = true;
+    viewerDrawRect = { x1: p.x, y1: p.y, x2: p.x, y2: p.y };
+    repaint();
+  });
+  document.addEventListener('mousemove', e => {
+    if (!drawing || !viewerDrawRect) return;
+    const o = opening(); if (!o) return;
+    const p = panelMapPoint(e, o); if (!p) return;
+    viewerDrawRect.x2 = p.x; viewerDrawRect.y2 = p.y;
+    repaint();
+  });
+  document.addEventListener('mouseup', () => {
+    if (!drawing) return;
+    drawing = false;
+    const r = viewerDrawRect; viewerDrawRect = null;
+    const o = opening();
+    if (!o || !r) { repaint(); return; }
+    const k = addManualPanel(o.mark, r, viewerDrawType);
+    if (k) viewerPanelKey = k;                  // land in the editor on the panel just drawn
+    recomputeOpeningGaskets(o);
+    renderReport();
+    renderViewer(viewerOpeningId);
+  });
+})();
+
+// ============================================================
+//  #elevation-workbook (2026-08-20, Leo: "上司要求给每一个 elevation 做一个 excel 表格，你参考
+//  750XT page，帮我做一次性批量生成 excel 表格功能全放一个文件里")
+//
+//  One workbook, one worksheet per elevation, laid out like the 750XT page of Leo's own
+//  "750XT / 45TU takeoff.xlsx" — because that sheet is what his boss already reads. Each sheet is
+//  in two halves, exactly as he builds them by hand:
+//    · the ORDER BLOCK up top — Part # / Detail / Total Cut Length / Stocks (FFD) / +15%, grouped
+//      into the banner sections of the reference sheet (Dark Bronze extrusions, Non-Color
+//      accessories, Fastener, Gasket, Hardware, Anchor).
+//    · the AUDIT BLOCK below — the tool's own per-part dump with the roles that fed each number,
+//      which is the only way to check the sheet above without re-running the takeoff.
+//  A leading "ALL ELEVATIONS" sheet carries the pooled project totals in the same layout.
+//
+//  Section membership and box sizes are read straight off the reference workbook rather than
+//  guessed; anything not listed there falls back to a rule of thumb AND is reported in the console
+//  and in a note on the sheet, so a new part shows up as a question instead of landing silently in
+//  the wrong section.
+// ============================================================
+const XL_SECTIONS = [
+  { key: 'extrusion', title: sys => `${sys} Horizontal/Vertical / Dark Bronze` },
+  { key: 'plate',     title: sys => `${sys} Horizontal/Vertical Accessories / Non - Color` },
+  { key: 'fastener',  title: () => 'Fastener' },
+  { key: 'gasket',    title: () => 'Gasket' },
+  { key: 'hardware',  title: () => 'Hardware' },
+  { key: 'anchor',    title: () => 'Anchor' },
+];
+// part number → section, transcribed from the 750XT page of the reference workbook
+const XL_PART_SECTION = {
+  'E9-1206': 'extrusion', 'BE9-3904': 'extrusion', 'BE9-3910': 'extrusion', 'E9-1660': 'extrusion',
+  'E9-3162': 'extrusion', 'A': 'extrusion', 'C': 'extrusion', 'BY7-9065': 'extrusion',
+  'AS-3906': 'plate', 'AS-3907': 'plate', 'AS-7110': 'plate', 'B': 'plate',
+  'HF-2510-W1': 'fastener', 'FC-1220': 'fastener', 'FC-1212': 'fastener', 'HD-2516-W3-SS': 'fastener',
+  'E2-0120': 'gasket', 'E2-0127': 'gasket', 'E2-0052': 'gasket',
+  'E1-3504': 'hardware', 'E1-9837': 'hardware', 'E2-9942': 'hardware',
+  'E1-3603': 'hardware', 'E2-0513': 'hardware',   // setting block chair / setting block
+  'E1-1222': 'anchor', 'E1-1234': 'anchor',
 };
+// order quantity per box, also from the reference sheet. Absent → ordered as loose pieces.
+// How each part is PURCHASED: `per` = how many of the takeoff's own unit come in one purchasable
+// unit, `unit` = what you actually order. Transcribed from the reference workbook, except the
+// setting blocks (see below). Order qty = ceil(takeoff qty / per).
+const XL_ORDER_PACK = {
+  'HF-2510-W1': { per: 100, unit: 'BOX' }, 'FC-1220': { per: 100, unit: 'BOX' },
+  'FC-1212': { per: 100, unit: 'BOX' }, 'HD-2516-W3-SS': { per: 100, unit: 'BOX' },
+  'E1-3504': { per: 50, unit: 'BOX' }, 'E1-9837': { per: 20, unit: 'BOX' }, 'E2-9942': { per: 50, unit: 'BOX' },
+  'E2-0120': { per: 500, unit: 'BOX' }, 'E2-0127': { per: 250, unit: 'BOX' }, 'E2-0052': { per: 250, unit: 'BOX' },
+  // E1-3603 / E2-0513 deliberately absent: the setting block and its chair are now taken off as a
+  // COUNT (2 per panel, at the quarter points of the D.L.O.), not as a run length, so there is
+  // nothing to divide by a 24′ stock length. They are ordered as pieces until Leo gives a block
+  // length to cut from stock.
+};
+// Not stored on the accessory rule itself: cloud-sync's cleanAccessories keeps only
+// partNumber/description/rule/positions/param/min/unit, so any extra field is dropped on the round
+// trip through Firestore. This table is the place for "how is it bought".
+function xlOrderPack(partNumber) {
+  return XL_ORDER_PACK[String(partNumber || '').trim().toUpperCase()] || null;
+}
+const XL_SYSTEM_TITLE = { '750XT': 'YKK AP YCW 750XT Curtainwall', '45TU': 'YKK AP YES 45TU Storefront' };
+const XL_UNKNOWN_SECTION = new Set();
+function xlSectionFor(partNumber, description, isGasket) {
+  const pn = String(partNumber || '').trim().toUpperCase();
+  if (isGasket) return 'gasket';
+  if (XL_PART_SECTION[pn]) return XL_PART_SECTION[pn];
+  const d = (description || '').toLowerCase();
+  if (pn) XL_UNKNOWN_SECTION.add(pn);   // a blank P/N is a known unknown (setting blocks), not a surprise
+  if (/anchor/.test(d)) return 'anchor';
+  if (/gasket/.test(d)) return 'gasket';
+  if (/screw|fastener|hwhs|fhsms|hwhms|smd|bolt/.test(d)) return 'fastener';
+  if (/pressure plate/.test(d)) return 'plate';
+  if (/block|clip|shear|splice|bracket/.test(d)) return 'hardware';
+  return 'extrusion';
+}
+const XL_STOCK_UPLIFT = 1.15;   // "Stocks +15%" — the waste/breakage allowance on the reference sheet
+
+// Everything one elevation contributes, already grouped into the reference sheet's sections.
+// `o === null` pools every opening in the project (the ALL ELEVATIONS sheet).
+function xlRowsFor(o) {
+  const groups = Array.isArray(o) ? buildGroupPacking(o) : o ? buildOpeningPacking(o) : buildPooledPacking();   // #cut-groups: array = one cut group, pooled
+  const out = { extrusion: [], plate: [], fastener: [], gasket: [], hardware: [], anchor: [] };
+  const audit = [];
+  for (const g of groups) {
+    const inches = g.sticks.reduce((t, st) => t + (g.stock - (st.remaining || 0)), 0);
+    const ffd = g.sticks.length;
+    const sec = xlSectionFor(g.partNumber, g.description, false);
+    out[sec].push({ part: g.partNumber, detail: g.description || '', inches,
+      qty: ffd, unit: 'PCS', order: Math.ceil(ffd * XL_STOCK_UPLIFT), orderUnit: 'PCS' });
+    audit.push({ system: g.system, part: g.partNumber, desc: g.description || '',
+      roles: rolesForPart(g.system, g.partNumber), inches, ffd, up: Math.ceil(ffd * XL_STOCK_UPLIFT) });
+  }
+  // gaskets — LF, ordered by the box
+  for (const t of (Array.isArray(o) ? groupGasketTotals(o) : o ? openingGasketTotals(o) : allOpeningsGasketTotals())) {
+    const pack = xlOrderPack(t.part);
+    out.gasket.push({ part: t.part, detail: 'Glazing Gasket', inches: t.lf, qty: pack ? pack.per : null,
+      unit: 'LF', order: pack ? Math.ceil(t.lf / pack.per) : Math.ceil(t.lf), orderUnit: pack ? pack.unit : 'LF' });
+    // gasket is coil stock: the audit row carries the run, not a stick count
+    audit.push({ system: Array.isArray(o) ? ((o[0] || {}).system || '') : o ? o.system : '', part: t.part, desc: `Gasket — ${formatNumber(t.lf)} LF`,
+      roles: 'infill panels + storefront perimeter + door jambs', inches: +(t.inches).toFixed(1), ffd: '', up: '' });
+  }
+  // rule-based accessories (fasteners, blocks, anchors) — computeAccessories is project-wide, so
+  // for one elevation it is re-run against that elevation alone.
+  const keepOpenings = state.openings;
+  if (o) state.openings = Array.isArray(o) ? o : [o];
+  let accRows = [];
+  try { accRows = computeAccessories().filter(r => !r.acc._computed); } finally { state.openings = keepOpenings; }
+  // A row with neither a part number nor a description cannot be ordered, so it does not belong on
+  // an order sheet — and with nothing to classify it, it used to fall through to the extrusion
+  // section and appear as two blank lines under Dark Bronze. Counted and reported instead.
+  let skipped = 0;
+  for (const { acc: a, qty, basis } of accRows) {
+    if (!(qty > 0)) continue;
+    if (!String(a.partNumber || '').trim() && !String(a.description || '').trim()) { skipped++; continue; }
+    const sec = xlSectionFor(a.partNumber, a.description, false);
+    const pack = xlOrderPack(a.partNumber);
+    // Stocks column = how many come in one purchasable unit. Blank when the part is ordered loose —
+    // repeating the quantity there (the first attempt) read as "66 per box", which is not a thing.
+    out[sec].push({ part: a.partNumber, detail: a.description || '', inches: qty,
+      qty: pack ? pack.per : null, unit: (a.unit || 'ea').toUpperCase(),
+      order: pack ? Math.ceil(qty / pack.per) : Math.ceil(qty),
+      orderUnit: pack ? pack.unit : (a.unit || 'ea').toUpperCase(), basis });
+  }
+  for (const k in out) out[k].sort((a, b) => String(a.part).localeCompare(String(b.part), undefined, { numeric: true }));
+  audit.sort((a, b) => String(a.part).localeCompare(String(b.part), undefined, { numeric: true }));
+  return { out, audit, skipped };
+}
+function rolesForPart(system, partNumber) {
+  return (state.parts || []).filter(p => p.system === system && p.partNumber === partNumber)
+    .flatMap(p => p.roles || []).filter((v, i, a) => a.indexOf(v) === i).join(' / ');
+}
+
+// The project name printed on every sheet. Editable next to the export button and remembered with
+// the rest of the state — the boss reads this line first, and it is the one thing on the sheet the
+// tool cannot work out for itself.
+function xlProjectName() { return (state.projectName && String(state.projectName).trim()) || 'AC3'; }
+function buildElevationSheet(o, opts) {
+  const XS = window.XLSX_STYLE;
+  const isGroup = Array.isArray(o);   // #cut-groups: o may be an array of openings = one cut group
+  const system = (isGroup ? ((o[0] || {}).system || '') : o ? o.system : '') || (opts && opts.system) || (scopedOpenings()[0] || {}).system || '';
+  const rows = [], merges = [];
+  const put = (r, arr) => { rows[r] = arr; };
+  const band = (r, text, big) => { rows[r] = [{ v: text, s: big ? XS.BANNER : XS.BANNER_SM, h: big ? 18 : 16 }, ...Array(8).fill({ s: big ? XS.BANNER : XS.BANNER_SM })]; merges.push(`A${r + 1}:I${r + 1}`); };
+
+  put(0, [{ v: 'Date', s: XS.LABEL }, { v: ':' }, { f: 'TODAY()', s: XS.DATE }, { v: XL_SYSTEM_TITLE[system] || (system + ' Curtainwall'), s: XS.TITLE }]);
+  merges.push('D1:I2');
+  put(1, [{ v: 'Project Name', s: XS.LABEL }, { v: ':' }, { v: xlProjectName() }]);
+  put(2, [{ v: isGroup ? 'Elevation group' : o ? 'Elevation' : 'Scope', s: XS.LABEL }, { v: ':' },
+          { v: isGroup ? `${(opts && opts.groupKey) || ''} — ${o.map(x => x.mark).join(' + ')}   (cut together, pooled onto shared ${STOCK_INCHES / 12}′ stock)`
+                 : o ? `${o.mark}${(o.qty || 1) > 1 ? ` × ${o.qty}` : ''}   ${formatNumber(o.width)}" × ${formatNumber(o.height)}"`
+                 : ((opts && opts.scopeText) || `ALL ELEVATIONS — ${scopedOpenings().length} mark(s)`) }]);
+
+  const HEAD = ['Part #', 'Detail', '', '', 'Total Cut Length (in)', 'Stocks (FFD)', 'Unit', 'Stocks +15% (pcs)', 'Unit'];
+  const HR = 4;
+  put(HR, HEAD.map(v => ({ v, s: XS.HEAD, h: 30 })));
+  merges.push(`B${HR + 1}:D${HR + 1}`);
+
+  const { out, skipped } = xlRowsFor(o);
+  let r = HR + 2;
+  for (const sec of XL_SECTIONS) {
+    const list = out[sec.key];
+    if (!list.length) continue;
+    band(r, sec.title(system), sec.key === 'extrusion' || sec.key === 'plate');
+    r++;
+    for (const it of list) {
+      const total = +(+it.inches).toFixed(2);
+      rows[r] = [
+        { v: it.part, s: XS.TEXT },
+        { v: it.detail, s: XS.TEXT_L }, { s: XS.TEXT_L }, { s: XS.TEXT_L },
+        // whole numbers print as whole numbers — "58.00 ea" of a shear block reads like a mistake
+        { v: total, s: Number.isInteger(total) ? XS.INT : XS.NUM2 },
+        { v: it.qty == null ? '' : Math.round(it.qty), s: XS.INT },
+        { v: it.unit, s: XS.TEXT },
+        { v: Math.round(it.order), s: XS.INT },
+        { v: it.orderUnit, s: XS.TEXT },
+      ];
+      merges.push(`B${r + 1}:D${r + 1}`);
+      r++;
+    }
+    r++;   // a blank line between sections, same as the reference sheet
+  }
+
+  // No audit block: Leo's boss reads the order sheet, and the takeoff detail belongs in the tool
+  // (viewer + report), not stapled to the bottom of every sheet. (2026-08-20: "excel doesn't need
+  // to have takeoff detail".)
+  r += 1;
+  rows[r++] = [{ v: `Generated by the AC3 takeoff tool · stock ${STOCK_INCHES}" (${STOCK_INCHES / 12}′) · +15% uplift on stock counts · gasket from the panel takeoff`, s: XS.NOTE }];
+  if (XL_UNKNOWN_SECTION.size)
+    rows[r++] = [{ v: 'Not in the reference sheet, placed by rule of thumb — check the section: ' + [...XL_UNKNOWN_SECTION].join(', '), s: XS.NOTE }];
+  if (skipped)
+    rows[r++] = [{ v: `${skipped} accessory rule(s) skipped — they have no part number and no description. Name them in the Accessories table to get them onto this sheet.`, s: XS.NOTE }];
+
+  return { name: isGroup ? ((opts && opts.sheetName) || (((opts && opts.groupKey) || 'GROUP') + ' group')) : o ? o.mark : ((opts && opts.sheetName) || 'ALL ELEVATIONS'),
+    cols: [{ w: 21.6 }, { w: 15.9 }, { w: 24 }, { w: 36.9 }, { w: 21 }, { w: 13 }, { w: 8 }, { w: 18 }, { w: 19.6 }],
+    merges, rows, freeze: `A${HR + 2}` };
+}
+
+// #export-scope: one summary sheet PER SYSTEM when the scope holds more than one. A single mixed
+// summary carries one system's name in its title banner and one system's order lines underneath
+// another's — it reads like a 750XT order that happens to contain 45TU parts. Shared by both
+// workbooks so the group file and the per-elevation file always open on the same totals.
+function summarySheetsFor(opens) {
+  const syss = [...new Set(opens.map(o => o.system || ''))];
+  const sheets = [];
+  for (const sys of syss) {
+    const keep = state.openings;
+    state.openings = opens.filter(o => (o.system || '') === sys);
+    try {
+      sheets.push(buildElevationSheet(null, {
+        system: sys,
+        sheetName: syss.length > 1 ? `ALL ${sys}` : 'ALL ELEVATIONS',
+        scopeText: `ALL ${syss.length > 1 ? sys + ' ' : ''}ELEVATIONS — ${state.openings.length} mark(s)`,
+      }));
+    } finally { state.openings = keep; }
+  }
+  return sheets;
+}
+function downloadElevationWorkbook() {
+  if (!window.makeXlsx) { alert('xlsx-writer.js did not load — check index.html.'); return; }
+  const opens = scopedOpenings();
+  if (!opens.length) { alert('No openings in the current export scope.'); return; }
+  XL_UNKNOWN_SECTION.clear();
+  const sheets = summarySheetsFor(opens);
+  for (const o of opens) sheets.push(buildElevationSheet(o));
+  emitWorkbook(sheets, `${xlProjectName()} takeoff by elevation${scopeSuffix()}.xlsx`);
+}
+// #cut-groups (2026-08-21, Leo: "keep both group and separate excel"): the grouped workbook is its
+// OWN file/button — downloadElevationWorkbook() above stays exactly one sheet per elevation, so the
+// separate takeoff never changes shape when the grouping changes.
+// (rev2, Leo: "if it's a group, only group, no separate") This workbook is the GROUP view and
+// nothing else: a mark that belongs to a real group appears ONLY inside its group's pooled sheet —
+// no member sheets, because the shop cutting 04.1 and 04.2 off shared stock cannot act on a
+// per-elevation stick count. A mark with no sibling has no group to pool into, so it keeps its own
+// sheet (that sheet IS its group of one). Same scoping as the grouped DXF: one column per group.
+// The per-elevation numbers still live in the other workbook.
+function downloadGroupWorkbook() {
+  if (!window.makeXlsx) { alert('xlsx-writer.js did not load — check index.html.'); return; }
+  const opens = scopedOpenings();
+  if (!opens.length) { alert('No openings in the current export scope.'); return; }
+  XL_UNKNOWN_SECTION.clear();
+  const sheets = summarySheetsFor(opens);
+  for (const g of groupOpeningsByMark(opens)) {
+    if (g.openings.length > 1) sheets.push(buildElevationSheet(g.openings, { groupKey: g.key, sheetName: g.key + ' group' }));
+    else sheets.push(buildElevationSheet(g.openings[0]));
+  }
+  emitWorkbook(sheets, `${xlProjectName()} takeoff by cut group${scopeSuffix()}.xlsx`);
+}
+// Shared tail for both workbooks — one place that turns sheets into a download + status line.
+function emitWorkbook(sheets, filename) {
+  const blob = window.makeXlsx(sheets);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+  if (XL_UNKNOWN_SECTION.size) console.warn('[xlsx] parts not in the reference sheet, sectioned by rule of thumb:', [...XL_UNKNOWN_SECTION].join(', '));
+  const st = document.getElementById('export-status');
+  if (st) { st.textContent = `Exported ${sheets.length} sheet(s) · ${scopeLabel()}: ` + sheets.map(sh => sh.name).join(', ')
+    + (XL_UNKNOWN_SECTION.size ? ' — check the section of: ' + [...XL_UNKNOWN_SECTION].join(', ') : ''); st.className = 'tk-dxf__status is-ok'; }
+}
+
+// #cut-drag: drag a framing piece's end to change its length, or drag out a new piece. Bound once
+// at module level (the view re-renders on every change, so per-render listeners would leak). Every
+// handler is guarded on the framing view being visible with a drag in progress, so this is inert
+// the rest of the time.
+(function bindCutDragging() {
+  if (typeof document === 'undefined' || !document.addEventListener) return;
+  const opening = () => (typeof state !== 'undefined' && state.openings)
+    ? state.openings.find(x => x.id === viewerOpeningId) : null;
+  // screen → DXF, through the SVG's own CTM so it works at any container width
+  const pt = (evt, o, skipIdx) => {
+    const el = document.getElementById('frame-map-svg');
+    if (!el || !el.getScreenCTM) return null;
+    const m = el.getScreenCTM(); if (!m) return null;
+    const p = el.createSVGPoint(); p.x = evt.clientX; p.y = evt.clientY;
+    const loc = p.matrixTransform(m.inverse());
+    const ax = cutSnapAxes(o, skipIdx);
+    return { x: snapAxis(ax.xs, (+el.dataset.x0) + loc.x), y: snapAxis(ax.ys, (+el.dataset.y1) - loc.y) };
+  };
+  // #move: the snapped `pt` above is right for drawing (the cursor IS the corner) but wrong for
+  // moving — there the cursor is an arbitrary grab point, so the thing that must land on a snap
+  // axis is the piece's own edge. This returns the raw position; the mover snaps the edges.
+  const rawPt = (evt) => {
+    const el = document.getElementById('frame-map-svg');
+    if (!el || !el.getScreenCTM) return null;
+    const m = el.getScreenCTM(); if (!m) return null;
+    const q = el.createSVGPoint(); q.x = evt.clientX; q.y = evt.clientY;
+    const loc = q.matrixTransform(m.inverse());
+    return { x: (+el.dataset.x0) + loc.x, y: (+el.dataset.y1) - loc.y };
+  };
+  /* Snap whichever EDGE actually engaged, and carry the piece with it. Compare the two snap
+     DELTAS, not the resulting positions: measuring "which result is closer to where I was"
+     always picks the edge that did not snap (its delta is zero by definition), so a piece
+     dragged up under the head would never catch it. */
+  const snapSpan = (axes, lo, len) => {
+    const dLo = snapAxis(axes, lo) - lo;
+    const dHi = snapAxis(axes, lo + len) - (lo + len);
+    const d = (dLo !== 0 && (dHi === 0 || Math.abs(dLo) <= Math.abs(dHi))) ? dLo : dHi;
+    return lo + d;
+  };
+  const repaint = () => { if (viewerOpeningId != null) renderViewer(viewerOpeningId); };
+
+  document.addEventListener('mousedown', e => {
+    if (viewerShowGasket || viewerShowCutting || viewerOpeningId == null) return;
+    if (!e.target.closest || !e.target.closest('#frame-map-svg')) return;
+    const o = opening(); if (!o) return;
+    const h = e.target.closest('rect[data-handle]');
+    if (h && viewerEditIdx != null && o.cuts[viewerEditIdx]) {
+      const p = pt(e, o, viewerEditIdx); if (!p) return;
+      e.preventDefault();
+      viewerCutDrag = { mode: 'end', idx: viewerEditIdx, end: +h.getAttribute('data-handle'), start: { ...o.cuts[viewerEditIdx].src } };
+      return;
+    }
+    // #move: grab a piece anywhere on its body and slide it. This is what makes placing a chip
+    // useful — you supply the position by dragging, having already supplied the length by typing.
+    // Not while the pencil is on: there a drag across a piece is meant to draw a new one.
+    if (!viewerCutDraw) {
+      const body = e.target.closest('rect[data-cut]');
+      if (body) {
+        const bi = parseInt(body.getAttribute('data-cut'), 10);
+        const bc = o.cuts && o.cuts[bi];
+        if (bc && bc.src) {
+          const g = rawPt(e); if (!g) return;
+          e.preventDefault();
+          viewerCutDrag = { mode: 'move', idx: bi, start: { ...bc.src }, grab: g, moved: false };
+        }
+      }
+      return;
+    }
+    const p = pt(e, o, -1); if (!p) return;
+    e.preventDefault();
+    viewerCutDrag = { mode: 'draw', rect: { x1: p.x, y1: p.y, x2: p.x, y2: p.y } };
+    repaint();
+  });
+
+  document.addEventListener('mousemove', e => {
+    if (!viewerCutDrag) return;
+    const o = opening(); if (!o) return;
+    if (viewerCutDrag.mode === 'draw') {
+      const p = pt(e, o, -1); if (!p) return;
+      viewerCutDrag.rect.x2 = p.x; viewerCutDrag.rect.y2 = p.y;
+      repaint();
+      return;
+    }
+    if (viewerCutDrag.mode === 'move') {
+      const g = rawPt(e); if (!g) return;
+      const s0 = viewerCutDrag.start;
+      const dx = g.x - viewerCutDrag.grab.x, dy = g.y - viewerCutDrag.grab.y;
+      if (!viewerCutDrag.moved && Math.abs(dx) < 0.25 && Math.abs(dy) < 0.25) return;  // a click, not a drag
+      viewerCutDrag.moved = true;
+      const ax = cutSnapAxes(o, viewerCutDrag.idx);
+      setCutGeometry(o, viewerCutDrag.idx, {
+        x: snapSpan(ax.xs, s0.x + dx, s0.w), y: snapSpan(ax.ys, s0.y + dy, s0.h), w: s0.w, h: s0.h });
+      repaint();
+      return;
+    }
+    // end drag: move only the end being held, along the member's own axis, and never past the
+    // other end (a zero- or negative-length member is not a thing).
+    const c = o.cuts[viewerCutDrag.idx]; if (!c || !c.src) return;
+    const p = pt(e, o, viewerCutDrag.idx); if (!p) return;
+    const s0 = viewerCutDrag.start, horiz = s0.w > s0.h, MIN = 0.5;
+    if (horiz) {
+      const far = viewerCutDrag.end ? s0.x : s0.x + s0.w;
+      const v = Math.min(Math.max(p.x, far === s0.x ? far + MIN : -Infinity), far === s0.x ? Infinity : far - MIN);
+      setCutGeometry(o, viewerCutDrag.idx, { x: Math.min(v, far), y: s0.y, w: Math.abs(v - far), h: s0.h });
+    } else {
+      const far = viewerCutDrag.end ? s0.y : s0.y + s0.h;
+      const v = Math.min(Math.max(p.y, far === s0.y ? far + MIN : -Infinity), far === s0.y ? Infinity : far - MIN);
+      setCutGeometry(o, viewerCutDrag.idx, { x: s0.x, y: Math.min(v, far), w: s0.w, h: Math.abs(v - far) });
+    }
+    repaint();
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (!viewerCutDrag) return;
+    const d = viewerCutDrag; viewerCutDrag = null;
+    const o = opening();
+    if (!o) { repaint(); return; }
+    if (d.mode === 'move' && !d.moved) { return; }   // plain click — leave selection to the click handler
+    if (d.mode === 'draw') {
+      const r = d.rect;
+      const x = Math.min(r.x1, r.x2), y = Math.min(r.y1, r.y2);
+      const w = Math.abs(r.x2 - r.x1), h = Math.abs(r.y2 - r.y1);
+      if (Math.max(w, h) < 1) { repaint(); return; }        // a stray click, not a member
+      // Orientation decides the role, and the role is then yours to change in the editor below —
+      // guessing further (Head vs Horizontal vs Sill) from a freehand rectangle would be noise.
+      const horiz = w >= h;
+      const cut = { position: horiz ? 'Horizontal' : 'Vertical', length: dxfRound(Math.max(w, h)), count: 1,
+        src: { x: +x.toFixed(3), y: +y.toFixed(3), w: +Math.max(w, 0.5).toFixed(3), h: +Math.max(h, 0.5).toFixed(3), layer: '' } };
+      o.cuts.push(cut);
+      viewerEditIdx = o.cuts.length - 1;     // land in the editor on the piece just drawn
+    }
+    refreshAfterCutEdit();
+  });
+})();
+
+// ---------- Accessories takeoff (rules engine) ----------
+// #acc-rules-v2 (2026-08-20, Leo — fastener/anchor rules from YKK 04-4014-25 + his own takeoff
+// workbook): the five original rules all measure the FRAMING (pieces, spacing, LF, lites,
+// openings). The fastener rules do not work that way — they hang off ANOTHER PART:
+//   "(2) HF-2510-W1 per shear block"                   → 2 × however many shear blocks there are
+//   "pressure plate punched 0.281" holes at 9" O.C."   → pressure-plate inches ÷ 9
+// Expressing those as framing rules meant re-deriving the shear-block count inside three separate
+// rules and keeping them in step by hand — which is exactly how Leo's spreadsheet ends up with
+// `=G77*2` and `=G78` pointing at each other. Two rule types make the dependency explicit instead:
+//   per_part      qty = param × (pieces of the referenced part(s))
+//   per_part_len  qty = (total inches of the referenced part(s)) ÷ param
+// For these two the Positions column holds PART NUMBERS, not roles. The referenced part may be a
+// stock part (from the cut list) or another accessory row — one level of indirection, no chains,
+// so the order of evaluation can never matter.
+const ACC_RULES = {
+  per_piece:    { label: '/ piece',    paramLabel: 'qty per piece' },
+  per_spacing:  { label: 'spacing',    paramLabel: 'o.c. inches'   },
+  per_lf:       { label: '× LF',       paramLabel: 'factor'        },
+  per_lite:     { label: '/ lite',     paramLabel: 'qty per lite'  },
+  per_opening:  { label: '/ opening',  paramLabel: 'qty per opening' },
+  per_part:     { label: '/ part qty', paramLabel: 'qty per piece of that part' },
+  per_part_len: { label: '÷ part o.c.', paramLabel: 'o.c. inches along that part' },
+  // #per-panel (2026-08-20, Leo): "install setting block chairs and rubber/silicone setting blocks
+  // at the 1/4 points of the daylight opening (D.L.O.) along the sill or intermediate horizontal
+  // member — so 2 for each panel (not just lite because imp-1 panel needs setting block too)".
+  // `per_lite` cannot express that: lites are a vision-glass count, and an IMP-1 panel is not a
+  // lite but still sits on setting blocks. This reads the PANEL MAP instead — the same glass /
+  // IMP-1 / louver / door panels the gasket takeoff uses, including any drawn by hand — so a
+  // re-typed or hand-drawn panel changes this count too. For this rule the Positions column holds
+  // PANEL TYPES (Glass / IMP-1 / Louver / Door); empty means glass + IMP-1.
+  per_panel:    { label: '/ panel',    paramLabel: 'qty per panel' },
+};
+// The Positions column means three different things depending on the rule, which is invisible in a
+// bare text box. Placeholder + tooltip now say which one is expected.
+const ACC_POSITIONS_HINT = {
+  per_part: '(part numbers)', per_part_len: '(part numbers)',
+  per_panel: 'Glass, IMP-1, Louver, Door',
+};
+const ACC_POSITIONS_HELP = {
+  per_part: 'PART NUMBERS this rule hangs off (e.g. E1-3504) — not roles.',
+  per_part_len: 'PART NUMBERS whose total length is divided by the o.c. spacing — not roles.',
+  per_panel: 'PANEL TYPES: Glass, IMP-1, Louver, Door. Empty = Glass + IMP-1. Not roles, and not part numbers.',
+};
+const ACC_PANEL_TYPE_ALIAS = { 'glass': 'glass', 'imp-1': 'panel', 'imp1': 'panel', 'panel': 'panel', 'louver': 'louver', 'door': 'door' };
+const ACC_PART_REF_RULES = ['per_part', 'per_part_len'];
 
 function computeAccessories() {
   // 按系统聚合: 每个 system 一份 {pos, lites, openingsQty}; system '' 视为全部洞口(旧通用行为)
   const bySys = {};
-  const agg = (sys) => bySys[sys] || (bySys[sys] = { pos: {}, lites: 0, openingsQty: 0 });
-  const allOpen = { pos: {}, lites: 0, openingsQty: 0 };
+  const agg = (sys) => bySys[sys] || (bySys[sys] = { pos: {}, lites: 0, openingsQty: 0, panels: {} });
+  const allOpen = { pos: {}, lites: 0, openingsQty: 0, panels: {} };
   const tally = (g, o, q) => {
     g.openingsQty += q;
     g.lites += (parseFloat(o.lites) || 0) * q;
+    // #per-panel: panel counts by type. Recomputed on demand — an opening restored from storage
+    // has its panelCells but not necessarily the resolved panels, and a rule that silently read 0
+    // would look like "this elevation needs no setting blocks".
+    if (Array.isArray(o.panelCells) && !Array.isArray(o.panels)) recomputeOpeningGaskets(o);
+    if (Array.isArray(o.panelCells)) g.hasPanelMap = true;
+    for (const p of (o.panels || [])) g.panels[p.t0] = (g.panels[p.t0] || 0) + q;
     for (const c of expandOpeningCuts(o)) {
       const p = g.pos[c.position] || (g.pos[c.position] = { inches: 0, pieces: 0, lens: [] });
       p.inches += c.length * c.count * q;
@@ -1315,14 +3357,15 @@ function computeAccessories() {
       for (let i = 0; i < c.count * q; i++) p.lens.push(c.length);
     }
   };
-  for (const o of state.openings) {
+  for (const o of scopedOpenings()) {
     const q = o.qty || 1;
     tally(agg(o.system || ''), o, q);
     tally(allOpen, o, q);
   }
   const ruleRows = (state.accessories || []).map(a => {
-    const g = (a.system === '' || a.system === undefined) ? allOpen : (bySys[a.system] || { pos: {}, lites: 0, openingsQty: 0 });
-    const pos = g.pos, lites = g.lites, openingsQty = g.openingsQty;
+    if (ACC_PART_REF_RULES.includes(a.rule)) return { acc: a, qty: 0, basis: '', _deferred: true };
+    const g = (a.system === '' || a.system === undefined) ? allOpen : (bySys[a.system] || { pos: {}, lites: 0, openingsQty: 0, panels: {} });
+    const pos = g.pos, lites = g.lites, openingsQty = g.openingsQty, panelsByType = g.panels || {};
     const sel = (a.positions && a.positions.length) ? a.positions : Object.keys(pos);
     let inches = 0, pieces = 0, lens = [];
     for (const p of sel) if (pos[p]) {
@@ -1330,13 +3373,27 @@ function computeAccessories() {
     }
     const param = parseFloat(a.param) || 0;
     const mn = parseFloat(a.min) || 0;
-    let qty = 0, basis = '';
+    let qty = 0, basis = '', warn = '';
     if (a.rule === 'per_piece') {
       qty = Math.ceil(param * pieces);
       basis = `${pieces} pcs × ${param}`;
     } else if (a.rule === 'per_lite') {
       qty = Math.ceil(param * lites);
       basis = `${formatNumber(lites)} lites × ${param}`;
+    } else if (a.rule === 'per_panel') {
+      const want = (a.positions && a.positions.length)
+        ? a.positions.map(t => ACC_PANEL_TYPE_ALIAS[String(t).trim().toLowerCase()]).filter(Boolean)
+        : ['glass', 'panel'];
+      const n = want.reduce((t, k) => t + (panelsByType[k] || 0), 0);
+      qty = Math.ceil(param * n);
+      const bad = want.length !== (a.positions || []).length;
+      basis = `${n} panel${n === 1 ? '' : 's'} (${want.map(k => PANEL_TYPE_LABEL[k] || k).join(' + ')}) × ${param}`;
+      // #per-panel-zero: three different reasons a /panel rule reads 0, each with a different fix.
+      if (!n) {
+        if (bad || !want.length) { warn = `Positions must be panel TYPES for a / panel rule — ${PANEL_ALL_TYPES.map(t => PANEL_TYPE_LABEL[t]).join(' / ')}. "${(a.positions || []).join(', ')}" matches none.`; }
+        else if (!g.hasPanelMap) { warn = 'these elevations have no panel map — re-import the DXF, or draw panels in the 🧵 Gasket diagram'; }
+        else { warn = `no ${want.map(k => PANEL_TYPE_LABEL[k] || k).join(' / ')} panels in scope`; }
+      }
     } else if (a.rule === 'per_opening') {
       qty = Math.ceil(param * openingsQty);
       basis = `${openingsQty} openings × ${param}`;
@@ -1347,40 +3404,214 @@ function computeAccessories() {
       qty = Math.ceil(param * inches / 12 * 10) / 10;
       basis = `${formatNumber(inches)}" × ${param} ÷ 12`;
     }
-    return { acc: a, qty, basis };
+    return { acc: a, qty, basis, warn };
   });
-  // Perimeter-based gaskets computed at DXF import (state.openings[].gasketLF). Read-only rows
-  // in the table. #fix (2026-07-18, Leo §一/§七): infill gasket (glass/IMP-1) and storefront
-  // perimeter gasket are TWO INDEPENDENT takeoffs — kept as separate semantic keys
-  // (imp1/glass/perimeter) all the way from buildElevExport so they never get summed together,
-  // even though `imp1` and `perimeter` happen to use the same physical part number (E2-0120).
-  const gsum = { imp1: 0, glass: 0, perimeter: 0 };
-  for (const o of state.openings) { const gk = o.gasketLF; if (!gk) continue; const q = o.qty || 1; for (const k in gsum) gsum[k] += (+gk[k] || 0) * q; }
-  const GASKET_DEFS = {
-    imp1:      { partNumber: 'E2-0120', description: 'Gasket — IMP-1 infill ×2 (interior + exterior)', box: 500 },
-    glass:     { partNumber: 'E2-0127', description: 'Gasket — glass infill ×2 (interior + exterior)', box: 250 },
-    perimeter: { partNumber: 'E2-0120', description: 'Gasket — storefront perimeter ×1 (per independent zone)', box: 500 },
+  // ---- second pass: rules that hang off another part's quantity ----
+  // Stock parts come from the same FFD packing the cut list uses, so "pieces" here means the same
+  // thing it means everywhere else in the tool; accessory rows contribute the qty just computed.
+  if (ruleRows.some(r => r._deferred)) {
+    const refTotals = {};       // PART NUMBER → { pieces, inches }
+    const bump = (pn, pieces, inches) => {
+      const k = String(pn || '').trim().toUpperCase();
+      if (!k) return;
+      const t = refTotals[k] || (refTotals[k] = { pieces: 0, inches: 0 });
+      t.pieces += pieces; t.inches += inches;
+    };
+    for (const b of buildPooledPacking()) {
+      const inches = b.sticks.reduce((acc, st) => acc + (b.stock - (st.remaining || 0)), 0);
+      bump(b.partNumber, b.sticks.length, inches);
+    }
+    for (const r of ruleRows) if (!r._deferred && r.qty > 0) bump(r.acc.partNumber, r.qty, 0);
+    for (const r of ruleRows) {
+      if (!r._deferred) continue;
+      const a = r.acc;
+      const refs = (a.positions && a.positions.length) ? a.positions : [];
+      const param = parseFloat(a.param) || 0;
+      let pieces = 0, inches = 0;
+      const named = [];
+      for (const ref of refs) {
+        const t = refTotals[String(ref).trim().toUpperCase()];
+        named.push(String(ref).trim());
+        if (t) { pieces += t.pieces; inches += t.inches; }
+      }
+      if (!refs.length) { r.basis = 'no part referenced — put the part number(s) in the Positions column'; continue; }
+      if (a.rule === 'per_part') {
+        r.qty = Math.ceil(param * pieces);
+        r.basis = `${pieces} × ${named.join(' + ')} × ${param}`;
+      } else {
+        r.qty = param > 0 ? Math.ceil(inches / param) : 0;
+        r.basis = `${formatNumber(inches)}" of ${named.join(' + ')} ÷ ${param}"`;
+      }
+      delete r._deferred;
+    }
+  }
+  // #panel-gasket (2026-08-20): gaskets are now taken off PER INFILL PANEL, not per framing role
+  // and not by a whole-opening perimeter formula. Every panel carries its own gasket spec (part +
+  // loops), defaulted from its glass/IMP-1 type and overridable one panel at a time — so the rows
+  // below are simply "sum of (panel perimeter × loops) per part number", plus the storefront
+  // perimeter run which is still its own independent takeoff.
+  const gsum = new Map();     // partNumber -> LF
+  const addG = (part, lf) => { if (!part || !(lf > 0)) return; gsum.set(part, (gsum.get(part) || 0) + lf); };
+  // Keyed by part, not a single scalar: a project can hold 750XT and 45TU openings at once, and
+  // their perimeter/door runs are different parts (or, for 45TU, no run at all).
+  const perimBy = new Map(), doorBy = new Map();
+  const bump = (m, k, v) => { if (k && v > 0) m.set(k, (m.get(k) || 0) + v); };
+  for (const o of scopedOpenings()) {
+    const q = o.qty || 1, sg = systemGasket(o.system);
+    const by = o.gasketByPart || null;
+    if (by) for (const part in by) addG(part, (+by[part] || 0) * q);
+    bump(perimBy, sg.perimeterPart, (+(o.gasketPerimeterLF || 0)) * q);
+    bump(doorBy, sg.doorPart, (+(o.gasketDoorLF || 0)) * q);
+  }
+  const gaskRows = [...gsum.entries()].filter(([, lf]) => lf > 0.05)
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([part, raw]) => {
+      const lf = Math.round(raw * 10) / 10, box = gasketBoxLF(part), boxes = box ? Math.ceil(lf / box) : 0;
+      return { acc: { _computed: true, partNumber: part, description: 'Gasket — infill panels (per-panel takeoff)', rule: 'panel', positions: [], param: '', min: 0, unit: 'LF', system: '750XT' },
+        qty: lf, basis: box ? (boxes + ' box' + (boxes > 1 ? 'es' : '') + ' @ ' + box + "'/box") : '' };
+    });
+  // #door-perimeter: storefront and door are separate rows on purpose (Leo: "把 door gasket 单独
+  // 算更好，这样逻辑上更顺"). They share a part number today but never share a number — the
+  // storefront run skips each door's width at the sill and the door run owns its whole opening,
+  // so every physical edge is counted exactly once.
+  const addPerimRow = (lf0, part, desc, rule) => {
+    if (rule === 'perimeter' && state.includePerimeterGasket === false) return;   // the toggle is the storefront run only — a door still needs its jambs
+    if (!(lf0 > 0.05)) return;
+    const lf = Math.round(lf0 * 10) / 10, box = gasketBoxLF(part), boxes = box ? Math.ceil(lf / box) : 0;
+    gaskRows.push({ acc: { _computed: true, partNumber: part, description: desc, rule, positions: [], param: '', min: 0, unit: 'LF', system: '750XT' },
+      qty: lf, basis: box ? (boxes + ' box' + (boxes > 1 ? 'es' : '') + ' @ ' + box + "'/box") : '' });
   };
-  const gaskRows = Object.keys(gsum).filter(k => gsum[k] > 0.05).map(k => {
-    const def = GASKET_DEFS[k];
-    const lf = Math.round(gsum[k] * 10) / 10, boxes = def.box ? Math.ceil(lf / def.box) : 0;
-    return { acc: { _computed: true, partNumber: def.partNumber, description: def.description, rule: 'perimeter', positions: [], param: '', min: 0, unit: 'LF', system: '750XT' }, qty: lf, basis: def.box ? (boxes + ' box' + (boxes > 1 ? 'es' : '') + ' @ ' + def.box + "'/box") : '' };
-  });
+  for (const [part, lf] of perimBy) addPerimRow(lf, part, 'Gasket — storefront perimeter ×1 (per independent zone, door width excluded)', 'perimeter');
+  for (const [part, lf] of doorBy) addPerimRow(lf, part, 'Gasket — door ×1 (both jambs, full height; no header, no threshold, no panel loop)', 'door');
   return ruleRows.concat(gaskRows);
 }
 
+
+// ---------- Gasket defaults by system (#gasket-any-system, 2026-08-24) ----------
+// Leo: "I need gasket view for all systems … this tool needs to be an independent tool that
+// doesn't rely on position detection algorithm. It's expected to manually set panels/pieces/
+// gaskets". So what a panel takes stopped being a fact about 750XT and 45TU baked into the code,
+// and became a per-system setting anyone can type. Changing it flows straight through every
+// AUTO-typed and hand-drawn panel that has no per-panel override of its own — the override layer
+// is untouched, so nothing Leo set by hand is disturbed.
+let _gdSystem = null;
+function gdSystem() {
+  const list = SYSTEMS_LIST();
+  if (_gdSystem && list.includes(_gdSystem)) return _gdSystem;
+  const inUse = (state.openings || []).map(o => o.system).filter(s => list.includes(s));
+  return inUse[0] || list[0] || '';
+}
+function renderGasketDefaults() {
+  const host = document.getElementById('gasket-defaults');
+  if (!host) return;
+  const list = SYSTEMS_LIST();
+  const sys = gdSystem();
+  if (!sys) { host.innerHTML = ''; return; }
+  const g = systemGasket(sys), custom = isSystemGasketCustom(sys);
+  const row = (t, label, hint) => `
+    <label style="display:flex;align-items:center;gap:8px;">
+      <span style="width:150px;flex:none;color:var(--af-fg-3,#888);">${label}</span>
+      <input class="tk-cell-input mono" data-gd="${t}" value="${escAttr(gasketSpecText(g.panel[t]))}"
+             placeholder="${escAttr(hint)}" style="flex:1;min-width:0;" />
+    </label>`;
+  host.innerHTML = `
+    <details class="gd-box" ${custom ? 'open' : ''} style="margin-bottom:12px;border:1px solid var(--af-line,#ddd);border-radius:8px;background:var(--af-bg-2,#f6f6f6);">
+      <summary style="padding:8px 12px;cursor:pointer;font-size:13px;">
+        <b>Gasket defaults</b> — <span class="mono">${escHtml(sys)}</span>
+        <span style="color:var(--af-fg-3,#888);font-size:12px;">
+          · ${GASKET_PANEL_TYPES.filter(t => g.panel[t].length).map(t => `${PANEL_TYPE_LABEL[t]} ${escHtml(gasketSpecText(g.panel[t]))}`).join(' · ') || 'nothing set — panels bill no gasket'}
+          ${custom ? ' · <b>edited</b>' : ''}
+        </span>
+      </summary>
+      <div style="padding:2px 12px 12px;font-size:12px;display:grid;gap:6px;">
+        <p style="margin:2px 0 6px;color:var(--af-fg-3,#888);">
+          What a panel of each type takes, for every elevation on this system. Type any part number —
+          a system the tool has never seen is configured here, not in the code. Per-panel edits made in
+          a 🧵 Gasket diagram override these and are left alone.
+        </p>
+        <label style="display:flex;align-items:center;gap:8px;">
+          <span style="width:150px;flex:none;color:var(--af-fg-3,#888);">System</span>
+          <select id="gd-system" class="tk-cell-select">${list.map(s => `<option value="${escAttr(s)}" ${s === sys ? 'selected' : ''}>${escHtml(s)}</option>`).join('')}</select>
+        </label>
+        ${row('glass', 'Glass panel', 'E2-0127×1, E2-0120×1')}
+        ${row('panel', 'IMP-1 panel', 'E2-0127×1, E2-0120×1')}
+        ${row('louver', 'Louver', '(usually none)')}
+        ${row('door', 'Door panel', '(none — a door bills its two jambs below)')}
+        <label style="display:flex;align-items:center;gap:8px;">
+          <span style="width:150px;flex:none;color:var(--af-fg-3,#888);">Storefront perimeter</span>
+          <input class="tk-cell-input mono" data-gd="perimeterPart" value="${escAttr(g.perimeterPart || '')}" placeholder="(no perimeter run)" style="width:160px;" />
+          <span style="color:var(--af-fg-3,#888);">×1 around each independent zone</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;">
+          <span style="width:150px;flex:none;color:var(--af-fg-3,#888);">Door jambs</span>
+          <input class="tk-cell-input mono" data-gd="doorPart" value="${escAttr(g.doorPart || '')}" placeholder="(no door run)" style="width:160px;" />
+          <span style="color:var(--af-fg-3,#888);">×2, full height — no header, no threshold</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;">
+          <span style="width:150px;flex:none;color:var(--af-fg-3,#888);">Coil per box (LF)</span>
+          <input class="tk-cell-input mono" id="gd-boxlf" value="${escAttr(gasketBoxLFText())}" placeholder="E2-0127:250, E2-0120:500" style="flex:1;min-width:0;" />
+        </label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px;">
+          ${custom ? `<button class="tk-btn tk-btn--ghost tk-btn--sm" id="gd-reset">↺ Reset ${escHtml(sys)} to seed</button>` : ''}
+          <span style="color:var(--af-fg-3,#888);align-self:center;">Format: <span class="mono">PART×loops</span>, comma separated. A bare part number means ×1.</span>
+        </div>
+      </div>
+    </details>`;
+}
+// One handler for the whole block: read every field back, write the spec, re-derive every
+// opening's gasket, redraw. Cheap enough to do on each change, and it means the numbers in the
+// table below never lag the field you just typed in.
+function commitGasketDefaults() {
+  const host = document.getElementById('gasket-defaults');
+  if (!host) return;
+  const sys = gdSystem();
+  const spec = { panel: {}, perimeterPart: null, doorPart: null };
+  for (const t of GASKET_PANEL_TYPES) {
+    const el = host.querySelector(`[data-gd="${t}"]`);
+    spec.panel[t] = parseGasketSpecText(el ? el.value : '');
+  }
+  const pEl = host.querySelector('[data-gd="perimeterPart"]'), dEl = host.querySelector('[data-gd="doorPart"]');
+  spec.perimeterPart = pEl ? pEl.value.trim() : '';
+  spec.doorPart = dEl ? dEl.value.trim() : '';
+  const boxEl = document.getElementById('gd-boxlf');
+  if (boxEl) state.gasketBoxLF = parseGasketBoxLFText(boxEl.value);
+  setSystemGasket(sys, spec);
+  for (const o of (state.openings || [])) if (o.system === sys) recomputeOpeningGaskets(o);
+  save(); renderReport();
+  if (viewerOpeningId != null) renderViewer(viewerOpeningId);
+}
+document.addEventListener('change', e => {
+  if (!e.target.closest || !e.target.closest('#gasket-defaults')) return;
+  if (e.target.id === 'gd-system') { _gdSystem = e.target.value; renderGasketDefaults(); return; }
+  commitGasketDefaults();
+});
+document.addEventListener('click', e => {
+  if (!e.target.closest) return;
+  if (e.target.closest('#gd-reset')) {
+    resetGasketDefaultsForCurrentSystem();
+  }
+});
+function resetGasketDefaultsForCurrentSystem() {
+  const sys = gdSystem();
+  resetSystemGasket(sys);
+  for (const o of (state.openings || [])) if (o.system === sys) recomputeOpeningGaskets(o);
+  save(); renderGasketDefaults(); renderReport();
+  if (viewerOpeningId != null) renderViewer(viewerOpeningId);
+}
+
 function renderAccessories() {
+  renderGasketDefaults();
   const tbody = document.getElementById('acc-tbody');
   if (!tbody) return;
   let rows = computeAccessories();
-  const sysInUse = new Set(state.openings.map(o => o.system).filter(Boolean));
+  const sysInUse = new Set(scopedOpenings().map(o => o.system).filter(Boolean));
   if (sysInUse.size) rows = rows.filter(r => !r.acc.system || sysInUse.has(r.acc.system));
   if (!rows.length) {
     tbody.innerHTML = `<tr class="is-empty"><td colspan="9">No accessory rules — add one below.</td></tr>`;
     return;
   }
   const sysOpts = ['', ...SYSTEMS_LIST()];
-  tbody.innerHTML = rows.map(({ acc: a, qty, basis }) => a._computed ? `
+  tbody.innerHTML = rows.map(({ acc: a, qty, basis, warn }) => a._computed ? `
     <tr class="acc-computed" title="Computed from imported elevations — perimeter-based gasket (auto)">
       <td class="col-sys">${escHtml(a.system || '')}</td>
       <td class="col-mark mono">${escHtml(a.partNumber || '')}</td>
@@ -1402,10 +3633,11 @@ function renderAccessories() {
           ${Object.entries(ACC_RULES).map(([k, r]) => `<option value="${k}" ${k === a.rule ? 'selected' : ''}>${r.label}</option>`).join('')}
         </select>
       </td>
-      <td><input class="tk-cell-input" data-afield="positions" value="${escAttr((a.positions || []).join(', '))}" placeholder="(all positions)" title="Comma-separated positions; empty = all" /></td>
+      <td><input class="tk-cell-input" data-afield="positions" value="${escAttr((a.positions || []).join(', '))}" placeholder="${escAttr(ACC_POSITIONS_HINT[a.rule] || '(all positions)')}" title="${escAttr(ACC_POSITIONS_HELP[a.rule] || 'Comma-separated role names; empty = every role')}" /></td>
       <td class="col-num-sm"><input class="tk-cell-input num" data-afield="param" type="number" step="0.05" value="${a.param}" title="${(ACC_RULES[a.rule] || {}).paramLabel || 'param'}" /></td>
       <td class="col-num-sm"><input class="tk-cell-input num" data-afield="min" type="number" step="1" value="${a.min || 0}" title="min per piece (spacing rule)" /></td>
-      <td class="col-num"><span class="acc-qty mono" title="${escAttr(basis)}">${formatNumber(qty)} ${escHtml(a.unit || 'ea')}</span></td>
+      <td class="col-num"><span class="acc-qty mono" title="${escAttr(basis)}">${formatNumber(qty)} ${escHtml(a.unit || 'ea')}</span>${
+        warn ? `<div style="font-size:10px;color:#c2410c;font-weight:400;white-space:normal;line-height:1.3;margin-top:2px;">⚠ ${escHtml(warn)}</div>` : ''}</td>
       <td class="tk-rowdel"><button class="tk-rowdel-btn" data-action="del-accessory" title="Delete rule">${ico('trash')}</button></td>
     </tr>
   `).join('');
@@ -1613,7 +3845,18 @@ const REMAINDER_EPS = 1e-6;
 // fully used) with a tick line at each cut boundary, part name label to the left of each pile
 // (group), stick number to the left of each row, leftover length labeled past the open end, and
 // the elevation mark as a header above the whole diagram.
-function renderCuttingSvg(groups, mark) {
+// #cutting-dxf-frame: draw a part's cross-section as plain SVG paths in the CALLER's coordinate
+// system (y down), fitted into boxW × boxH. Shares window.PART_SECTION_GEO with the DXF export, so
+// the on-screen preview and the exported sheet are the same drawing at a different scale.
+function partSectionSvgPaths(partNumber, x0, yTop, boxW, boxH) {
+  const geo = (window.PART_SECTION_GEO || {})[partNumber];
+  if (!geo || !geo.paths || !geo.paths.length) return null;
+  const sc = Math.min(boxW / (geo.w || 1), boxH / (geo.h || 1));
+  const d = geo.paths.map(p => p.map((q, i) => (i ? 'L' : 'M') + (x0 + q[0] * sc).toFixed(2) + ' ' + (yTop + (geo.h - q[1]) * sc).toFixed(2)).join('')).join('');
+  return { body: `<path d="${d}" fill="none" stroke="currentColor" stroke-width="0.6" stroke-linejoin="round" opacity="0.75"><title>${escHtml(partNumber)} section</title></path>`,
+    width: geo.w * sc, height: geo.h * sc };
+}
+function renderCuttingSvg(groups, mark, gaskets) {
   const stockMax = Math.max(...groups.map(g => g.stock), STOCK_INCHES);
   const rowH = 18, halfH = STOCK_BAR_HEIGHT / 2, padT = 10;
   const xStickNum = 26, xPartLabel = 2, xLineStart = 96; // left-side label columns, then the line
@@ -1643,9 +3886,28 @@ function renderCuttingSvg(groups, mark) {
       if (hasWaste) body += `<text x="${(xLineStart + g.stock + 4).toFixed(2)}" y="${(y + 3.5).toFixed(2)}" font-size="7" fill="currentColor">${formatNumber(remaining)}" left</text>`;
       y += rowH;
     }
-    const yLast = y - rowH;
-    body += `<text x="${xPartLabel}" y="${((yFirst + yLast) / 2 + 3.5).toFixed(2)}" font-size="8" fill="currentColor">${escHtml(g.partNumber)}</text>`;
+    // #cutting-dxf-frame: part number at the top of its pile with the extrusion cross-section
+    // directly under it — same arrangement as the DXF export, so the screen matches the sheet.
+    body += `<text x="${xPartLabel}" y="${(yFirst - 6).toFixed(2)}" font-size="8" fill="currentColor">${escHtml(g.partNumber)}</text>`;
+    const sec = partSectionSvgPaths(g.partNumber, xPartLabel, yFirst + 2, xLineStart - xPartLabel - 8, 46);
+    if (sec) {
+      body += sec.body;
+      const need = 8 + sec.height;
+      const have = y - yFirst;
+      if (need > have) y += (need - have);
+    }
     y += rowH * 0.6; // group gap between parts
+  }
+  // #gasket-in-cutting: gasket is coil stock — no sticks, no nesting, just the total run.
+  if (gaskets && gaskets.length) {
+    y += 6;
+    body += `<text x="${xPartLabel}" y="${(y + 3.5).toFixed(2)}" font-size="8" font-weight="600" fill="currentColor">GASKET — total length (coil, no nesting)</text>`;
+    y += 13;
+    for (const g of gaskets) {
+      body += `<text x="${xPartLabel}" y="${(y + 3.5).toFixed(2)}" font-size="8" fill="currentColor">${escHtml(g.part)}</text>`;
+      body += `<text x="${(xLineStart).toFixed(2)}" y="${(y + 3.5).toFixed(2)}" font-size="8" fill="currentColor">${formatNumber(g.inches)}"  (${formatNumber(g.lf)} LF)</text>`;
+      y += 12;
+    }
   }
   const totalH = y + padT;
   return `<svg viewBox="0 0 ${(xLineStart + stockMax + 60).toFixed(2)} ${totalH.toFixed(2)}" style="width:100%;max-height:520px;display:block;color:#333;" preserveAspectRatio="xMinYMin meet">${body}</svg>`;
@@ -1667,20 +3929,120 @@ function dxfRect(x1, y1, x2, y2, layer) {
 function dxfText(x, y, height, value, layer) {
   return `0\nTEXT\n8\n${layer}\n10\n${x.toFixed(4)}\n20\n${y.toFixed(4)}\n30\n0\n40\n${height}\n1\n${String(value).replace(/[\r\n]/g, ' ')}\n`;
 }
+// #cutting-dxf-frame (2026-08-20, Leo: "每个 cutting diagram 上放上对应的 frame diagram …
+// 放在料表上方，然后每个 part 名称下面也要放上对应的 diagram"): the elevation's own framing
+// drawing, at true 1:1 inches, placed above that elevation's cut list. `cuts[].src` is the parsed
+// DXF geometry of every member, so this is literally the same picture as the viewer's framing
+// view — just re-emitted as DXF lines. Infill panels are outlined too (thin, on their own layer)
+// so the shop can see which bay each stick belongs to. Returns null when the opening has no
+// parsed geometry (a hand-entered opening), in which case the cut list just starts at the top.
+const FRAME_GROUP_GAP = 24;        // inches between two elevations of the same cut group (#cut-groups)
+const FRAME_DIAGRAM_MAX_W = 420;   // inches — wider elevations are scaled down to keep columns sane
+function buildFrameDiagramBody(o, x0, yTop) {
+  if (!o) return null;
+  const bb = openingFrameBox(o);
+  if (!bb) return null;
+  const w = bb.maxX - bb.minX, h = bb.maxY - bb.minY;
+  if (!(w > 0 && h > 0)) return null;
+  const sc = w > FRAME_DIAGRAM_MAX_W ? FRAME_DIAGRAM_MAX_W / w : 1;
+  const PX = v => x0 + (v - bb.minX) * sc;
+  const PY = v => yTop - (bb.maxY - v) * sc;   // yTop is the TOP of the drawing; DXF y grows up
+  let body = '';
+  for (const p of (o.panels || o.panelCells || [])) {
+    const t0 = p.t0 || 'glass';
+    body += dxfRect(PX(p.x1), PY(p.y1), PX(p.x2), PY(p.y2), 'FRAME-' + sanitizeDxfLayer(PANEL_TYPE_LABEL[t0] || t0));
+  }
+  for (const c of (o.cuts || [])) {
+    if (!c.src) continue;
+    const s = c.src;
+    body += dxfRect(PX(s.x), PY(s.y), PX(s.x + s.w), PY(s.y + s.h), 'FRAME');
+  }
+  if (sc !== 1) body += dxfText(x0, yTop - h * sc - 7, 4, `(frame shown at 1:${(1 / sc).toFixed(1)})`, 'FRAME');
+  return { body, width: w * sc, height: h * sc + (sc !== 1 ? 9 : 0) };
+}
+// #cutting-dxf-frame: the extrusion cross-section for one part number, from part-sections.js
+// (extracted from "new block.dxf"). Drawn under the part's name in the left-hand label gutter,
+// scaled up to a readable size next to a 24′ bar — the profiles are only a couple of inches
+// across, so at 1:1 they'd be invisible. Returns null for a part we have no section for; the
+// export then just shows the part number, and the missing profile is reported to the user.
+const PART_SECTION_BOX = 34;   // inches — the box a section is fitted into in the label gutter
+const MISSING_PART_SECTIONS = new Set();
+// A profile like BE9-3904 is 300+ polylines; emitting it inline at every pile blew a
+// single-elevation export up to ~270KB and would have run to megabytes across 40 elevations. So
+// each profile is written ONCE as a DXF BLOCK and dropped in with an INSERT (uniform scale) at
+// each pile — R12-native, a fraction of the size, and in CAD it becomes one editable block per
+// part rather than a thousand loose lines.
+let _sectionBlocks = new Map();   // partNumber -> block name, for the run currently being built
+function dxfSectionBlockName(partNumber) { return 'SEC_' + sanitizeDxfLayer(partNumber); }
+function buildPartSectionBody(partNumber, x0, yTop, box) {
+  const geo = (window.PART_SECTION_GEO || {})[partNumber];
+  if (!geo || !geo.paths || !geo.paths.length) { if (partNumber) MISSING_PART_SECTIONS.add(partNumber); return null; }
+  const size = box || PART_SECTION_BOX;
+  const sc = Math.min(size / (geo.w || 1), size / (geo.h || 1));
+  const name = dxfSectionBlockName(partNumber);
+  _sectionBlocks.set(partNumber, name);
+  const h = geo.h * sc;
+  // INSERT at the section's bottom-left; block geometry is 1:1 inches with its own origin there.
+  const body = `0\nINSERT\n8\n${'SECTION-' + sanitizeDxfLayer(partNumber)}\n2\n${name}\n` +
+    `10\n${x0.toFixed(4)}\n20\n${(yTop - h).toFixed(4)}\n30\n0\n` +
+    `41\n${sc.toFixed(6)}\n42\n${sc.toFixed(6)}\n43\n${sc.toFixed(6)}\n`;
+  return { body, width: geo.w * sc, height: h };
+}
+// The BLOCKS section for every profile referenced during this build. Called after the entity body
+// is assembled, because that is when _sectionBlocks is complete.
+function buildSectionBlocksSection() {
+  if (!_sectionBlocks.size) return '';
+  let out = '0\nSECTION\n2\nBLOCKS\n';
+  for (const [partNumber, name] of _sectionBlocks) {
+    const geo = (window.PART_SECTION_GEO || {})[partNumber];
+    if (!geo) continue;
+    const layer = 'SECTION-' + sanitizeDxfLayer(partNumber);
+    out += `0\nBLOCK\n8\n0\n2\n${name}\n70\n0\n10\n0\n20\n0\n30\n0\n3\n${name}\n`;
+    for (const path of geo.paths) {
+      if (path.length < 2) continue;
+      // POLYLINE/VERTEX rather than one LINE per segment: R12-native and roughly half the bytes.
+      out += `0\nPOLYLINE\n8\n${layer}\n66\n1\n10\n0\n20\n0\n30\n0\n70\n0\n`;
+      for (const q of path) out += `0\nVERTEX\n8\n${layer}\n10\n${q[0].toFixed(4)}\n20\n${q[1].toFixed(4)}\n30\n0\n`;
+      out += '0\nSEQEND\n';
+    }
+    out += '0\nENDBLK\n';
+  }
+  return out + '0\nENDSEC\n';
+}
 // #cutting-diagram: shared entity-body builder so a single-elevation DXF and the combined
 // all-elevations DXF (buildCombinedCuttingDxf) draw identical geometry — bordered bar per stick
-// (full stock length) + tick line per cut boundary, part/stick labels, elevation mark as a header
-// above the section. yOffset lets the combined export stack sections vertically; returns where
-// the next section should start (endY) so sections never overlap.
-function buildCuttingDxfBody(groups, mark, yOffset) {
-  const rowGap = 8, groupGap = 24, halfH = STOCK_BAR_HEIGHT / 2;
-  const xStickNum = -14, xPartLabel = -90, textH = 5;
+// (full stock length) + tick line per cut boundary, part/stick labels, elevation mark as a header.
+// #cutting-dxf-landscape (2026-08-20, Leo: "导出 cutting dxf (combined, one file) 需要横向的"):
+// takes an xOffset as well as a yOffset and reports the column's WIDTH, so the combined export can
+// lay elevations out left-to-right instead of stacking them into one very tall strip. `opening`
+// (optional) supplies the frame diagram drawn above the cut list.
+function buildCuttingDxfBody(groups, mark, yOffset, xOffset, opening, gasketsOverride) {
+  const x0 = xOffset || 0;
+  const rowGap = 8, groupGap = 12, halfH = STOCK_BAR_HEIGHT / 2;
+  const gutter = 100;                    // left-hand label column: part number + its section
+  const xBar = x0 + gutter;              // stick bars start here
+  const xStickNum = xBar - 14, xPartLabel = x0 + 2, textH = 5;
   let y = yOffset;
   let body = '';
+  let maxRight = xBar;
   if (mark) {
-    body += dxfText(0, y + textH * 1.6, textH * 1.4, mark, 'ELEVATION');
-    y -= textH * 2.6; // drop below the header before the first stick row
+    body += dxfText(xPartLabel, y + textH * 1.6, textH * 1.4, mark, 'ELEVATION');
+    y -= textH * 2.6;
   }
+  // #cut-groups: `opening` may be an ARRAY (a cut group) -- draw every member's frame diagram
+  // left to right, each captioned with its own mark, above the one shared cut list.
+  let fx = xBar, fh = 0;
+  const _frames = Array.isArray(opening) ? opening : [opening];
+  for (const op of _frames) {
+    const frame = buildFrameDiagramBody(op, fx, y);
+    if (!frame) continue;
+    body += frame.body;
+    if (_frames.length > 1 && op && op.mark) body += dxfText(fx, y + textH * 0.5, textH, op.mark, 'ELEVATION');
+    fx += frame.width + FRAME_GROUP_GAP;
+    fh = Math.max(fh, frame.height);
+    maxRight = Math.max(maxRight, fx);
+  }
+  if (fh) y -= fh + 24;                  // clear the frame(s) before the first pile
   for (const g of groups) {
     const layer = sanitizeDxfLayer(g.partNumber);
     const yFirst = y;
@@ -1691,45 +4053,98 @@ function buildCuttingDxfBody(groups, mark, yOffset) {
       const hasWaste = remaining > REMAINDER_EPS;
       const barTop = y - halfH, barBot = y + halfH;
       body += dxfText(xStickNum, y - textH / 3, textH, stickIdx, layer);
-      body += dxfLine(0, barTop, 0, barBot, layer);         // left edge
-      body += dxfLine(0, barTop, g.stock, barTop, layer);   // top
-      body += dxfLine(0, barBot, g.stock, barBot, layer);   // bottom
-      if (!hasWaste) body += dxfLine(g.stock, barTop, g.stock, barBot, layer); // right edge only if fully used
-      for (const t of stickTickPositions(s, g.stock)) body += dxfLine(t, barTop, t, barBot, layer);
-      if (hasWaste) body += dxfText(g.stock + 3, y - textH / 3, textH, formatNumber(remaining) + '" left', layer);
+      body += dxfLine(xBar, barTop, xBar, barBot, layer);                    // left edge
+      body += dxfLine(xBar, barTop, xBar + g.stock, barTop, layer);          // top
+      body += dxfLine(xBar, barBot, xBar + g.stock, barBot, layer);          // bottom
+      if (!hasWaste) body += dxfLine(xBar + g.stock, barTop, xBar + g.stock, barBot, layer); // right edge only if fully used
+      for (const t of stickTickPositions(s, g.stock)) body += dxfLine(xBar + t, barTop, xBar + t, barBot, layer);
+      if (hasWaste) body += dxfText(xBar + g.stock + 3, y - textH / 3, textH, formatNumber(remaining) + '" left', layer);
+      maxRight = Math.max(maxRight, xBar + g.stock + (hasWaste ? 60 : 4));
       y -= rowGap;
     }
-    const yLast = y + rowGap;
-    body += dxfText(xPartLabel, (yFirst + yLast) / 2 - textH / 3, textH, g.partNumber, layer);
+    // part name at the top of its pile, its cross-section immediately underneath (Leo's ask)
+    body += dxfText(xPartLabel, yFirst + textH * 0.9, textH, g.partNumber, layer);   // above the first bar, clear of the stick number
+    const sec = buildPartSectionBody(g.partNumber, xPartLabel, yFirst - textH * 1.8, Math.min(PART_SECTION_BOX, gutter - 8));
+    if (sec) body += sec.body;
+    const pileH = yFirst - (y + rowGap);
+    const labelH = textH * 1.8 + (sec ? sec.height : 0);
+    if (labelH > pileH) y -= (labelH - pileH);   // a tall section must not collide with the next pile
     y -= groupGap;
   }
-  return { body, endY: y };
+  // #gasket-in-cutting (2026-08-20, Leo): the gasket diagram's totals, appended to the cut list
+  // as plain text. Deliberately NOT packed onto stock bars — gasket comes on a coil, so a nesting
+  // layout would be meaningless; the shop only needs the running length per part number.
+  const gaskets = gasketsOverride || (Array.isArray(opening) ? groupGasketTotals(opening) : openingGasketTotals(opening));
+  if (gaskets && gaskets.length) {
+    y -= 6;
+    body += dxfText(xPartLabel, y, textH * 1.1, 'GASKET - total length (coil, no nesting)', 'GASKET');
+    y -= textH * 2;
+    for (const g of gaskets) {
+      body += dxfText(xPartLabel, y, textH, g.part, 'GASKET');
+      body += dxfText(xBar, y, textH, formatNumber(g.inches) + '" (' + formatNumber(g.lf) + ' LF)', 'GASKET');
+      y -= textH * 1.7;
+    }
+    maxRight = Math.max(maxRight, xBar + 160);
+  }
+  return { body, endY: y, x0, width: maxRight - x0, height: yOffset - y };
 }
-function buildCuttingDxf(groups, mark) {
-  const { body } = buildCuttingDxfBody(groups, mark, 0);
+function buildCuttingDxf(groups, mark, opening, gasketsOverride) {
+  _sectionBlocks = new Map();
+  const { body } = buildCuttingDxfBody(groups, mark, 0, 0, opening, gasketsOverride);
   const header = '0\nSECTION\n2\nHEADER\n9\n$INSUNITS\n70\n1\n0\nENDSEC\n'; // 1 = inches
   const entities = '0\nSECTION\n2\nENTITIES\n' + body + '0\nENDSEC\n';
-  return header + entities + '0\nEOF\n';
+  return header + buildSectionBlocksSection() + entities + '0\nEOF\n';
 }
-// #cutting-diagram (2026-07-20 rev2, Leo: "export all elevations in one dxf"): every elevation's
-// section stacked in a single file, each headed by its own mark label, using the same
-// buildCuttingDxfBody as the single-elevation export so the geometry never diverges.
+// #cutting-dxf-landscape (2026-08-20, Leo: "需要横向的"): elevations run LEFT TO RIGHT, each its
+// own column (mark header → frame diagram → cut list), so the sheet comes out wide rather than as
+// one endless vertical strip. Columns wrap onto a new row once the sheet gets wider than it is
+// tall, which keeps the whole thing close to a landscape rectangle however many elevations there
+// are — 4 elevations sit in one row, 30 wrap into a readable block instead of a 200-ft-wide line.
+const CUTTING_COL_GAP = 60;    // inches between columns
+const CUTTING_ROW_GAP = 90;    // inches between wrapped rows
 function buildCombinedCuttingDxf(list) {
-  const sectionGap = 40;
-  let y = 0, body = '';
-  for (const { mark, groups } of list) {
-    const r = buildCuttingDxfBody(groups, mark, y);
-    body += r.body;
-    y = r.endY - sectionGap;
+  // first pass: measure every column so the wrap width can be chosen from real sizes
+  const measured = list.map(({ mark, groups, opening, gaskets }) => {
+    const m = buildCuttingDxfBody(groups, mark, 0, 0, opening, gaskets);
+    return { mark, groups, opening, gaskets, w: m.width, h: m.height };
+  });
+  // Choose how many columns go in a row so the finished sheet lands near 1.6:1 landscape.
+  // Rows are as tall as their tallest column, so height ≈ rows × tallest and width ≈ perRow ×
+  // column width — solving those for the target ratio gives perRow directly, which is steadier
+  // than wrapping against a guessed width (that under-filled the last row and left the sheet
+  // taller than wide for small elevation counts).
+  const tallest = Math.max(...measured.map(m => m.h), 1);
+  const avgW = measured.reduce((a, m) => a + m.w + CUTTING_COL_GAP, 0) / measured.length;
+  const perRow = Math.max(1, Math.min(measured.length, Math.ceil(Math.sqrt(measured.length * (tallest + CUTTING_ROW_GAP) * 1.6 / avgW))));
+  _sectionBlocks = new Map();   // reset AFTER measuring, so the blocks map reflects the real pass
+  let body = '', x = 0, rowTop = 0, rowH = 0, col = 0;
+  for (const m of measured) {
+    if (col === perRow) { rowTop -= rowH + CUTTING_ROW_GAP; x = 0; rowH = 0; col = 0; }
+    body += buildCuttingDxfBody(m.groups, m.mark, rowTop, x, m.opening, m.gaskets).body;
+    x += m.w + CUTTING_COL_GAP;
+    rowH = Math.max(rowH, m.h);
+    col++;
   }
   const header = '0\nSECTION\n2\nHEADER\n9\n$INSUNITS\n70\n1\n0\nENDSEC\n';
   const entities = '0\nSECTION\n2\nENTITIES\n' + body + '0\nENDSEC\n';
-  return header + entities + '0\nEOF\n';
+  return header + buildSectionBlocksSection() + entities + '0\nEOF\n';
+}
+// #cutting-dxf-frame: parts whose cross-section isn't in part-sections.js are named in the export
+// but drawn as text only. Say so once per export rather than letting a silently missing profile
+// look like a bug — "没有的话问我要" (Leo).
+function reportMissingPartSections() {
+  if (!MISSING_PART_SECTIONS.size) return;
+  const list = [...MISSING_PART_SECTIONS].sort().join(', ');
+  console.warn('[cutting-dxf] no cross-section drawing for: ' + list);
+  const st = document.getElementById('export-status');
+  if (st) { st.textContent = 'Exported — no section drawing yet for: ' + list; st.className = 'tk-dxf__status'; }
 }
 function downloadCuttingDxf(o) {
   const groups = buildOpeningPacking(o);
   if (!groups.length) { alert('No parts with stock cuts for ' + (o.mark || 'this elevation') + '.'); return; }
-  const dxf = buildCuttingDxf(groups, o.mark);
+  MISSING_PART_SECTIONS.clear();
+  const dxf = buildCuttingDxf(groups, o.mark, o);
+  reportMissingPartSections();
   const blob = new Blob([dxf], { type: 'application/dxf' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -1738,7 +4153,7 @@ function downloadCuttingDxf(o) {
   setTimeout(() => URL.revokeObjectURL(url), 4000);
 }
 function downloadAllCuttingDxf() {
-  const opens = state.openings.filter(o => buildOpeningPacking(o).length);
+  const opens = scopedOpenings().filter(o => buildOpeningPacking(o).length);
   if (!opens.length) { alert('No openings with stock cuts to export.'); return; }
   let i = 0;
   const next = () => { if (i >= opens.length) return; downloadCuttingDxf(opens[i]); i++; setTimeout(next, 350); };
@@ -1747,15 +4162,17 @@ function downloadAllCuttingDxf() {
 // #cutting-diagram (2026-07-20 rev2): single combined DXF, all elevations stacked in one file —
 // separate button/action from downloadAllCuttingDxf (which still downloads one file per elevation).
 function downloadCombinedCuttingDxf() {
-  const list = state.openings
-    .map(o => ({ mark: o.mark, groups: buildOpeningPacking(o) }))
+  const list = scopedOpenings()
+    .map(o => ({ mark: o.mark, groups: buildOpeningPacking(o), opening: o }))
     .filter(x => x.groups.length);
   if (!list.length) { alert('No openings with stock cuts to export.'); return; }
+  MISSING_PART_SECTIONS.clear();
   const dxf = buildCombinedCuttingDxf(list);
+  reportMissingPartSections();
   const blob = new Blob([dxf], { type: 'application/dxf' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = url; a.download = 'all-elevations-cutting-combined.dxf';
+  a.href = url; a.download = `all-elevations-cutting-combined${scopeSuffix()}.dxf`;
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 4000);
 }
@@ -1768,7 +4185,7 @@ function downloadCombinedCuttingDxf() {
 // per-elevation sections into one file).
 function buildPooledPacking() {
   const buckets = new Map();
-  for (const o of (state.openings || [])) collectOpeningIntoBuckets(o, buckets, null, null);
+  for (const o of scopedOpenings()) collectOpeningIntoBuckets(o, buckets, null, null);
   return [...buckets.values()]
     .filter(b => b.pieces.length)
     .map(b => {
@@ -1780,13 +4197,132 @@ function buildPooledPacking() {
 function downloadPooledCuttingDxf() {
   const groups = buildPooledPacking();
   if (!groups.length) { alert('No openings with stock cuts to export.'); return; }
-  const dxf = buildCuttingDxf(groups, 'ALL OPENINGS (pooled)');
+  MISSING_PART_SECTIONS.clear();
+  // pooled = no single elevation, so no frame diagram; gasket totals are the project-wide sum
+  const dxf = buildCuttingDxf(groups, `ALL OPENINGS (pooled)${isScopeAll() ? '' : ' — ' + scopeLabel()}`, null, allOpeningsGasketTotals());   // pooled = no single elevation, so no frame diagram
+  reportMissingPartSections();
   const blob = new Blob([dxf], { type: 'application/dxf' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = url; a.download = 'all-openings-pooled-cutting.dxf';
+  a.href = url; a.download = `all-openings-pooled-cutting${scopeSuffix()}.dxf`;
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+// #cut-groups (2026-08-21, Leo: "cutting diagrams per two elevations starting with the same
+// number, eg 04.1&04.2 / 05.1&05.2"): a packing scope BETWEEN per-elevation and project-wide
+// pooled. Sibling marks (SF04.1 / SF04.2) are fabricated as one batch, so their pieces share the
+// same 24' sticks -- an offcut left on .1 gets used on .2. Group key = the mark with a trailing
+// separator+number stripped (SF04.1 -> SF04); a mark with no such suffix is its own group of one.
+// Per rule 4.9 that auto key is only a default guess: state.markGroups[mark] overrides it, so
+// typing the same key on two marks merges them and a different key splits them (UI: "Cut groups").
+function autoMarkGroupKey(mark) {
+  const m = String(mark || '').trim();
+  return m.replace(/[.\-_]\s*\d+[A-Za-z]?$/, '') || m;
+}
+function markGroupKey(mark) {
+  const m = String(mark || '').trim();
+  if (!m) return '';
+  const ov = (state.markGroups || {})[m];
+  return (ov && String(ov).trim()) || autoMarkGroupKey(m);
+}
+function setMarkGroup(mark, key) {
+  state.markGroups = state.markGroups || {};
+  const k = String(key || '').trim();
+  if (!k || k === autoMarkGroupKey(mark)) delete state.markGroups[mark];
+  else state.markGroups[mark] = k;
+  save();
+}
+function clearMarkGroups() { delete state.markGroups; save(); }
+// [{ key, label, openings:[o,...] }] -- every opening lands in exactly one group, marks sorted
+// naturally inside it, groups sorted naturally by key.
+function groupOpeningsByMark(list) {
+  const map = new Map();
+  // #export-scope (2026-08-26): the exports pass the scoped set; the config UI passes nothing and
+  // sees every mark, because you group marks once and then export whichever system you need.
+  for (const o of (list || state.openings || [])) {
+    const key = markGroupKey(o.mark) || String(o.mark || '');
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(o);
+  }
+  return [...map.entries()].map(([key, openings]) => {
+    openings.sort((a, b) => String(a.mark).localeCompare(String(b.mark), undefined, { numeric: true }));
+    return { key, openings,
+      label: openings.length > 1 ? key + ' (' + openings.map(o => o.mark).join(' + ') + ')' : String((openings[0] || {}).mark || key) };
+  }).sort((a, b) => a.key.localeCompare(b.key, undefined, { numeric: true }));
+}
+// Same shape as buildOpeningPacking/buildPooledPacking, scoped to one group -- identical
+// collectOpeningIntoBuckets + packFFDLayout path, so group stock counts can never drift from the
+// order list. Group total sits between the per-elevation sum and the fully pooled count.
+function buildGroupPacking(list) {
+  const buckets = new Map();
+  for (const o of (list || [])) collectOpeningIntoBuckets(o, buckets, null, null);
+  return [...buckets.values()]
+    .filter(b => b.pieces.length)
+    .map(b => {
+      const stock = b.stockInches || STOCK_INCHES;
+      return { system: b.system, partNumber: b.partNumber, description: b.description, stock, sticks: packFFDLayout(b.pieces, stock) };
+    })
+    .sort((a, b) => a.partNumber.localeCompare(b.partNumber, undefined, { numeric: true }));
+}
+function groupGasketTotals(list) {
+  const m = new Map();
+  for (const o of (list || [])) for (const g of openingGasketTotals(o)) m.set(g.part, (m.get(g.part) || 0) + g.lf);
+  return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([part, lf]) => ({ part, lf: +lf.toFixed(2), inches: +(lf * 12).toFixed(1) }));
+}
+// One landscape DXF, one COLUMN per cut group: the group's elevations drawn side by side, then a
+// single shared cut list underneath. Reuses buildCombinedCuttingDxf's wrap/measure layout.
+function downloadGroupedCuttingDxf() {
+  const list = groupOpeningsByMark(scopedOpenings())
+    .map(g => ({ mark: g.label, groups: buildGroupPacking(g.openings), opening: g.openings, gaskets: groupGasketTotals(g.openings) }))
+    .filter(x => x.groups.length);
+  if (!list.length) { alert('No openings with stock cuts to export.'); return; }
+  MISSING_PART_SECTIONS.clear();
+  const dxf = buildCombinedCuttingDxf(list);
+  reportMissingPartSections();
+  download(`cutting-by-elevation-group${scopeSuffix()}.dxf`, dxf, 'application/dxf');
+  const st = document.getElementById('export-status');
+  if (st && !MISSING_PART_SECTIONS.size) {
+    st.textContent = 'Exported ' + list.length + ' cut group(s): ' + list.map(x => x.mark).join(', ');
+    st.className = 'tk-dxf__status is-ok';
+  }
+}
+// Rule 4.9 override UI: one row per mark, its group key editable. Same key = cut together.
+function renderCutGroupsModal() {
+  const body = document.getElementById('cg-body');
+  if (!body) return;
+  const opens = state.openings || [];
+  if (!opens.length) { body.innerHTML = '<p style="font-size:12px;color:#888;">No openings yet.</p>'; return; }
+  const counts = new Map();
+  for (const o of opens) { const k = markGroupKey(o.mark); counts.set(k, (counts.get(k) || 0) + 1); }
+  body.innerHTML = opens.map(o => {
+    const auto = autoMarkGroupKey(o.mark), cur = markGroupKey(o.mark);
+    return '<label style="display:flex;align-items:center;gap:8px;font-size:12px;">'
+      + '<span style="width:96px;font-weight:600;">' + escHtml(o.mark) + '</span>'
+      + '<input class="cg-key" data-mark="' + escAttr(o.mark) + '" type="text" value="' + escAttr(cur) + '" style="flex:1;padding:5px;border:1px solid #ccc;border-radius:3px;" />'
+      + '<span style="width:120px;color:#888;">' + (cur === auto ? 'auto' : 'auto: ' + escHtml(auto)) + ' &middot; ' + counts.get(cur) + ' mark(s)</span>'
+      + '</label>';
+  }).join('');
+}
+function initCutGroupsModal() {
+  const btn = document.getElementById('cut-groups-config');
+  const modal = document.getElementById('cut-groups-modal');
+  if (!btn || !modal) return;
+  const close = () => { modal.style.display = 'none'; };
+  btn.addEventListener('click', () => { renderCutGroupsModal(); modal.style.display = 'flex'; });
+  modal.addEventListener('click', e => { if (e.target === modal) close(); });
+  const cancel = document.getElementById('cg-cancel');
+  if (cancel) cancel.addEventListener('click', close);
+  const reset = document.getElementById('cg-reset');
+  if (reset) reset.addEventListener('click', () => { clearMarkGroups(); renderCutGroupsModal(); });
+  const save2 = document.getElementById('cg-save');
+  if (save2) save2.addEventListener('click', () => {
+    for (const inp of modal.querySelectorAll('input.cg-key')) setMarkGroup(inp.getAttribute('data-mark'), inp.value);
+    close();
+    const st = document.getElementById('export-status');
+    if (st) { st.textContent = 'Cut groups: ' + groupOpeningsByMark().map(g => g.label).join('  |  '); st.className = 'tk-dxf__status is-ok'; }
+  });
 }
 
 // #cutting-diagram: factored out of buildReport() so a single opening can be
@@ -1875,7 +4411,7 @@ function buildReport() {
   const unresolved = []; // {opening, position, length}
   const posTotals = {};  // { system: { position: 总下料长(in) } } —— 角色层用
 
-  for (const o of state.openings) collectOpeningIntoBuckets(o, buckets, posTotals, unresolved);
+  for (const o of scopedOpenings()) collectOpeningIntoBuckets(o, buckets, posTotals, unresolved);
 
   const rows = [...buckets.values()].map(b => {
     const stock = b.stockInches || STOCK_INCHES;
@@ -1998,8 +4534,79 @@ function renameRole(sys, oldPos, newPos) {
   save(); renderParts(); renderReport(); renderMeta();
   if (viewerOpeningId != null) renderViewer(viewerOpeningId);
 }
+// ============================================================
+//  #export-scope (2026-08-24, Leo: "现在导出 excel / cutting diagrams 不分 system，改成导出前问
+//  要哪一个 system（可以多选）")
+//
+//  A modal on every export button would ask the same question four times and hide the answer until
+//  after you clicked. Instead the scope is a standing choice, shown as chips above the report: it
+//  filters the Consolidated Takeoff ON SCREEN and every export identically, so the numbers you are
+//  looking at are the numbers you are about to hand over. Nothing to remember, nothing to confirm.
+//  Default and empty selection both mean "every system present" — the scope can never silently
+//  export nothing.
+// ============================================================
+function systemsInUse() {
+  const seen = [];
+  for (const o of (state.openings || [])) { const s = o.system || ''; if (s && !seen.includes(s)) seen.push(s); }
+  const ord = SYSTEMS_LIST();
+  return seen.sort((a, b) => (ord.indexOf(a) + 1 || 99) - (ord.indexOf(b) + 1 || 99));
+}
+function exportScope() {
+  const all = systemsInUse();
+  const sel = (state.exportScope || []).filter(s => all.includes(s));
+  return sel.length ? sel : all;      // empty / stale selection = everything
+}
+function isScopeAll() { return exportScope().length === systemsInUse().length; }
+function scopeLabel() { return isScopeAll() ? 'all systems' : exportScope().join(' + '); }
+// The one gate every report and every export reads. `state.openings` stays whole — nothing is
+// hidden from the Openings table or the viewer, only from what gets totalled and written out.
+function scopedOpenings() {
+  const sel = exportScope();
+  if (isScopeAll()) return state.openings || [];
+  return (state.openings || []).filter(o => sel.includes(o.system || ''));
+}
+// A filename says what is in the file. "AC3 takeoff.xlsx" for one scope and a different set of
+// numbers in the next one is how the wrong file reaches the shop.
+function scopeSuffix() { return isScopeAll() ? '' : ' - ' + exportScope().join('+'); }
+function renderExportScope() {
+  const host = document.getElementById('export-scope');
+  if (!host) return;
+  const all = systemsInUse(), sel = exportScope();
+  if (all.length < 2) { host.innerHTML = ''; return; }   // one system in the job — nothing to choose
+  host.innerHTML = `
+    <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:6px 16px;font-size:12px;">
+      <span style="color:var(--af-fg-3,#888);">Scope</span>
+      <button class="tk-btn tk-btn--sm ${isScopeAll() ? 'tk-btn--accent' : 'tk-btn--ghost'}" data-scope="*">All</button>
+      ${all.map(s => `<button class="tk-btn tk-btn--sm ${!isScopeAll() && sel.includes(s) ? 'tk-btn--accent' : 'tk-btn--ghost'}" data-scope="${escAttr(s)}">${escHtml(s)}</button>`).join('')}
+      <span style="color:var(--af-fg-3,#888);">${isScopeAll() ? '' : `· ${scopedOpenings().length} of ${(state.openings || []).length} openings · report and every export are limited to ${escHtml(scopeLabel())}`}</span>
+    </div>`;
+}
+document.addEventListener('click', e => {
+  if (e.target.closest && e.target.closest('#vc-pin-diag')) {
+    const o = state.openings.find(x => x.id === viewerOpeningId);
+    const d = pinDiagnostics(o);
+    const txt = JSON.stringify(d, null, 1);
+    console.log('[pin-diag]', d);
+    try { navigator.clipboard.writeText(txt); } catch (_) {}
+    const st = document.getElementById('export-status');
+    if (st) { st.textContent = 'Pin diagnostics copied to the clipboard — paste them to Claude.'; st.className = 'tk-dxf__status is-ok'; }
+    return;
+  }
+  const b = e.target.closest && e.target.closest('#export-scope [data-scope]');
+  if (!b) return;
+  const v = b.dataset.scope, all = systemsInUse();
+  if (v === '*') state.exportScope = [];
+  else {
+    let sel = isScopeAll() ? [] : exportScope().slice();
+    sel = sel.includes(v) ? sel.filter(x => x !== v) : sel.concat([v]);
+    state.exportScope = (!sel.length || sel.length === all.length) ? [] : sel;
+  }
+  save(); renderReport(); renderMeta(); renderAccessories();
+});
+
 function renderReport() {
   const wrap = document.getElementById('report-body');
+  renderExportScope();
   const { rows, unresolved, posTotals } = buildReport();
 
   if (!rows.length && !unresolved.length) {
@@ -2047,7 +4654,7 @@ function renderReport() {
         </tr>`;
       // 组成可改: 列出该角色下的 part(垃圾桶=移出该角色), 末行下拉=把现有 part 加入该角色
       if (open) {
-        const _sec = (window.ROLE_SECTIONS || {})[pos];   // #5: show role section drawing when expanded
+        const _sec = sys === SECTION_LIBRARY_SYSTEM ? (window.ROLE_SECTIONS || {})[pos] : null;   // #5 — 750XT-only library, see showRoleTip
         if (_sec) html += `<tr class="role-part"><td colspan="4" style="padding:6px 26px;"><div style="display:flex;align-items:center;gap:12px;"><div style="min-width:128px;height:82px;display:flex;align-items:center;flex:0 0 auto;">${_sec}</div><span style="color:var(--af-fg-3,#888);font-size:11px;">Section · ${escHtml(pos)}</span></div></td></tr>`;
         for (const p of assigned) {
           html += `
@@ -2378,7 +4985,7 @@ function parseDxfText(text, opts) {
 // ============================================================
 let ELEV_EXPORTS = new Map();   // T4: accumulate across imports, keyed by elevGeo doc key (re-parse of same mark overwrites). Session-only (payload not persisted across reload).
 
-function buildElevExport(mark, c, pool, louverBand, doorRegions, structuralPolys, panelStrips, byOthersZones, cuts) {
+function buildElevExport(mark, c, pool, louverBand, doorRegions, structuralPolys, panelStrips, byOthersZones, cuts, system) {
   const bb = c.bbox;
   // 只有"扁条"structural(h≤12,IMP 板带)才出 panel 元素——整面大小的 structural
   // 矩形(scope/backer 框)不是板,导出会盖住整个立面(SF11/12 巨型元素 bug)。
@@ -2398,16 +5005,36 @@ function buildElevExport(mark, c, pool, louverBand, doorRegions, structuralPolys
       base += `<line x1="${lx1}" y1="${Y(ly)}" x2="${lx2}" y2="${Y(ly)}"/>`;
   }
   base += '</g>';
+  // #beam-gap (2026-08-20, Leo: "louver 和下方中间有一根 beam，上下其实是分开的两个 opening…
+  // 中间那里是没有 panel 的"): one elevation mark can hold two INDEPENDENT openings stacked with
+  // a structural beam between them. The grid happily fills that beam gap with cells, which then
+  // took infill gasket — 5 phantom glass panels on SF06 alone. A cell only counts if its centre
+  // falls inside a real opening: the main zone (Head-to-Sill, full width) or the louver band.
+  // When the elevation has no classified Head/Sill (hand-entered, or a non-750XT system) the
+  // main zone falls back to the whole bbox and nothing is dropped — unchanged behaviour.
+  const _cuts = cuts || [];
+  const headYs = _cuts.filter(cc => cc.position === 'Head' && cc.src).map(cc => cc.src.y + cc.src.h);
+  const sillYs = _cuts.filter(cc => cc.position === 'Sill' && cc.src).map(cc => cc.src.y);
+  const mainTop = headYs.length ? Math.max(...headYs) : bb.maxY;
+  const mainBot = sillYs.length ? Math.min(...sillYs) : bb.minY;
+  const ZONE_EPS = 2;
+  const inAnyZone = (y1, y2) => {
+    const cy = (y1 + y2) / 2;
+    if (cy > mainBot - ZONE_EPS && cy < mainTop + ZONE_EPS) return true;
+    if (louverBand && cy > louverBand.minY - ZONE_EPS && cy < louverBand.maxY + ZONE_EPS) return true;
+    return false;
+  };
   const els = []; let n = 0;
   const louverBays = new Set();   // #louver-fix: bays that already got a louver cell from the grid
-  const G = { glass: 0, panel: 0 };   // gasket: sum of element perimeters (inches), by type
-  // #gasket-viz (2026-07-19, Leo: "gasket takeoff is still not accurate... draw gasket lines so
-  // I can know how you do the takeoff"): every glass/panel cell that contributes to G.glass/
-  // G.panel is recorded here (DXF-space rect) so the two loops actually counted for it
-  // (interior+exterior) can be drawn on the elevation, not just summed into a number.
-  const gasketCells = [];
+  // #panel-gasket (2026-08-20): every infill cell the grid produces is recorded in DXF space as a
+  // raw panel — louver and door included, so the panel map is a complete picture of the elevation
+  // and a mis-detected cell can be re-typed rather than being invisible. `t0` here is the AUTO
+  // type; the effective type (and therefore the gasket) is resolved later through resolvePanel(),
+  // which layers Leo's per-panel overrides on top. No LF is summed in this function any more.
+  const panelCells = [];
   const add = (x1, y1, x2, y2, t0) => {
-    if (t0 === 'glass' || t0 === 'panel') { G[t0] += 2 * ((x2 - x1) + (y2 - y1)); gasketCells.push({ x1, y1, x2, y2, t0 }); }
+    if (!inAnyZone(y1, y2)) return;   // #beam-gap: between two stacked openings — no infill here
+    panelCells.push({ x1: +x1.toFixed(3), y1: +y1.toFixed(3), x2: +x2.toFixed(3), y2: +y2.toFixed(3), t0 });
     els.push({ id: mark + '-' + (++n), x: X(x1), y: Y(y2), w: W(x2 - x1), h: W(y2 - y1), t0 });
   };
   const H = pool.filter(p => p.width > p.height && p.height >= 1);
@@ -2450,11 +5077,10 @@ function buildElevExport(mark, c, pool, louverBand, doorRegions, structuralPolys
   // rectangle, unchanged from before) but never let `boards` contribute to the gasket sum —
   // pushed directly instead of through `add()`, which is what accumulates G.panel/G.glass.
   for (const p of boards) els.push({ id: mark + '-' + (++n), x: X(p.minX), y: Y(p.maxY), w: W(p.maxX - p.minX), h: W(p.maxY - p.minY), t0: 'panel' });
-  // Gaskets (per-infill-cell, confirmed 2026-07-16/17): glass → 2 loops (interior+exterior)
-  // of E2-0127; IMP-1 panel → 2 loops of E2-0120. #S3 bug fix: G.glass/G.panel already ARE the
-  // qty-2 (interior+exterior) sum — `add()` does `2*perimeter` per cell — so these must NOT be
-  // multiplied by 2 again (the old `2*G.glass`/`2*G.panel` silently doubled every cell a second
-  // time, inflating E2-0127 ~4x actual).
+  // #panel-gasket (2026-08-20): infill gasket LF is no longer computed here at all — it is
+  // resolved from the panel list + per-panel overrides (recomputeOpeningGaskets), so a manual
+  // re-type takes effect without re-importing the DXF. What IS still computed here is the
+  // storefront PERIMETER run, which is a property of the opening's geometry, not of any panel.
   // #fix (2026-07-18, Leo §一/§五/§七): storefront perimeter gasket and infill gasket are TWO
   // INDEPENDENT takeoffs — must not be summed into one number (the old code added openingPerim
   // straight into the E2-0120 infill total). Perimeter is also computed PER INDEPENDENT ZONE,
@@ -2466,19 +5092,12 @@ function buildElevExport(mark, c, pool, louverBand, doorRegions, structuralPolys
   // Main-zone extent is derived from the actual classified Head/Sill member Y-positions (not the
   // (X)-suffixed louver-zone variants), falling back to the full bbox when no Head/Sill cuts
   // exist (e.g. non-750XT, or a mark with no louver split at all — matches the old behavior).
-  const _cuts = cuts || [];
-  const headYs = _cuts.filter(cc => cc.position === 'Head' && cc.src).map(cc => cc.src.y + cc.src.h);
-  const sillYs = _cuts.filter(cc => cc.position === 'Sill' && cc.src).map(cc => cc.src.y);
-  const mainTop = headYs.length ? Math.max(...headYs) : bb.maxY;
-  const mainBot = sillYs.length ? Math.min(...sillYs) : bb.minY;
-  const mainH = mainTop > mainBot ? (mainTop - mainBot) : bb.height;
-  const mainPerim = 2 * (bb.width + mainH);
-  let perimTotal = mainPerim;
-  if (louverBand) perimTotal += 2 * ((louverBand.maxX - louverBand.minX) + (louverBand.maxY - louverBand.minY));
+  const _perim = perimeterRuns(bb, _cuts, louverBand, doorRegions);
+  const resolved = panelCells.map(cell => resolvePanel(mark, cell, system));
   const gaskets = {
-    imp1: +(G.panel / 12).toFixed(2),          // E2-0120 infill (IMP-1 panels), ×2 already baked into G.panel by add()
-    glass: +(G.glass / 12).toFixed(2),         // E2-0127 infill (glass), ×2 already baked into G.glass by add()
-    perimeter: +(perimTotal / 12).toFixed(2),  // E2-0120 storefront perimeter(s), ×1 per independent zone — separate takeoff from infill
+    byPart: gasketByPartFromPanels(resolved),  // { partNumber: LF } — the infill takeoff, per panel
+    perimeter: +(_perim.storefront.inches / 12).toFixed(2),  // storefront perimeter(s), ×1 per independent zone
+    door: +(_perim.door.inches / 12).toFixed(2),             // door opening(s) — its own takeoff, no threshold
   };
   // #gasket-viz (2026-07-19, Leo): draw BOTH gasket types directly on the elevation so the
   // takeoff can be visually audited instead of trusted as a black-box number.
@@ -2499,16 +5118,27 @@ function buildElevExport(mark, c, pool, louverBand, doorRegions, structuralPolys
     return `<rect x="${X(r.x1)}" y="${Y(r.y2)}" width="${W(r.x2 - r.x1)}" height="${W(r.y2 - r.y1)}" fill="none" stroke="${color}" stroke-width="0.5" ${dash ? `stroke-dasharray="${dash}"` : ''}/>`;
   };
   gasketViz += '<g>';
-  for (const cell of gasketCells) {
-    const color = cell.t0 === 'glass' ? '#2dd4bf' : '#f97316';   // teal E2-0127, orange E2-0120 infill
-    gasketViz += rectPath(inset(cell.x1, cell.y1, cell.x2, cell.y2, 0.6), color, '2,1');   // exterior loop
-    gasketViz += rectPath(inset(cell.x1, cell.y1, cell.x2, cell.y2, 2.2), color, '2,1');   // interior loop
+  for (const p of resolved) {
+    // one dashed loop per gasket part actually specified on this panel, inset progressively so
+    // two parts on the same panel read as two distinct rings rather than one doubled line.
+    let d = 0.6;
+    for (const g of p.gaskets) {
+      if (!g.part || !(g.loops > 0)) continue;
+      gasketViz += rectPath(inset(p.x1, p.y1, p.x2, p.y2, d), gasketPartColor(g.part), '2,1');
+      d += 1.6;
+    }
   }
-  gasketViz += rectPath({ x1: bb.minX, y1: mainBot, x2: bb.maxX, y2: mainTop }, '#eab308', null).replace('stroke-width="0.5"', 'stroke-width="1.2"');
-  if (louverBand) gasketViz += rectPath(louverBand, '#eab308', null).replace('stroke-width="0.5"', 'stroke-width="1.2"');
+  // #perimeter-outline: the elevation pushed to the tracker draws the SAME traced path the LF is
+  // summed from — gold for the storefront outline (one loop per independent frame zone), pink for
+  // the door jamb faces. Previously this drew a plain bbox rectangle, which is precisely the
+  // approximation that made the picture disagree with the number.
+  const _pline = (segs, color, w) => segs.map(([px1, py1, px2, py2]) =>
+    `<line x1="${X(px1)}" y1="${Y(py1)}" x2="${X(px2)}" y2="${Y(py2)}" stroke="${color}" stroke-width="${w}" fill="none"/>`).join('');
+  gasketViz += _pline(_perim.storefront.segs, '#eab308', 1.2);
+  gasketViz += _pline(_perim.door.segs, '#f472b6', 1.2);
   gasketViz += '</g>';
   base = base.replace('</g>', '</g>' + gasketViz);
-  return { key: mark, data: { viewBox: `0 0 ${+(bb.width * s).toFixed(1)} 400`, name: mark, base, elements: els }, gaskets };
+  return { key: mark, data: { viewBox: `0 0 ${+(bb.width * s).toFixed(1)} 400`, name: mark, base, elements: els }, gaskets, panelCells };
 }
 
 async function exportElevationsToTracker() {
@@ -2572,6 +5202,52 @@ function parseRawDxfOpenings(text, opts) {
       const lp = kids.map(dxfPolylineSummary).filter(p => p);
       if (lp.length) louverRegionsAll.push({ minX: Math.min(...lp.map(p => p.minX)), maxX: Math.max(...lp.map(p => p.maxX)), minY: Math.min(...lp.map(p => p.minY)), maxY: Math.max(...lp.map(p => p.maxY)) });
     }
+  }
+  // #exploded-door (2026-08-20, Leo — 2nd.dxf SF15.1/SF15.2 "门都没识别出来"): not every drawing
+  // places its doors as blocks. In 2nd.dxf there is not a single INSERT — the doors are exploded
+  // geometry — so the block-signature detector above finds nothing, the door never appears as a
+  // panel, no door gasket is billed, and (worse) the door leaf's own stiles and glass-stop rails
+  // get taken off as storefront Sill/Head members.
+  // The threshold settles it: an AF_SADDLE polyline is only ever drawn under a door. For each
+  // saddle we take the leaf outline standing on it — the widest rectangle on a leaf-bearing layer
+  // whose foot is on the saddle — and that rectangle IS the door: its x-span and its top become
+  // the door region, and every poly inside it is tagged __door so it drops out of the framing
+  // pool, exactly the way a block door's children do.
+  if (!doorRegionsAll.length) {
+    const polySumm = allEntities
+      .filter(e => /POLYLINE|LWPOLYLINE/i.test(e.type))
+      .map(e => ({ e, s: dxfPolylineSummary(e) }))
+      .filter(x => x.s && x.s.width > 0 && x.s.height > 0);
+    // A leaf outline lives on the door layer, the alum layer, or a fallback layer ('0'/AF_X).
+    // Deliberately NOT any layer: AF_BACKER ROD draws a rectangle over the same opening that is
+    // slightly LARGER than the leaf, and would otherwise win the "widest" test.
+    const leafLayer = lay => lay === LAYER_CONFIG.door || lay === LAYER_CONFIG.alum ||
+                             lay === LAYER_CONFIG.doorSubframe || LAYER_CONFIG.fallbacks.includes(lay);
+    const doorLeafRects = [];
+    for (const sad of polySumm.filter(x => x.s.layer === LAYER_CONFIG.saddle && x.s.width >= 12 && x.s.height <= 3)) {
+      const S = sad.s;
+      const cands = polySumm.filter(x => x !== sad && leafLayer(x.s.layer) && x.s.height >= 24 &&
+        x.s.minX >= S.minX - 3 && x.s.maxX <= S.maxX + 3 && Math.abs(x.s.minY - S.maxY) <= 3);
+      if (!cands.length) continue;
+      // widest candidate wins; if nothing spans most of the threshold we only found a stile, so
+      // fall back to the threshold's own span rather than billing a door 3" wide.
+      const widest = cands.slice().sort((a, b) => b.s.width - a.s.width)[0].s;
+      const spans = widest.width >= S.width * 0.6;
+      const rect = {
+        minX: spans ? widest.minX : S.minX,
+        maxX: spans ? widest.maxX : S.maxX,
+        minY: Math.min(S.minY, ...cands.map(c => c.s.minY)),
+        maxY: Math.max(...cands.map(c => c.s.maxY)),
+      };
+      doorLeafRects.push(rect);
+      doorRegionsAll.push({ kind: 'EXPLODED', minX: rect.minX, maxX: rect.maxX, headY: rect.maxY });
+    }
+    for (const x of polySumm) {
+      for (const r of doorLeafRects) {
+        if (x.s.minX >= r.minX - 1 && x.s.maxX <= r.maxX + 1 && x.s.minY >= r.minY - 1 && x.s.maxY <= r.maxY + 1) { x.e.__door = 1; break; }
+      }
+    }
+    if (doorLeafRects.length) console.log('[dxf] ' + doorLeafRects.length + ' exploded door(s) found via ' + LAYER_CONFIG.saddle);
   }
   const hasDoorBlocks = doorRegionsAll.length > 0;
   // AC3 hatch 检测: AF_HATCH/AF_GENERAL 的 HATCH 边界 bbox。
@@ -2641,8 +5317,20 @@ function parseRawDxfOpenings(text, opts) {
   // clustering, so they're neither taken off nor bridge two bays into one elevation
   // (e.g. the 21.5"-wide column between SF04.1 and SF04.2). Door-block polys are
   // exempt (they're wide but belong to the cluster; alumPool already excludes them).
-  const isStructural = p => !p.__door && Math.max(p.width, p.height) >= 24 &&
-    (p.height > p.width ? p.width >= 12 : p.height >= 6);
+  // #fat-poly (2026-08-20, Leo — SF06 "为什么一块panel分成了上下2块"): the ≥24" length gate
+  // above let a SHORT fat rectangle through. In 6.2.dxf the bay left of the door has a
+  // 21.01" x 14.61" rectangle on AF_ALUM PROFILE (an infill outline, with AF_GLASS IN LINE
+  // marks inside it) — 21" long, so it missed the ≥24" gate, stayed in the framing pool, was
+  // taken off as a phantom 21" Horizontal, and its centreline split that bay's panel into two.
+  // The identical 39.5" x 14.61" rectangle in the next bay DID clear 24" and was correctly
+  // dropped — which is exactly why only one bay split. Depth alone settles it: no extrusion in
+  // any of our systems is this deep (the deepest profile in the library is BE9-3910 at 6.75"),
+  // so a poly whose SHORT dimension exceeds that is an infill outline, whatever its length.
+  const PROFILE_MAX_DEPTH = 8;   // inches — comfortably above BE9-3910 (6.75"), below any infill
+  const isStructural = p => !p.__door && (
+    (Math.max(p.width, p.height) >= 24 && (p.height > p.width ? p.width >= 12 : p.height >= 6)) ||
+    Math.min(p.width, p.height) >= PROFILE_MAX_DEPTH
+  );
   const structuralPolys = alumDoorPolys.filter(isStructural);  // 留给立面导出(board=panel 元素)
   const framePolys = alumDoorPolys.filter(p => !isStructural(p));
   // 聚类只认真正的框料层(alum / doorSubframe / 门块)。fallback('0'/AF_X)和 outline
@@ -2789,9 +5477,19 @@ function parseRawDxfOpenings(text, opts) {
     // back to the lighter remembered role overrides (legacy roleEdits).
     const _saved = state.elevEdits && state.elevEdits[mark];
     let _reclassifiedDrift = null;   // #fix (2026-07-19): surfaced to the viewer — see renderViewer
-    if (_saved && _saved.geoSig === _freshSig && Array.isArray(_saved.cuts) && _saved.cuts.length) {
+    if (_saved && geoSigMatches(_saved.geoSig, cuts) && Array.isArray(_saved.cuts) && _saved.cuts.length) {
+      // #role-pins-v2: the saved cuts carry ABSOLUTE rects from whenever they were saved. The
+      // signature matched on RELATIVE geometry, so if the elevation has since been moved on the
+      // sheet those rects are in the old coordinate space — restoring them verbatim would put the
+      // whole edit-set out of register with the fresh bbox, the panel cells and the perimeter
+      // tracer. Slide them onto this import's origin; an elevation that never moved shifts by 0.
+      const _so = cutsOrigin(_saved.cuts), _fo = cutsOrigin(cuts);
+      const _dx = _fo.x - _so.x, _dy = _fo.y - _so.y;
+      if (Math.abs(_dx) > 0.05 || Math.abs(_dy) > 0.05)
+        console.log(`[persist] ${mark}: saved edits re-registered — the elevation moved ${_r1(_dx)}, ${_r1(_dy)} on the sheet`);
       cuts.length = 0;
-      for (const sc of _saved.cuts) cuts.push({ position: sc.position, length: sc.length, count: sc.count || 1, src: sc.src ? { ...sc.src } : null });
+      for (const sc of _saved.cuts) cuts.push({ position: sc.position, length: sc.length, count: sc.count || 1,
+        src: sc.src ? { ...sc.src, x: sc.src.x + _dx, y: sc.src.y + _dy } : null });
       const _beforeReclass = cuts.map(cc => cc.position);
       classifyRoles(cuts, { system, bbox: c.bbox, imp1Bands, louverBand, doorRegions, mark });
       // #fix (2026-07-19, Leo — SF01 data loss): the automatic reclassification above can still
@@ -2803,9 +5501,14 @@ function parseRawDxfOpenings(text, opts) {
       const drift = [];
       cuts.forEach((cc, i) => { if (_beforeReclass[i] != null && cc.position !== _beforeReclass[i]) drift.push({ src: cc.src, from: _beforeReclass[i], to: cc.position }); });
       if (drift.length) { _reclassifiedDrift = drift; console.warn('[classify] ' + drift.length + ' piece(s) in ' + mark + ' changed from the saved version on reclassify:', drift); }
+      _savedRoleReport.delete(mark);
     } else {
-      const _ov = state.roleEdits && state.roleEdits[mark];
-      if (_ov) for (const cc of cuts) { if (cc.src) { const k = srcKey(cc.src); if (_ov[k] != null) cc.position = _ov[k]; } }
+      // #saved-roles: the signature did not match — the drawing changed. Carry over every saved
+      // role that still has a piece to sit on, then let explicit pins override on top.
+      const _sr = applySavedRoles(_saved, cuts, mark);
+      if (_sr) console.log(`[persist] ${mark}: geometry changed — carried ${_sr.matched} of ${_sr.total} saved roles across (${_sr.changed} differ from auto)`);
+      _savedRoleReport.set(mark, _sr);
+      applyRolePins(cuts, mark, system, c.bbox);   // #role-pins-v2 — relative + tolerant, not an exact key
     }
     // Louver area is not glass → exclude it from vision-lite counting.
     const lites = dxfCountLites(alumPool.filter(p => !inLouver(p)));
@@ -2827,13 +5530,26 @@ function parseRawDxfOpenings(text, opts) {
       // of silently overwriting the saved version. Local-only (not part of the synced schema).
       _reclassifiedDrift,
     });
-    const _ex = buildElevExport(mark, c, alumPool, louverBand, doorRegions, structuralPolys, panelStrips, byOthersZones, cuts);
+    const _ex = buildElevExport(mark, c, alumPool, louverBand, doorRegions, structuralPolys, panelStrips, byOthersZones, cuts, system);
     // #M2-v2: geometry (viewBox/base/elements) is now owned by the tracker's own
     // dxf-elevations.js import; this tool's push (exportElevationsToTracker) writes ONLY
     // the `.takeoff` subfield below, so it never clobbers the tracker's geometry.
     _ex.takeoff = { system, cuts: cuts.map(cc => ({ position: cc.position, length: cc.length, count: cc.count || 1 })), gaskets: _ex.gaskets };
     ELEV_EXPORTS.set(_ex.key, _ex);
-    if (_ex.gaskets && system === '750XT') openings[openings.length - 1].gasketLF = _ex.gaskets;   // gasket: perimeter model is 750XT-only (45TU etc. use per-role glazing gasket rules)
+    // #panel-gasket: the raw panel list is stored ON the opening (so it survives a reload —
+    // ELEV_EXPORTS is session-only) and the LF totals are derived from it through the override
+    // layer. Done for EVERY system, not just 750XT (Leo: "45TU 为什么没有 gasket diagram") — the
+    // panel map is how you check and correct a takeoff, and it is worth just as much on a system
+    // the detector reads badly. What each system's panels actually consume is SYSTEM_GASKET's job;
+    // a system with no entry there simply gets a diagram with no gasket loops on it.
+    {
+      const _o = openings[openings.length - 1];
+      _o._pv = PARSER_VERSION;
+      _o.panelCells = _ex.panelCells || [];
+      _o.gasketPerimeterLF = (_ex.gaskets && _ex.gaskets.perimeter) || 0;
+      _o.gasketDoorLF = (_ex.gaskets && _ex.gaskets.door) || 0;
+      recomputeOpeningGaskets(_o);
+    }
   }
   return { openings, errors: [] };
 }
@@ -3576,7 +6292,7 @@ function exportCsv() {
       ].map(csvEsc).join(','));
     }
   }
-  download('takeoff.csv', String.fromCharCode(0xFEFF) + lines.join('\n'), 'text/csv;charset=utf-8');   // #3: UTF-8 BOM so Excel doesn't mojibake
+  download(`takeoff${scopeSuffix()}.csv`, String.fromCharCode(0xFEFF) + lines.join('\n'), 'text/csv;charset=utf-8');   // #3: UTF-8 BOM so Excel doesn't mojibake
 }
 function csvEsc(v) {
   const s = String(v ?? '');
@@ -3681,10 +6397,64 @@ function importPartList(text, format) {
 }
 window.importPartList = importPartList;
 
+// #reset-safety (2026-09-04, Leo: "修改记录永远是保存不了的，已经五次了"):
+// THIS is what was eating his work — not the pin matcher, which I spent four rounds improving.
+// resetAll() replaced the whole `state` object with a fresh one holding only parts, accessories and
+// an empty openings list. Every other key went with it: elevEdits (every corrected elevation and
+// its version history), rolePins, roleEdits, panelEdits, roleTemplates, recognizedRoles,
+// markGroups, systemGaskets — and then renderAll() called save(), writing the emptied state over
+// localStorage. The button says "Reset to seed" and sits in the Parts Database header, so it reads
+// like it resets the parts library. It did not say it would delete a month of hand-classification.
+//
+// Now it resets EXACTLY what it claims to: parts, accessories, openings. Everything a person
+// authored by hand is carried across untouched, and the confirm says so.
+const USER_AUTHORED_STATE_KEYS = ['elevEdits', 'rolePins', 'rolePinsMigrated', 'roleEdits',
+  'panelEdits', 'roleTemplates', 'recognizedRoles', 'customRoles', 'markGroups', 'systemGaskets',
+  'gasketBoxLF', 'exportScope', 'projectName', 'includePerimeterGasket', 'layerConfig'];
 function resetAll() {
-  if (!confirm('Clear all parts and openings? This cannot be undone.')) return;
-  state = { partsDbVersion: PARTS_DB_VERSION, parts: cloneSeedParts(), openings: [], accessories: cloneSeedAccessories() };
+  const kept = USER_AUTHORED_STATE_KEYS.filter(k => state[k] != null &&
+    (typeof state[k] !== 'object' || Object.keys(state[k]).length));
+  const nMarks = Object.keys(state.elevEdits || {}).length;
+  if (!confirm('Reset the parts library, accessories and openings to seed?\n\n'
+    + `Your hand work is KEPT: saved role edits for ${nMarks} mark(s), role pins, panel edits, `
+    + 'templates, cut groups and gasket defaults all stay.\n\nContinue?')) return;
+  const carry = {};
+  for (const k of kept) carry[k] = state[k];
+  state = Object.assign({ partsDbVersion: PARTS_DB_VERSION, parts: cloneSeedParts(),
+                          openings: [], accessories: cloneSeedAccessories() }, carry);
   renderAll();
+}
+// #reset-safety: a last line of defence under save() itself. Any code path that drops a
+// user-authored record it had a moment ago is a bug, so the previous value is stashed and the
+// write is refused rather than quietly committed. `Restore my edits` in the Parts header brings
+// the stash back. Nothing here is clever — it just makes silent loss impossible.
+const STORAGE_BACKUP_KEY = (typeof STORAGE_KEY !== 'undefined' ? STORAGE_KEY : 'takeoff') + ':edits-backup';
+function snapshotUserEdits() {
+  const out = {};
+  for (const k of USER_AUTHORED_STATE_KEYS) if (state[k] != null) out[k] = state[k];
+  return out;
+}
+function backupUserEdits() {
+  try {
+    const snap = snapshotUserEdits();
+    const marks = Object.keys(snap.elevEdits || {}).length + Object.keys(snap.rolePins || {}).length;
+    if (!marks) return;
+    localStorage.setItem(STORAGE_BACKUP_KEY, JSON.stringify({ at: Date.now(), marks, data: snap }));
+  } catch (_) {}
+}
+function readEditsBackup() {
+  try { return JSON.parse(localStorage.getItem(STORAGE_BACKUP_KEY) || 'null'); } catch (_) { return null; }
+}
+function restoreEditsBackup() {
+  const b = readEditsBackup();
+  if (!b || !b.data) { alert('No backup of your edits was found in this browser.'); return; }
+  const when = new Date(b.at).toLocaleString();
+  if (!confirm(`Restore hand-made edits for ${b.marks} mark(s), backed up ${when}?\n\n`
+    + 'Anything you have edited since then, for the same marks, is replaced.')) return;
+  for (const k in b.data) state[k] = b.data[k];
+  save(); renderAll();
+  const st = document.getElementById('export-status');
+  if (st) { st.textContent = `Restored edits for ${b.marks} mark(s) from ${when}`; st.className = 'tk-dxf__status is-ok'; }
 }
 function clearOpenings() {
   if (!state.openings.length) return;
@@ -3769,14 +6539,38 @@ function init() {
 
   // Export
   document.getElementById('export-csv').addEventListener('click', exportCsv);
+  const exportXlsxBtn = document.getElementById('export-elev-xlsx');
+  if (exportXlsxBtn) exportXlsxBtn.addEventListener('click', downloadElevationWorkbook);
+  const exportGroupXlsxBtn = document.getElementById('export-group-xlsx');
+  if (exportGroupXlsxBtn) exportGroupXlsxBtn.addEventListener('click', downloadGroupWorkbook);
+  const projNameInput = document.getElementById('xl-project-name');
+  if (projNameInput) {
+    projNameInput.value = xlProjectName();
+    projNameInput.addEventListener('change', () => { state.projectName = projNameInput.value.trim(); save(); });
+  }
   const exportCuttingAllBtn = document.getElementById('export-cutting-dxf-all');
   if (exportCuttingAllBtn) exportCuttingAllBtn.addEventListener('click', downloadAllCuttingDxf);
   const exportCuttingCombinedBtn = document.getElementById('export-cutting-dxf-combined');
   if (exportCuttingCombinedBtn) exportCuttingCombinedBtn.addEventListener('click', downloadCombinedCuttingDxf);
   const exportCuttingPooledBtn = document.getElementById('export-cutting-dxf-pooled');
   if (exportCuttingPooledBtn) exportCuttingPooledBtn.addEventListener('click', downloadPooledCuttingDxf);
+  const exportCuttingGroupsBtn = document.getElementById('export-cutting-dxf-groups');
+  if (exportCuttingGroupsBtn) exportCuttingGroupsBtn.addEventListener('click', downloadGroupedCuttingDxf);
+  initCutGroupsModal();
   document.getElementById('copy-report').addEventListener('click', copyReport);
   document.getElementById('reset-all').addEventListener('click', resetAll);
+
+  // #panel-gasket: the storefront perimeter run is a separate takeoff from the per-panel infill
+  // gasket, so it gets its own on/off rather than being folded into a panel's spec.
+  const perimChk = document.getElementById('acc-perimeter-gasket');
+  if (perimChk) {
+    perimChk.checked = state.includePerimeterGasket !== false;
+    perimChk.addEventListener('change', () => {
+      state.includePerimeterGasket = !!perimChk.checked;
+      save(); renderReport();
+      if (viewerOpeningId != null) renderViewer(viewerOpeningId);
+    });
+  }
 
   // Recognized Roles panel (#2, 2026-07-20 Opus)
   const rrSystemSel = document.getElementById('rr-system');

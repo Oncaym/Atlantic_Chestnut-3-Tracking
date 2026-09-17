@@ -4,7 +4,14 @@
 //  结构: window.SYSTEM_DEFS = { '<系统名>': { parts:[...], accessories:[...] } }
 //    parts:       { partNumber, description, roles:[...]  [, stockInches] }
 //    accessories: { partNumber, description, rule, positions:[...], param, min, unit }
-//  rule: per_piece | per_spacing | per_lf | per_lite | per_opening
+//    gasket (optional): { panel: { glass:[{part,loops}], panel:[], louver:[], door:[] },
+//                         perimeterPart, doorPart }  — what a panel of each type takes.
+//      Omit it and the system simply bills no gasket until someone fills it in under
+//      Accessories -> Gasket defaults (stored per browser, in state.systemGaskets).
+//      750XT / 45TU are seeded in app.js (SEED_SYSTEM_GASKET); a block here overrides that.
+//  rule: per_piece | per_spacing | per_lf | per_lite | per_opening | per_part | per_part_len | per_panel
+//  per_part / per_part_len: `positions` holds PART NUMBERS, not roles (see ACC_RULES in app.js).
+//  per_panel:                `positions` holds PANEL TYPES — Glass / IMP-1 / Louver / Door.
 //  app.js 读取本对象构建 SEED_PARTS / SEED_ACCESSORIES(自动补 system 与 id)。
 // ============================================================
 (function () {
@@ -149,25 +156,74 @@
       parts: [
         { partNumber: 'BE9-3904', description: 'Head/Sill (Open Back)',      roles: ['Head', 'Sill', 'Head (X)', 'Sill (X)', 'Sill (normal)'] },
         { partNumber: 'E9-3162',  description: 'Flush Filler',               roles: ['Head', 'Sill', 'Head (X)', 'Sill (X)', 'Sill (normal)'] },
-        { partNumber: 'AS-3907',  description: 'Permimeter Pressure Plate',  roles: ['Head (X)', 'Sill (X)', 'Jamb (X)', 'Jamb', 'Jamb (IMP-1)', 'Door Jamb', 'Sill (normal)'] },
-        { partNumber: 'E9-1206',  description: 'Face Cover',                 roles: ['Head', 'Head (X)', 'Sill (X)', 'Sill (normal)', 'Horizontal', 'Horizontal (Glass & Glass)', 'Horizontal (X)', 'Jamb', 'Jamb (X)', 'Jamb (IMP-1)', 'Door Jamb', 'Vertical', 'Vertical (X)', 'Vertical (IMP-1)'] },
+        { partNumber: 'AS-3907',  description: 'Permimeter Pressure Plate',  roles: ['Head (X)', 'Sill (X)', 'Jamb (X)', 'Jamb', 'Door Jamb', 'Sill (normal)'] },
+        { partNumber: 'E9-1206',  description: 'Face Cover',                 roles: ['Head', 'Head (X)', 'Sill (X)', 'Sill (normal)', 'Horizontal', 'Horizontal (Glass & Glass)', 'Horizontal (X)', 'Jamb', 'Jamb (X)', 'Door Jamb', 'Vertical', 'Vertical (X)'] },
         { partNumber: 'A',        description: 'Pressure Plate',             roles: ['Head', 'Head (X)', 'Horizontal (X)'] },
         { partNumber: 'A',        description: 'Pocket Filler',              roles: ['Sill (X)', 'Jamb (X)', 'Vertical (X)', 'Vertical (wide X)'] }, // Vertical (Lv)/(X)/(wide X): ×2 per mullion(占位, 换真号时按 ×2 处理)
-        { partNumber: 'AS-3906',  description: 'Pressure Plate',             roles: ['Head', 'Horizontal', 'Horizontal (Glass & Glass)', 'Horizontal (X)', 'Vertical', 'Vertical (X)', 'Vertical (IMP-1)'] },
-        { partNumber: 'BE9-3910', description: 'Horizontal/Vertical',        roles: ['Horizontal', 'Horizontal (Glass & Glass)', 'Horizontal (X)', 'Jamb', 'Jamb (X)', 'Jamb (IMP-1)', 'Door Jamb', 'Vertical', 'Vertical (X)', 'Vertical (IMP-1)'] },
-        { partNumber: 'E1-3603',  description: 'Setting Block Chair',        roles: ['Horizontal', 'Horizontal (Glass & Glass)', 'Horizontal (X)', 'Sill', 'Sill (normal)'] },
-        { partNumber: 'E2-0513',  description: 'Setting Block',              roles: ['Horizontal', 'Horizontal (Glass & Glass)', 'Horizontal (X)', 'Sill', 'Sill (normal)'] },
+        { partNumber: 'AS-3906',  description: 'Pressure Plate',             roles: ['Head', 'Horizontal', 'Horizontal (Glass & Glass)', 'Horizontal (X)', 'Vertical', 'Vertical (X)'] },
+        { partNumber: 'BE9-3910', description: 'Horizontal/Vertical',        roles: ['Horizontal', 'Horizontal (Glass & Glass)', 'Horizontal (X)', 'Jamb', 'Jamb (X)', 'Door Jamb', 'Vertical', 'Vertical (X)'] },
         { partNumber: 'B',        description: 'Permimeter Pressure Plate',  roles: ['Sill'] },
         { partNumber: 'C',        description: 'Face Cover',                 roles: ['Sill'], continuous: true }, // 连续覆盖 sill 整跑,不被竖梃打断(跑长出料,subsill 同逻辑)
-        { partNumber: 'BY7-9065', description: 'Vertical (Wide)',            roles: ['Vertical (wide)', 'Vertical (wide X)', 'Vertical (wide IMP-1)'] },
-        { partNumber: 'AS-7110',  description: 'Pressure Plate (Wide)',      roles: ['Vertical (wide)', 'Vertical (wide X)', 'Vertical (wide IMP-1)'] },
-        { partNumber: 'E9-1660',  description: 'Face Cover (Wide)',          roles: ['Vertical (wide)', 'Vertical (wide X)', 'Vertical (wide IMP-1)'] },
+        { partNumber: 'BY7-9065', description: 'Vertical (Wide)',            roles: ['Vertical (wide)', 'Vertical (wide X)'] },
+        { partNumber: 'AS-7110',  description: 'Pressure Plate (Wide)',      roles: ['Vertical (wide)', 'Vertical (wide X)'] },
+        { partNumber: 'E9-1660',  description: 'Face Cover (Wide)',          roles: ['Vertical (wide)', 'Vertical (wide X)'] },
       ],
-      // #S3: Jamb (IMP-1)/Vertical (IMP-1)/Vertical (wide IMP-1) reuse the SAME hardware as
-      // their plain (glass-side) counterparts above — same framing extrusion, different infill
-      // behind it. Flagged as an assumption (not from a parts.xlsx line item) — confirm against
-      // the real 750XT parts schedule if IMP-1 locations actually use different/heavier parts.
-      accessories: [],   // gaskets are computed per-elevation by perimeter at DXF import (see buildElevExport / computeAccessories), not role-based rules
+      // #imp1-roles-retired (2026-08-20, Leo): the Jamb (IMP-1)/Vertical (IMP-1)/Vertical (wide
+      // IMP-1) role variants are RETIRED. They always used the same hardware as their plain
+      // counterparts — the only thing that differed was the gasket, and the gasket is now taken
+      // off per infill panel (app.js PANEL_GASKET_DEFAULTS + the editable panel map) instead of
+      // per framing role. Legacy cuts/pins holding an (IMP-1) label collapse to the base role via
+      // ROLE_REMAP / normalizeImp1RoleToBase.
+      // #acc-750xt (2026-08-20, Leo): fastener / hardware / anchor rules, from YKK 04-4014-25
+      // (YCW 750 XT installation manual, eff. 2025-01-02) cross-checked against the formulas
+      // already living in Leo's own "750XT / 45TU takeoff.xlsx". Page refs are PDF pages.
+      // Gaskets are NOT here — they are taken off per infill panel at DXF import (buildElevExport /
+      // computeAccessories), which is a geometry question, not a role rule.
+      accessories: [
+        // --- Hardware ---
+        // p26 STEP 5: a standard shear block attaches each horizontal to a jamb or mullion — one
+        // at each end of every horizontal. Leo's sheet carried this as a flat "44 openings × 8";
+        // 4 horizontals × 2 ends is the same 8, and per-piece is exact on irregular elevations.
+        { partNumber: 'E1-3504', description: 'Standard Shear Block (5-1/4" depth)', rule: 'per_piece',
+          positions: ['Head', 'Head (X)', 'Sill', 'Sill (X)', 'Sill (Glass)', 'Sill (IMP-1)', 'Horizontal',
+                      'Horizontal (X)', 'Horizontal(Y)', 'Horizontal (Glass & Glass)', 'Transom Bar'],
+          param: 2, min: 0, unit: 'ea' },
+        // Leo 2026-08-20: "install setting block chairs and rubber/silicone setting blocks at the
+        // 1/4 points of the daylight opening (D.L.O.) along the sill or intermediate horizontal
+        // member — so 2 for each panel (not just lite because imp-1 panel needs setting block too)".
+        // Hence per_panel × 2 over Glass + IMP-1: two blocks per panel, at the quarter points.
+        // Louver and door panels take none. Reads the panel map, so a hand-drawn or re-typed panel
+        // moves this count with it. Deliberately NOT in the parts library: as parts they would be
+        // FFD-nested onto 24′ bar and drawn on the cutting diagram.
+        { partNumber: 'E1-3603', description: 'Setting Block Chair (2 per panel @ 1/4 points of D.L.O.)',
+          rule: 'per_panel', positions: ['Glass', 'IMP-1'], param: 2, min: 0, unit: 'ea' },
+        { partNumber: 'E2-0513', description: 'Setting Block (2 per panel @ 1/4 points of D.L.O.)',
+          rule: 'per_panel', positions: ['Glass', 'IMP-1'], param: 2, min: 0, unit: 'ea' },
+        // --- Fastener --- (all hang off another part; `positions` = part numbers)
+        // p6 + p26/p27 STEP 5 + p47: "(2) HF-2510-W1 fasteners per block"
+        { partNumber: 'HF-2510-W1', description: '1/4"-20 x 5/8" HWHS Type F — shear block to vertical',
+          rule: 'per_part', positions: ['E1-3504'], param: 2, min: 0, unit: 'ea' },
+        // p6 + p46/p47 STEP 16: "attach them to the shear blocks at each end with two FC-1220"
+        // → 2 per shear block, same count as HF-2510-W1.
+        { partNumber: 'FC-1220', description: '#12 x 1-1/4" FHSMS Type AB — horizontal to shear block',
+          rule: 'per_part', positions: ['E1-3504'], param: 2, min: 0, unit: 'ea' },
+        // p62 STEP 28: "Pressure plate stock lengths are factory punched with 0.281" diameter holes
+        // at 9" O.C. maximum" (torque to 30 in-lb, bottom up). Same 9" in the 1" and 1-1/2" tables.
+        { partNumber: 'HD-2516-W3-SS', description: '1/4"-20 x 1" HWHMS Type CA SS — pressure plate to mullion',
+          rule: 'per_part_len', positions: ['AS-3906', 'AS-3907', 'AS-7110'], param: 9, min: 0, unit: 'ea' },
+        // p6 + p46: corner shear blocks (E1-3501A/3503A/3506A) take FC-1212 instead of FC-1220.
+        // AC3 has no 90° outside corners, so this stays at 0 — kept so it is visible, not forgotten.
+        { partNumber: 'FC-1212', description: '#12 x 3/4" FHSMS Type AB — horizontal to CORNER shear block',
+          rule: 'per_part', positions: ['E1-3504A'], param: 2, min: 0, unit: 'ea' },
+        // --- Anchor --- (YKK gives no quantity: p47/p49 "per approved shop drawings", p3 note 9
+        // "system-to-structure fasteners are not supplied by YKK AP". Leo: "always follow excel",
+        // so these carry the basis from his own workbook's ACCESSORIES block and are his to edit.)
+        { partNumber: 'E1-1234', description: 'Jamb "F" End Anchor (for BE9-3901) — per shop drawings',
+          rule: 'per_opening', positions: [], param: 8, min: 0, unit: 'ea' },
+        { partNumber: 'E1-1222', description: 'Intermediate Vertical "T" End Anchor (for BE9-3901 & E9-3401) — per shop drawings',
+          rule: 'per_piece', positions: ['Vertical', 'Vertical (X)', 'Vertical (wide)', 'Vertical (wide X)'],
+          param: 1, min: 0, unit: 'ea' },
+      ],
     },
 
     // ===== YKK AP 45TU (Storefront) — from elevations/45TU parts.xlsx =====
@@ -188,9 +244,12 @@
         { partNumber: 'E9-0413',  description: 'Transom Glass Stop',       roles: ['Transom Bar'] },
       ],
       accessories: [
-        // Glazing gasket E2-0052 — per-role run count from the xlsx QTY column
-        { partNumber: 'E2-0052', description: 'Glazing Gasket', rule: 'per_lf',    positions: ['Jamb', 'Door Jamb', 'Head', 'Sill'],  param: 2, min: 0, unit: 'LF' },
-        { partNumber: 'E2-0052', description: 'Glazing Gasket', rule: 'per_lf',    positions: ['Vertical', 'Corner', 'Horizontal'],   param: 4, min: 0, unit: 'LF' },
+        // #gasket-per-system (2026-08-20, Leo: "45TU 为什么没有 gasket diagram，也得算"): the two
+        // per-role E2-0052 rows that used to live here (2×LF on Jamb/Door Jamb/Head/Sill, 4×LF on
+        // Vertical/Corner/Horizontal) are GONE — 45TU's glazing gasket is taken off per panel now,
+        // in SYSTEM_GASKET (app.js), at 2 loops of E2-0052 per panel. That is the same arithmetic:
+        // a perimeter member borders one panel and an interior member borders two, so 2 loops per
+        // panel reproduces 2×L and 4×L respectively. Keeping both would have doubled the gasket.
         { partNumber: 'E1-1058', description: 'Shear Block (Sill/Horizontal, 1/end)', rule: 'per_piece', positions: ['Sill', 'Horizontal'], param: 2, min: 0, unit: 'ea' },
         { partNumber: 'E1-1059', description: 'Shear Block (Head, 1/end)',           rule: 'per_piece', positions: ['Head'],               param: 2, min: 0, unit: 'ea' },
         { partNumber: 'E2-0628', description: 'Setting Block (2/horizontal & sill)', rule: 'per_piece', positions: ['Horizontal', 'Sill'], param: 2, min: 0, unit: 'ea' },

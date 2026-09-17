@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Atlantic-Chestnut 3 — Takeoff Tool</title>
 <link rel="stylesheet" href="colors_and_type.css" />
-<link rel="stylesheet" href="styles.css" />
+<link rel="stylesheet" href="styles.css?v=20260904g" />
 </head>
 <body>
 
@@ -73,6 +73,7 @@
         </div>
       </header>
       <div class="tk-section__body">
+        <div id="edits-safety"></div>
         <div class="tk-table-wrap">
           <table class="tk-table">
             <thead>
@@ -258,10 +259,50 @@ ENT-1   IR501T   84&quot; x 108&quot;   x1"></textarea>
       <div class="tk-section__body">
         <div id="viewer-legend" style="display:flex;flex-wrap:wrap;gap:6px 14px;margin-bottom:10px;font-size:12px;"></div>
         <div id="viewer-box" style="background:#fff;border:1px solid #ddd;border-radius:8px;overflow:auto;"></div>
-        <div style="font-size:11px;color:#999;margin-top:6px;">Click a piece in the elevation (or a chip below) to change position/length/count or delete; "+ Add cut" to add.</div>
+        <div id="viewer-frame-tools" style="margin-top:8px;"></div>
+        <div style="font-size:11px;color:#999;margin-top:6px;">Click a piece in the elevation (or a chip below) to change position/length/count or delete. Selected pieces get a red grab handle at each end — <b>drag it to lengthen or shorten</b>. Use ✏ above to draw a new piece; edges snap to the framing already there.</div>
         <div id="viewer-edit"></div>
       </div>
     </section>
+
+    <!-- ===== ACCESSORIES TAKEOFF ===== -->
+    <section class="tk-section">
+      <header class="tk-section__head">
+        <div class="tk-section__title">
+          <span class="tk-section__num">04</span>
+          <div>
+            <h2 class="tk-section__h">Accessories</h2>
+            <p class="tk-section__sub">Gaskets, fasteners, shear/setting blocks, anchors — rule-based off the framing takeoff. Positions blank = all. Gasket rows are taken off <b>per infill panel</b>: set the per-system defaults below, then open an elevation's 🧵 Gasket diagram to draw, re-type or re-spec any individual panel.</p>
+          </div>
+        </div>
+        <label style="font-size:12px;color:var(--af-fg-3,#888);display:inline-flex;align-items:center;gap:6px;margin-right:10px;" title="A single ×1 run around each independent storefront zone (main glass/IMP-1 zone, plus the louver band if there is one). Independent of the per-panel infill gasket.">
+          <input type="checkbox" id="acc-perimeter-gasket" checked /> storefront perimeter gasket
+        </label>
+        <button class="tk-btn tk-btn--ghost tk-btn--sm" id="acc-add">Add Rule</button>
+      </header>
+      <div class="tk-section__body">
+        <div id="gasket-defaults"></div>
+        <div class="tk-table-wrap">
+          <table class="tk-table">
+            <thead>
+              <tr>
+                <th class="col-sys">System</th>
+                <th class="col-mark">Part #</th>
+                <th>Description</th>
+                <th class="col-sys">Rule</th>
+                <th>Positions</th>
+                <th class="col-num-sm" title="per piece qty / o.c. spacing / LF factor / per lite qty">Param</th>
+                <th class="col-num-sm" title="min per piece (spacing rule)">Min</th>
+                <th class="col-num">Qty</th>
+                <th class="tk-rowdel"></th>
+              </tr>
+            </thead>
+            <tbody id="acc-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
 
   </div>
 
@@ -273,10 +314,12 @@ ENT-1   IR501T   84&quot; x 108&quot;   x1"></textarea>
           <span class="tk-section__num">03</span>
           <div>
             <h2 class="tk-section__h">Consolidated Takeoff</h2>
-            <p class="tk-section__sub">By Part Number across all openings.</p>
+            <p class="tk-section__sub">By Part Number, across the openings in scope.</p>
           </div>
         </div>
       </header>
+
+      <div id="export-scope"></div>
 
       <div class="tk-report__metabar">
         <div class="tk-meta">
@@ -299,7 +342,7 @@ ENT-1   IR501T   84&quot; x 108&quot;   x1"></textarea>
         <span class="tk-formula">
           <b>stocks</b> = FFD packing (longest-first · backfill offcuts · splice over-length) · +waste% = ⌈ stocks × (1 + waste%) ⌉
         </span>
-        <div style="display:flex; gap:8px;">
+        <div class="tk-report__actions">
           <button class="tk-btn tk-btn--ghost tk-btn--sm" id="copy-report">
             <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
             Copy
@@ -308,11 +351,20 @@ ENT-1   IR501T   84&quot; x 108&quot;   x1"></textarea>
             <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
             Export CSV
           </button>
+          <input id="xl-project-name" class="tk-input tk-input--sm" style="width:110px;" title="Project name printed on every Excel sheet" placeholder="Project" />
+          <button class="tk-btn tk-btn--accent tk-btn--sm" id="export-elev-xlsx" title="One Excel workbook — a sheet per elevation laid out like the 750XT order page, plus an ALL ELEVATIONS sheet with the project totals">
+            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+            Excel — one sheet per elevation
+          </button>
+          <button class="tk-btn tk-btn--accent tk-btn--sm" id="export-group-xlsx" title="A SECOND workbook, grouped for the shop: ONE pooled sheet per cut group (04.1 + 04.2 on shared 24&#39; stock) — a grouped mark gets no sheet of its own, a mark with no sibling keeps its own sheet. The &quot;one sheet per elevation&quot; workbook above is unchanged.">
+            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+            Excel — cut groups (04.1 + 04.2)
+          </button>
           <button class="tk-btn tk-btn--ghost tk-btn--sm" id="export-cutting-dxf-all" title="One DXF per elevation (separate downloads) — bordered stick bars with cut ticks, layer per part number">
             <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
             Cutting DXF (all elevations)
           </button>
-          <button class="tk-btn tk-btn--ghost tk-btn--sm" id="export-cutting-dxf-combined" title="One single DXF with every elevation's cutting diagram stacked, each headed by its mark">
+          <button class="tk-btn tk-btn--ghost tk-btn--sm" id="export-cutting-dxf-combined" title="One single DXF, landscape: elevations laid out left to right, each column = mark + its frame diagram + its cut list, with every part's cross-section under its name">
             <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
             Cutting DXF (combined, one file)
           </button>
@@ -320,40 +372,15 @@ ENT-1   IR501T   84&quot; x 108&quot;   x1"></textarea>
             <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
             Cutting DXF (all openings pooled)
           </button>
-        </div>
-      </div>
-    </section>
-
-    <!-- ===== ACCESSORIES TAKEOFF ===== -->
-    <section class="tk-section">
-      <header class="tk-section__head">
-        <div class="tk-section__title">
-          <span class="tk-section__num">04</span>
-          <div>
-            <h2 class="tk-section__h">Accessories</h2>
-            <p class="tk-section__sub">Gaskets, fasteners, shear/setting blocks, anchors — rule-based off the framing takeoff. Positions blank = all.</p>
-          </div>
-        </div>
-        <button class="tk-btn tk-btn--ghost tk-btn--sm" id="acc-add">Add Rule</button>
-      </header>
-      <div class="tk-section__body">
-        <div class="tk-table-wrap">
-          <table class="tk-table">
-            <thead>
-              <tr>
-                <th class="col-sys">System</th>
-                <th class="col-mark">Part #</th>
-                <th>Description</th>
-                <th class="col-sys">Rule</th>
-                <th>Positions</th>
-                <th class="col-num-sm" title="per piece qty / o.c. spacing / LF factor / per lite qty">Param</th>
-                <th class="col-num-sm" title="min per piece (spacing rule)">Min</th>
-                <th class="col-num">Qty</th>
-                <th class="tk-rowdel"></th>
-              </tr>
-            </thead>
-            <tbody id="acc-tbody"></tbody>
-          </table>
+          <button class="tk-btn tk-btn--accent tk-btn--sm" id="export-cutting-dxf-groups" title="One DXF, landscape: one column per ELEVATION GROUP (04.1 + 04.2, 05.1 + 05.2 …). The group&#39;s elevations are drawn side by side above ONE shared cut list — their pieces are pooled onto the same 24&#39; sticks, so an offcut from .1 gets used on .2.">
+            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+            Cutting DXF (by elevation group)
+          </button>
+          <button class="tk-btn tk-btn--ghost tk-btn--sm" id="cut-groups-config" title="Edit which marks are cut together (auto-grouped by the number before the dot — override here)">
+            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 00.3 1.8l.1.1a2 2 0 01-2.8 2.8l-.1-.1a1.6 1.6 0 00-2.7 1.1v.3a2 2 0 01-4 0v-.2a1.6 1.6 0 00-2.7-1.1l-.1.1a2 2 0 01-2.8-2.8l.1-.1A1.6 1.6 0 003 15H3a2 2 0 010-4h.2A1.6 1.6 0 004.3 8.3l-.1-.1a2 2 0 012.8-2.8l.1.1A1.6 1.6 0 009 4.6V4a2 2 0 014 0v.2a1.6 1.6 0 002.7 1.1l.1-.1a2 2 0 012.8 2.8l-.1.1A1.6 1.6 0 0021 11h.3a2 2 0 010 4H21z"/></svg>
+            Cut groups
+          </button>
+          </button>
         </div>
       </div>
     </section>
@@ -365,6 +392,20 @@ ENT-1   IR501T   84&quot; x 108&quot;   x1"></textarea>
     <span class="tk-dxf__status" id="export-status" style="text-align:right; padding:0 4px;"></span>
   </div>
 
+
+<!-- Cut Groups dialog (#cut-groups) -->
+<div id="cut-groups-modal" style="display:none; position:fixed; inset:0; z-index:1000; background:rgba(0,0,0,.5); align-items:center; justify-content:center;">
+  <div style="background:var(--af-bg-1,#fff); color:var(--af-fg-1,#111); padding:24px; border-radius:6px; max-width:620px; width:92%; max-height:80vh; overflow:auto; font-family:var(--af-font-sans,system-ui);">
+    <h3 style="margin-top:0;">Cut groups — which elevations are cut together</h3>
+    <p style="font-size:12px; color:var(--af-fg-3,#666);">Marks sharing a group key are packed onto the <b>same 24&prime; stock</b> in the “Cutting DXF (by elevation group)” export and get one pooled Excel sheet. The key is guessed by stripping the trailing <code>.N</code> (<code>SF04.1</code> &rarr; <code>SF04</code>) — type the same key on two marks to merge them, a different key to split them.</p>
+    <div id="cg-body" style="display:grid; gap:6px;"></div>
+    <div style="margin-top:16px; display:flex; gap:8px; justify-content:flex-end;">
+      <button class="tk-btn tk-btn--ghost tk-btn--sm" id="cg-reset" title="Drop every manual override and go back to the automatic grouping">Reset to auto</button>
+      <button class="tk-btn tk-btn--ghost tk-btn--sm" id="cg-cancel">Cancel</button>
+      <button class="tk-btn tk-btn--dark" id="cg-save">Save</button>
+    </div>
+  </div>
+</div>
 
 <!-- System picker dialog (import + bulk set) -->
 <div id="system-modal" style="display:none; position:fixed; inset:0; z-index:1000; background:rgba(0,0,0,.5); align-items:center; justify-content:center;">
@@ -402,9 +443,11 @@ ENT-1   IR501T   84&quot; x 108&quot;   x1"></textarea>
 </main>
 
 <script src="firebase-init.js?v=20260713g"></script>
-<script src="systems.js?v=20260721a"></script>
+<script src="systems.js?v=20260904g"></script>
 <script src="role-sections.js?v=20260713f"></script>
-<script src="app.js?v=20260720j"></script>
+<script src="part-sections.js?v=20260904g"></script>
+<script src="xlsx-writer.js?v=20260904g"></script>
+<script src="app.js?v=20260904g"></script>
 <script src="cloud-sync.js?v=20260713h"></script>
 <script src="tracker-bridge.js?v=20260716c"></script>
 </body>
