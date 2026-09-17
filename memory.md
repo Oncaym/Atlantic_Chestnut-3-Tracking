@@ -1052,6 +1052,692 @@ no Firestore elev-cloud setup for CP2. Only the `api/parse.js` status-enum fix s
 
 ## Decisions log
 
+- **2026-09-04 (e)** — **The fifth loss was mine, live, from the commit an hour earlier.** Leo's
+  screenshot: *0 saved elevations*, and the stash offering *38 marks*.
+
+  The #pins-in-cloud change was inserted **between an `if` and its `else`** in the Firestore loader:
+
+  ```js
+  if (data.cuts.length) state.elevEdits[d.id] = {...};
+  if (Array.isArray(data.rolePins) && data.rolePins.length) { ... }   // <- inserted here
+  else delete state.elevEdits[d.id];                                   // <- now binds to the WRONG if
+  ```
+
+  The `else delete` re-bound to the new condition, so **every cloud doc written before `rolePins`
+  existed — all of them — deleted its own local saved elevation on page load.** 35 elevations went
+  to zero while he watched. A dangling else, in the one function whose job is to protect this data.
+  Standing rule: never insert anything between an `if` and its `else`; add the braces first.
+
+  `t-reset.js` now replays the loader body over pre-rolePins docs and asserts the records survive,
+  and that a genuinely empty cut list still clears its mark.
+
+  **The safety bar was also too much.** *"Hand-made edits: 0 saved elevations · 3 marks with role
+  pins · 13 panel maps · 1 template"* plus three buttons and a jargon banner got *"我已经不会用了。。。
+  好复杂"* — fair. It is now one number (**marks with saved work**), one primary action (**⬇ Back up
+  to a file**), and a quiet secondary (**⬆ Restore from a file**). The rescue only appears when the
+  live count is actually below the stash, and it says it in plain words — *"Some of your saved work
+  is missing. This browser now has 1 mark; the last good copy had 38"* — with one button,
+  **↺ Bring it back**.
+
+- **2026-09-04 (d)** — **Where the edits actually live, and closing the hole.** Leo: *"从来没有碰过
+  reset，我每次是 clear all opening，然后重新 import / 修改记录是存在 browser 里面的吗 / 我每次
+  间隔会超过1个礼拜，browser 记录不见了也正常"*. So `resetAll` was a real bomb but NOT his cause —
+  `clearOpenings()` only empties `state.openings` and leaves every edit record alone.
+
+  The honest map of durability, which nobody had written down:
+
+  | record | localStorage | Firestore |
+  |---|---|---|
+  | `elevEdits` (every corrected elevation + history) | yes | **yes**, one doc per mark |
+  | `roleTemplates` | yes | yes |
+  | `rolePins` / `roleEdits` | yes | **no** ← the hole |
+  | `panelEdits`, `recognizedRoles`, `markGroups`, `systemGaskets`, `parts`, `accessories`, `openings` | yes | parts/accessories only |
+
+  His gaps between jobs run over a week, and a browser is entitled to drop `file://` localStorage in
+  that time. So his real chain was: clear openings → re-import → `elevEdits` survives in the cloud
+  but its `geoSig` no longer matches because **the parser changed** (16 cuts → 28) → the whole saved
+  set is discarded → `rolePins`, the only fallback, were browser-only and already gone → everything
+  auto-classified → redo 28 pieces by hand. Five times.
+
+  Two closures:
+  - **`rolePins` now ride inside the per-mark `elevEdits` doc** — one write, one read, same mark, so
+    they come back on any machine. The loader adopts cloud pins only where the browser has none; a
+    local set is the same or newer and replacing it would be the old bug in a new hat.
+  - **⬇ Back up my edits / ⬆ Restore from file** in the Parts Database header: everything
+    hand-made as one small JSON file to keep beside the DXFs. Import merges by mark — marks in the
+    file replace those marks, marks only present locally are left alone — and refuses anything that
+    is not a takeoff edits file. This is the copy that does not depend on a browser or on Firestore
+    being reachable.
+
+  The 09-04 `applySavedRoles` pass is what fixes the geoSig half: a saved set that no longer matches
+  wholesale is still applied piece by piece. Combined, a re-import after a parser change should now
+  come back corrected. `t-reset.js` is at 20 checks.
+
+- **2026-09-04 (c)** — **THE actual cause of five rounds of lost role edits: `resetAll()`.**
+  Leo: *"修改记录永远是保存不了的，已经五次了，我每一次重新一个个改是要时间的"*.
+
+  I spent four rounds making the pin matcher cleverer — relative coordinates, tolerant matching,
+  offset solving, junk pruning — all of it real, none of it the problem. A matcher cannot recover
+  data that has been deleted.
+
+  ```js
+  state = { partsDbVersion, parts: cloneSeedParts(), openings: [], accessories: cloneSeedAccessories() };
+  ```
+
+  `resetAll()` replaced the WHOLE state object. Every other key went with it: `elevEdits` (every
+  corrected elevation *and its version history*), `rolePins`, `roleEdits`, `panelEdits`,
+  `roleTemplates`, `recognizedRoles`, `markGroups`, `systemGaskets`. Then `renderAll()` called
+  `save()`, writing the emptied state over localStorage. The button is labelled **"Reset to seed"**,
+  sits in the *Parts Database* header, and confirms with *"Clear all parts and openings?"* — it
+  reads like it resets the parts library. It deleted a month of hand-classification instead.
+  That is why it happened five times, why the pin banner vanished completely rather than warning,
+  and why "the drawing never changed" was true the whole time.
+
+  Three changes:
+  - `resetAll()` now resets exactly what it names — parts, accessories, openings — and carries
+    every user-authored key across (`USER_AUTHORED_STATE_KEYS`). The confirm text lists what is
+    kept, with the count of saved marks.
+  - `save()` compares record counts against the previous write. A write that DROPS records no
+    longer refreshes the backup (so the stash always holds the high-water mark), warns in the
+    console, and raises a banner. A clean write advances the backup.
+  - The Parts Database header carries a standing line — *"Hand-made edits: N saved elevations · N
+    marks with role pins · N panel maps · N templates"* — and **↺ Restore my edits**, which puts
+    the stashed high-water state back in one click.
+
+  `t-reset.js`, 10 checks. Standing rule: nothing may assign to `state` wholesale. Add new
+  user-authored keys to `USER_AUTHORED_STATE_KEYS` or they will be silently resettable.
+
+- **2026-09-04 (b)** — **Diagnosed from Leo's EL-01 dump, after two wrong guesses.** He said the
+  drawing never changed, which killed both of my theories, so the viewer got a **🔍 why?** button
+  that copies the whole stored-vs-parsed picture for a mark. The dump answered it in one round trip.
+  Three separate faults, none of them the one I had been chasing:
+
+  **1. Seven of his ten pins were junk from the legacy migration.** EL-01 is ~110" × 114"; seven
+  pins sat at rx≈13293, ry≈7221, carrying 750XT role names (`Jamb (X)`, `Sill (Glass)`) on a 45TU
+  opening. `migrateLegacyRolePins` had converted legacy `roleEdits` keys recorded when that mark sat
+  somewhere else entirely; `solveLegacyTranslation` found no two that agreed, assumed no move, and
+  subtracted the current origin from coordinates that never belonged to this frame. They could never
+  match, and warned on every import. `prunePinsOutsideElevation()` now drops any pin further than
+  24" outside its own elevation — at migration time and on every import, so already-poisoned stores
+  clean themselves. The legacy map stays untouched, so nothing real is lost.
+
+  **2. The banner vanished on reload because the report was in memory.** `_pinReport` is filled
+  during a parse; reopen the page and it is empty, so a perfectly working set of pins showed no
+  notice at all — which reads exactly like "the pins are gone". `livePinReport()` recomputes the
+  match from what is on screen when the parse-time report is absent, and a fully-applied set now
+  says so out loud ("3 saved role pins applied") instead of staying silent.
+
+  **3. His saved edit-set genuinely cannot match — the PARSER changed, not the drawing.** 16 saved
+  cuts vs 28 fresh, and the 5.5"-wide pieces that were 2" stubs are now 44" and 47" runs. The 45TU
+  work changed how these elevations read. `geoSig` correctly refuses the wholesale restore; the
+  09-04 `applySavedRoles` pass is what carries those 16 roles across, but it only runs during a
+  parse — **the elevation has to be re-imported once** for it to take effect. Worth remembering:
+  changing classification without bumping `PARSER_VERSION` leaves saved edit-sets silently
+  unmatchable.
+
+  Bug found while testing: `prunePinsOutsideElevation` first called `cutsOrigin(src)` on an array of
+  raw rects. `cutsOrigin` reads `c.src` off each element, so it returned {0,0} and the prune silently
+  did nothing. `rectsOrigin` is the one that takes rects.
+
+- **2026-09-04** — **`elevEdits` is now a role source even when the geometry signature fails.**
+  Leo: *"saved pin 提示都不见了，显示的还是自动识别"*.
+
+  A pin only exists for a piece explicitly re-labelled through the dropdown. `elevEdits` holds
+  EVERY piece of an elevation you have ever corrected, with its role — but it was all-or-nothing:
+  `geoSig` had to match exactly, and one changed member threw the whole record away and dropped you
+  back to auto-classification, leaving the handful of pins as the only safety net.
+
+  `applySavedRoles()` turns each saved cut into a pseudo-pin (shape + place within the elevation)
+  and runs the same tolerant, offset-solving matcher the real pins use. Pieces that still exist keep
+  their role; genuinely new or changed ones fall through to auto, where they belong. Explicit pins
+  are applied afterwards so they still win. The viewer says *"the drawing changed — 40 of 41 saved
+  roles were carried across by shape"*.
+
+  Measured on 6.2.dxf with all 41 roles hand-set: drop a member → 40 of 41 carried; move the whole
+  elevation 250, −90 → 41 of 41; hand it a genuinely different elevation → 0 matched and nothing
+  forced. `t-savedroles.js`, 11 checks.
+
+  Still unexplained: why Leo's own store showed zero pins for that mark (the banner vanished
+  entirely rather than warning). Repeated imports of the same DXF keep all 9 pins here across three
+  cycles, so it is specific to his saved state — but this change makes the question much less
+  important, since the roles now ride on the full edit-set rather than on the pins alone.
+
+- **2026-08-26 (b)** — **"7 of 9 saved role pins found no matching piece."** Leo: *"when i import
+  elevations which already have saved role pins, it should show saved role pins directly instead of
+  still being auto-classified"*.
+
+  **Cause.** #role-pins-v2 fixed the absolute-coordinate bug by storing pins RELATIVE to the
+  elevation's bbox corner. But that corner is derived from *all* the geometry in the cluster, not
+  from the framing — so a revised DXF that merely adds a dimension, a note or a scrap of detail near
+  the edge grows the bbox, the corner moves, and every pin shifts with it at once. Not one member
+  had moved. Reproduced exactly: nudge `bbox.minX/minY` by 3, 2 and all 9 pins go unmatched.
+
+  **Fix — the origin is a guess, the shift is solved.** `solvePinOffset()` runs before every match:
+  each pin votes for the offset that would carry it onto a same-sized cut, and the offset the most
+  pins agree on is applied to all of them. An unmoved frame votes (0,0) and it is a no-op, so it
+  runs unconditionally. Requires ≥2 agreeing pins — one pin lining up with one same-sized piece is
+  a coincidence, not evidence. After a successful solve the store is **re-anchored** to what
+  actually matched, so the shift is worked out once rather than on every import, and the next
+  revision is measured against the current frame. What matters now is the SHAPE of the elevation;
+  where its corner sits is irrelevant.
+
+  The viewer says which happened: silence when everything matched exactly, a green "N pins
+  re-applied — this elevation sits dx, dy from where it was" when the offset was solved, and the
+  orange warning only when pins genuinely found nothing.
+
+  `t-pins.js` grew to 29 checks: the bbox-moves case, the measured offset, the re-anchor, and that
+  a single pin can never move the whole set.
+
+  **Merged, not overwritten.** Staging the device copy first caught a 2026-08-27 `#place-chip`
+  feature (place a typed chip onto the canvas at its true length, drag the body to move it, a Width
+  box, a blank canvas for openings with no DXF geometry) that another session had added on top of
+  the 08-26c build. The device file became the base and this pin fix was re-applied onto it — the
+  opposite of what happened on 08-24. The guard works when it is armed.
+
+- **2026-08-26 (c)** — **A "/ panel" accessory rule reading 0 now says why.** Leo asked why a
+  45TU / E2-0052 / per_panel / Glass row showed 0.00 and what Positions means for that rule. The
+  rule was correct (28 against a real 45TU import); his elevations were imported before the Aug-24
+  build, which only emitted panel cells for 750XT, so they carry no panel map. Three distinct
+  zero-reasons are now printed in orange under the quantity: no panel map (re-import, or draw them
+  in the gasket diagram), Positions holding role names instead of panel types, and simply no panels
+  of that type in scope. The Positions box also advertises what each rule wants —
+  `Glass, IMP-1, Louver, Door` for per_panel, `(part numbers)` for per_part / per_part_len, roles
+  otherwise — since one text box meaning three different things with no label is a trap.
+  Also flagged to Leo: 45TU's E2-0052 already comes off the panel gasket model automatically, so
+  that hand-added rule would have double-counted. Test `t-perpanel.js` (8 checks).
+
+- **2026-08-26 (d)** — **Duplicate export buttons.** The index.html splice that restored the
+  cut-group buttons ran from the first restored button to the last, which in the 8/21 file swept up
+  the three existing cutting-DXF buttons in between. Pasted into a file that already had them, that
+  produced duplicate element IDs — and since `getElementById` returns the first match, the bottom
+  three were dead controls that looked identical to the live ones. Removed; verified in the live
+  DOM that no id appears twice.
+
+- **2026-08-26** — **INCIDENT: I deleted the cut-groups feature, then merged it back.**
+
+  **What happened.** On 2026-08-21 a different session added #cut-groups to `takeoff/app.js`
+  (`autoMarkGroupKey` / `markGroupKey` / `setMarkGroup` / `clearMarkGroups` /
+  `groupOpeningsByMark` / `buildGroupPacking` / `groupGasketTotals` / `downloadGroupWorkbook` /
+  `downloadGroupedCuttingDxf` / `emitWorkbook` / the Cut-groups modal), with its own harness at
+  `_tests/test-cut-groups.cjs`. My working copy in the following session had forked *before* that
+  and never contained it. I shipped three times (Aug 24 45TU, Aug 24 gaskets-all-systems, Aug 25
+  role-pins + export-scope) by committing my copy over the device **with `force: true`**, which
+  disables the mtime guard whose entire job is to catch "this file changed under you". Leo noticed
+  because the `SF04 group` sheets stopped appearing in the Excel export.
+
+  **Why the guard existed and why forcing defeated it.** `device_commit_files` refuses a write when
+  the device file's mtime has moved since it was staged. I never staged — I just forced. Three
+  separate opportunities to catch this passed silently.
+
+  **Recovery.** No backup, no git, no other copy anywhere on the machine. Windows *Previous
+  Versions* had the 2026-08-21 file. Leo copied it (NOT "Restore", which would have wiped Aug 24–25
+  in the other direction) to `takeoff/recovered/`. The two versions had genuinely diverged from a
+  common ancestor, so this was a three-way merge, not a copy-back:
+
+  - restored verbatim: the whole cut-groups block, `FRAME_GROUP_GAP`, the array-of-openings branches
+    in `xlRowsFor` / `buildElevationSheet` / `buildCuttingDxfBody`, the per-column `gaskets`
+    override in `buildCombinedCuttingDxf`, both buttons + the modal in index.html, the wiring.
+  - adapted to the newer code: `groupOpeningsByMark(list)` now takes an optional list — the exports
+    pass `scopedOpenings()`, the config modal passes nothing and sees every mark. Group exports
+    carry `scopeSuffix()` in their filenames.
+  - reconciled: both workbooks now share `summarySheetsFor()` and `emitWorkbook()`, so the group
+    file and the per-elevation file always open on the same totals and the same per-system summary
+    sheets.
+  - the 8/21 harness was updated in two places only: scope helpers stubbed wide open (scoping has
+    its own test), and the two sheet-name assertions changed from `ALL ELEVATIONS` to
+    `ALL 750XT` + `ALL 450`, because the per-system summary is a deliberate later change. What that
+    test actually guards — no group sheets in the per-elevation workbook, no member sheets beside a
+    group sheet, two separate files — is unchanged and still passes.
+
+  Green: `test-cut-groups.cjs` 52/52, plus t-scope / t-pins / t-gasketall / t-45tu / t-acc / t-wash
+  / t-draw / t-prune / t-cutdrag / t-xl / t-xlsx and all three DXF harnesses.
+
+  **Standing rule from here: never `force` a commit to the device.** Stage the device copy first,
+  diff it against the working copy, and commit with `expectedMtimeMs`. If the guard fires, the
+  device has work the working copy does not — merge, never overwrite. `takeoff/recovered/` is
+  Leo's copy of the 8/21 files; leave it alone.
+
+- **2026-08-24 (c)** — **Export scope by system.** Leo: *"现在导出 excel / cutting diagrams 不分
+  system，改成导出前问要哪一个 system（可以多选）或者你有什么更方便的流程"*. Chose the standing
+  selection over a modal (Leo picked it): a modal would ask the same question at four different
+  buttons and hide the answer until after the click.
+
+  A row of system chips sits at the top of the Consolidated Takeoff — `All` plus one per system
+  actually present in the openings, multi-select, remembered in `state.exportScope`. It filters
+  **the on-screen report and every export identically**: report, CSV, copy, Excel workbook, and all
+  three cutting DXFs all read `scopedOpenings()`. What you are looking at is what you are about to
+  hand over. The chip row hides itself when the job has only one system.
+
+  - Empty or stale selection = every system. The scope can never silently export nothing.
+  - Filenames carry it: `AC3 takeoff by elevation - 45TU.xlsx`, `takeoff - 750XT.csv`,
+    `all-openings-pooled-cutting - 750XT.dxf`. Same name, different numbers is how the wrong file
+    reaches the shop.
+  - `state.openings` is never filtered — the Openings table and the viewer still show everything.
+  - The Excel workbook now emits **one summary sheet per system** in scope (`ALL 750XT`,
+    `ALL 45TU`) instead of one mixed `ALL ELEVATIONS`. A mixed summary carried one system's name in
+    its title banner over another system's order lines.
+
+  Test `t-scope.js` (15 checks), including that the two scopes partition the full report exactly
+  and that cut length adds up across the split.
+
+- **2026-08-24 (b)** — **BUG: hand-set role positions disappeared on re-import.** Leo: *"我1个月
+  前修改的 role position 上个礼拜导入都不见了，需要我重新手改"*.
+
+  **Reproduced.** Took `6.2.dxf`, pinned three roles, re-imported the same file (pins held), then
+  re-imported the identical drawing translated +137.5 / −62.3 on the sheet: all three pins gone,
+  silently, and the full saved edit-set with them.
+
+  **Root cause.** A pin was keyed by the piece's ABSOLUTE drawing coordinates
+  (`srcKey = x|y|w|h`). Move the elevation anywhere — a re-issued sheet, a re-exported view, a
+  different origin — and every key changes at once. `elevGeoSig` (the fingerprint guarding the full
+  saved edit-set: splits, merges, lengths, roles) was **the same key concatenated**, so both
+  persistence layers died from one cause, at the same moment, with no message. Nothing about the
+  elevation had changed; only where it sat on the paper.
+
+  **Fix — pins describe a piece, not a coordinate.**
+  - New store `state.rolePins[mark] = [{rx, ry, w, h, role}]`, measured from the elevation's own
+    bbox corner. `pinOrigin()` prefers the bbox over the cuts' extent, so dragging the leftmost
+    jamb cannot move the origin out from under every other pin.
+  - Matching is by shape-and-place with a tolerance (`PIN_SIZE_TOL` 0.3", `PIN_POS_TOL` 1.5"),
+    closest pair first, each pin used once — not string equality. A member redrawn a hair off is
+    still the same member.
+  - `elevGeoSig` is now relative; `elevGeoSigAbs` is kept and `geoSigMatches()` accepts either, so
+    edit-sets saved by every earlier build still restore. Restored cuts carry absolute rects, so
+    they are **re-registered** onto the fresh origin (`_dx/_dy`) — otherwise the restored edit-set
+    would sit out of register with the new bbox, panel cells and perimeter tracer.
+  - **Legacy pins are recovered, not abandoned.** `solveLegacyTranslation()` is a tiny RANSAC: each
+    old absolute rect votes for the move that would carry it onto a same-sized fresh cut, and the
+    winning vote is the move. Requires ≥2 agreeing pins — one vote is not evidence, and inventing a
+    translation from it would write garbage. `state.roleEdits` is READ and never written or
+    deleted, so the migration can always be re-run against the original.
+  - **A retired role now SKIPS its pin instead of deleting it.** The old `delete pins[k]` ran on a
+    read path (merely opening an elevation) and was unrecoverable: putting the role back on the
+    recognized list could never bring the pin back. Now it can.
+  - **Losses are said out loud.** `rolePinReport(mark)` → the viewer shows "N of M saved role pins
+    found no matching piece in this import", and a quieter "re-applied, the drawing had moved"
+    when the tolerant match did its job. Silence is what let this cost a week of work.
+
+  Tests: `t-pins.js` (24 checks) — the unmoved case unregressed, the moved case with pins only,
+  legacy absolute pins recovered across a move, the solver's evidence threshold, retired-role skip
+  and its reversal, unmatched reporting, drag-carries-pin, and the tolerance boundaries.
+  `t-prune` / `t-cutdrag` updated: they asserted on the legacy map, now they assert the real
+  invariant (the piece keeps its role). Full regression green.
+
+  Not changed: pins are still per-browser (localStorage). `elevEdits` — the heavier, complete
+  record — is the cloud-synced one, and it now survives a move too.
+
+- **2026-08-24** — **Accessories moved under the viewer; the gasket model stopped being a
+  750XT/45TU fact and became per-system data.** Leo: *"put accessories under elevation viewer,
+  it's so packed now"* and *"I need gasket view for all systems, you know why? because this tool
+  needs to be an independent tool that doesn't rely on position detection algorithm. It's expected
+  to manually set panels/pieces/gaskets"*.
+
+  **① Layout.** The Accessories section moved out of the 440 px right rail (where 9 columns were
+  wrapping into 8-character stumps) into the left column, immediately under the Elevation Viewer.
+  Nothing about the table changed — it just has the room it always needed. The right rail keeps
+  the Consolidated Takeoff and the export buttons.
+
+  **② The gasket spec is now DATA.** `SYSTEM_GASKET` was a hard-coded table with exactly two
+  entries; every other system silently got `{panel:{}, perimeterPart:null, doorPart:null}` and no
+  way to change it. Replaced by a three-level lookup:
+  `state.systemGaskets[sys]` (hand-edited) → `SYSTEM_DEFS[sys].gasket` (systems.js) →
+  `SEED_SYSTEM_GASKET[sys]` (app.js — 750XT and 45TU, byte-identical to the old table).
+  A new **Gasket defaults** block at the top of Accessories edits it: one text field per panel
+  type (`PART×loops, PART×loops` — `×`, `x`, `*` or `:`, a bare part number meaning ×1), plus the
+  storefront-perimeter part, the door-jamb part, and the coil-per-box map. Changing a default
+  re-derives every opening on that system on the spot. Per-panel overrides are NOT touched — a
+  panel Leo set by hand keeps what he set.
+  Stored per browser (localStorage), like `recognizedRoles` and the layer config: cloud-sync only
+  carries `parts` and `accessories`, and bolting a `gasket` field onto the systems doc would have
+  re-created the 2026-08-20 wash race (a snapshot arriving after a local edit and overwriting it).
+
+  **③ The gasket diagram is always available.** The 🧵 toggle used to appear only when the
+  detector had already found infill cells — exactly backwards, since the elevation it reads badly
+  is the one that most needs a hand-drawn map. Now:
+  - the toggle is always shown, and the view no longer short-circuits on an empty `panelCells`;
+  - `panelCanvasBox(o)` gives the map something to draw on even with zero parsed geometry —
+    framing ∪ cells ∪ hand-drawn panels, falling back to the opening's own W×H, drawn as a dashed
+    outline so there is something to aim at. (`openingFrameBox()` is unchanged and still answers
+    "what did the DXF give us" for the cutting sheet's frame diagram — that one must not invent.)
+  - `frameSnapAxes()` adds the canvas edges and every existing panel edge, so snapping works on a
+    blank elevation and each drawn panel becomes a magnet for the next.
+  - Two written empty-states replace the blank black rectangle: "no panels here yet — drag some"
+    and "this system has no gasket parts set — set them under Accessories → Gasket defaults".
+  - Louver panels are editable again (`PANEL_EDITABLE_TYPES` +louver). The lock was a 750XT fact
+    in disguise; another system may well gasket its louver band. **Doors stay locked** — #door-gasket
+    stands: a door's gasket is the two jambs and only the two jambs.
+
+  Tests: `t-gasketall.js` (32 checks) — seeds unchanged, an unknown system round-trips, spec-text
+  parsing, box-LF override, a default change moving every auto panel but not a hand-set one, and a
+  typed-in opening with no DXF at all being drawn on end to end. Full regression green.
+
+- **2026-08-20 (b)** — **Three SF06 reading errors fixed, from `6.2.dxf`.**
+  ① **Beam gap.** One mark can hold two INDEPENDENT stacked openings with a structural beam
+  between them (SF06: louver above, storefront below). The grid filled that gap with 5 glass
+  cells that then took infill gasket. `add()` now drops any cell whose centre is outside every
+  real opening — main zone (Head-to-Sill × full width) or the louver band. No Head/Sill
+  classified (hand-entered / non-750XT) → main zone falls back to the bbox and nothing is
+  dropped, so old behaviour is unchanged.
+  ② **Fat poly split a panel.** `isStructural`'s `max(w,h) >= 24` length gate let a SHORT fat
+  rectangle through: SF06's bay left of the door has a 21.01" × 14.61" infill outline on
+  AF_ALUM PROFILE (AF_GLASS IN LINE marks inside it). 21" long → missed the gate → taken off as
+  a phantom 21" Horizontal AND its centreline split that bay's panel in two. The identical
+  39.5" × 14.61" rect in the next bay cleared 24" and was correctly dropped — which is exactly
+  why only one bay split. Added a length-independent depth rule: `min(w,h) >= 8` is not an
+  extrusion (deepest real profile is BE9-3910 at 6.75"). Across North / South Ex / In / 6.2 this
+  excludes exactly one poly — the offending one.
+  ③ **Perimeter with a door → split into two takeoffs** (Leo: "应该是整个 door jamb 的长度，
+  但我突然觉得，把 door gasket 单独算更好，这样逻辑上更顺"). Was one plain bounding rectangle whose
+  bottom sat at the door's floor level. Now `perimeterRuns()` returns two runs that partition every
+  physical edge exactly once:
+    · **storefront** — head + both side jambs + sill, with the sill BROKEN across each door width
+      (the door opening is not part of the storefront's own boundary). Louver band joins this run
+      as a second independent zone.
+    · **door** — ONE takeoff, part **E2-0120 ×1**: both jambs at FULL height (door head → floor).
+      No header, no threshold, and NO loop around the door panel. The door panel itself carries an
+      empty gasket list precisely so the jambs can never be billed twice.
+  They share a part number today (`DOOR_GASKET_PART` is its own constant so it can diverge) but
+  never share a number — the harness asserts the two runs have no segment in common and that the
+  sill never crosses a door. SF06: 95.64 LF lump → storefront 92.51 LF + door 15.91 LF (both E2-0120; drawn and reported
+  as two runs so each stays auditable, summed into one order line).
+  **The same function feeds the numbers and the diagram** (gold = storefront, pink = door) — the
+  old code drew a rectangle while charging for something else, so the gasket diagram could not be
+  used to check the takeoff, which was the whole reason it exists.
+  SF06 net: 26 → 20 panels, infill gasket 236.67 → 186.58 LF per part.
+- **2026-08-20 (b)** — `part-sections.js` regenerated from the updated `new block.dxf`: 16
+  profiles, BY7-9065 / AS-7110 / E9-1660 now included. No part in the 750XT takeoff is missing a
+  cross-section any more.
+
+- **2026-08-20 — gasket leaves the parts library; its total rides on the cutting sheet.**
+  The gasket part numbers were ALSO sitting in the 750XT parts library carrying framing roles
+  (HEAD (GLASS) / JAMB / VERTICAL / …), so the order list billed them a second time off member
+  run-length — 2,598" of E2-0120 and 6,297" of E2-0127 that had nothing to do with any panel.
+  All four (E1-0120, E1-0127, E2-0120, E2-0127) are now struck from the parts library by
+  `pruneRetiredParts()`. **Gasket quantity comes from the gasket diagram and only from there.**
+  `openingGasketTotals(o)` is the single reader — panel infill + storefront perimeter + door
+  jambs, one number per part number — and it feeds the accessories table, the on-screen cutting
+  preview and the cutting DXF alike. On the cutting sheet it is a plain `GASKET - total length`
+  text block, **not** packed onto 24′ bars: gasket is coil stock, so nesting it would be a
+  fiction (Leo: "不需要排列，只需要给我总长和就行"). Also fixed: the storefront-perimeter
+  checkbox no longer switches the door run off with it — they are separate takeoffs.
+  SF06 on the cutting sheet: E2-0120 3,540.0" (295.00 LF — 186.58 panel + 92.51 perimeter +
+  15.91 door) · E2-0127 2,239.0" (186.58 LF).
+
+- **门也可以是炸开的几何，不只是块**（2026-08-20，Leo：2nd.dxf SF15.1/SF15.2「门都没识别出来」）。
+  原来的门识别只认 INSERT 块签名（SINGLE=12 LWPOLYLINE/11 LINE，DOUBLE=22/6）。2nd.dxf **整个文件
+  一个 INSERT 都没有** —— 门是炸开画的，于是：门不出 panel、不算 door gasket，而且门扇自己的边梃和
+  压条被当成 storefront 的 Sill/Head 报了进去（SF15.1 因此多出 5 根假料）。
+  **锚点是 `AF_SADDLE`（门槛）——只有门下面才画它。** 每条门槛（w≥12、h≤3）上方找站在它上面的门扇
+  轮廓：同一 x 跨度内、脚落在门槛顶上（±3"）、高≥24"、且在「可能画门扇的层」上（door / alum /
+  doorSubframe / fallback `0`、`AF_X`）——取最宽的那个。**层必须过滤**：`AF_BACKER ROD` 在同一个洞口
+  上画了一个比门扇略大的矩形，不过滤就会被选中。若最宽的也不到门槛宽的 60%，说明只找到一根边梃，
+  退回用门槛自己的跨度（宁可用门槛，也不要报一个 3" 宽的门）。
+  找到后：`doorRegionsAll.push({kind:'EXPLODED', minX, maxX, headY: 门扇顶})`，并把落在门扇矩形内的
+  所有 poly 打上 `__door`，与块门的子件走完全相同的排除路径（不进 framing、不进 lite count、不进
+  structural/panel）。SF15.1 12 cuts → 7 cuts。
+  验证：`harness.js 2nd.dxf` —— 两个立面都找到门、都算了 door gasket、门扇压条不再被报成 storefront、
+  门 panel 自身不带 gasket。
+
+- **perimeter = 沿着 frame 本身外缘描一圈，每个「互相连着的 frame」各算一圈**（2026-08-20，Leo：
+  「perimeter 永远是绕着外围的 frame 一圈」+「15.2，左右 2 个 opening 中间没有任何 frame 连接，
+  所以算分开的」）。之前每一版都是在**近似**：先是 bbox 矩形，后来是「矩形挖掉门洞」——每换一张
+  图就错一次（台阶式 sill、louver 带、两跨之间不连的框）。所以不再近似，直接算真的。
+  **做法**：框料全是轴对齐矩形（`cuts[].src`）。把所有边界坐标铺成网格 → 标出哪些格子是金属 →
+  从图纸外圈 flood fill 出「外面」→ 每一个「金属 vs 外面」的格子面就是 perimeter 的一段。这一次
+  计算白送三件事：①**不连的区域自动分开**（SF15.2 左右两组中间只有一根 6" 柱子、两侧各留 0.5"
+  缝，所以是两个 component，各自一圈；louver 带同理，不需要任何特判）；②**台阶 sill / 缺角**
+  照着描；③**门**——门洞底下没有 sill，所以那个缺口是通向外面的，描边自己就会顺着一侧 jamb 面
+  下去再从另一侧上来。被金属完全围死的玻璃口袋 flood 不到，自然被排除（那是 panel gasket 的事）。
+  **两个坑**（都踩过）：
+  · **坐标要 snap**（`COORD_EPS = 0.02"`）。两根对接的料，边界坐标只在浮点噪声级别一致
+    （2422.2200000 vs 2422.2200001），不 snap 就会产生一列**零宽格子**，外面从那里灌进每一个
+    密封口袋 —— 症状就是端跨的每块玻璃都被描了一圈金线。0.02" 远小于任何真实缝隙（最小的真缝是
+    0.5"，正是它区分开两个 opening，必须留着）。
+  · **门/storefront 的归属要按「这一面朝着哪个格子」判，不能对合并后的长线做坐标判断。**
+    door notch = 门那一列、header 以下的「外面」格子；朝着它的竖面算 door，朝天空的算 storefront。
+    这样一根 jamb 的内表面才能**从中间劈开**：门旁边那段归门，header 以上那段归 storefront。
+    第一版用「线段中点在 header 以下」判，结果 SF15.1 整条左边缘都被算成门。
+  **door header 整段不算 gasket**（Leo：「door header 不用管，没有 gasket」）——不是只丢下表面。
+  header 是独立画的一根料，和上面的 head 之间还有条发丝缝，那条缝通向门洞，所以只丢下表面的话
+  描边会绕上去把 header 的顶面和两端当成 storefront 报掉（SF15.1/15.2 上就是这样）。改成：门那一列
+  从 headY 往上 `PERIM_DOOR_HEADER_ZONE = 6"` 是一条死带，带内所有面（横的竖的）全部丢弃。
+  数字对照（都与手算相符）：SF06 storefront 95.98 LF、door 15.96 LF（≈2×95.5"，与旧手算 15.91 一致）；
+  SF15.1 21.35 / 13.92；SF15.2 61.25 / 13.92（13.92 LF ≈ 2×83.5"，门扇高 83.9"）。
+  回归里加了四条断言：画出来的长度 == 账上的 LF（storefront 与 door 各一条）、每一段都落在真实
+  料件的表面上（不许悬空）、没有任何一段横穿门洞。
+
+- **算出来的东西要么实时重算，要么标明是哪一版解析的**（2026-08-20，Leo：SF15.2「出来怎么是这样」——
+  图上画的是新的分区描边，legend 里却是 perimeter 41.87LF、5 panels、没有门，两者来自不同版本）。
+  openings 存在 localStorage 里跨刷新存活，所以屏幕上的立面可能是**旧 build 解析出来的**。
+  · **能重算的就别存**：`gasketPerimeterLF` / `gasketDoorLF` 现在在 `recomputeOpeningGaskets()` 里
+    每次从 `perimeterRuns(o.cuts …)` 重新导出，不再读 import 当时冻结的值。画线和数字同一个来源，
+    不可能再各说各话。
+  · **重算不回来的要报警**：panel 是哪些格子、门在哪里，都是**读 DXF 时**定的，存下来之后无法还原。
+    `PARSER_VERSION` 在每次 parse 时盖到 opening 上（`o._pv`），不匹配时 gasket diagram 顶部弹一条
+    橙色横幅提示「本立面由旧 build 解析，请重新 import DXF」。**改动解析产出什么，就要 bump 它。**
+  · 顺带：每次改 takeoff 的 js，`index.html` 的 `?v=` 也要 bump（这次 → `20260820b`），否则浏览器
+    拿的还是缓存里的旧 app.js。
+
+- **panel 和 door 可以在 gasket diagram 上手画**（2026-08-20，Leo：「now classic elevations all
+  pretty well / but if it's not, then many issues / allow me to draw panels and doors on gasket
+  diagram」）。规整的一排排立面自动识别得很好，不规整的（SF01、EL-01）就很差，再调参也是这个结
+  果——所以答案不是「更聪明的猜」，是**给一支笔**。
+  `state.panelEdits[mark]` 从一张平表变成三样东西：`overrides`（自动 panel 的类型/gasket 覆盖，
+  原有的）、`manual`（手画的 panel，各带自己的类型和 gasket）、`hidden`（划掉的自动 panel，用于
+  识别器凭空造出来的格子）。**旧的平表形状仍然能读**，以前存的不会丢。
+  · **手画的 door 是真门**：`effectiveDoorRegions()` = 解析出的 door + 所有手画的 door panel，
+    喂给 `perimeterRuns`。所以解析完全没认出门的立面，手画一个门照样出两根 jamb 的 gasket，
+    storefront 也照样绕开门洞。少了这一步，画出来的门只会上个色、不出量。
+  · **拖出来的边会吸附到真实料件的面上**（`PANEL_SNAP_IN = 4"`）。手画的 panel 是要进量的，
+    「看着差不多」不够准，吸附才让手画和自动识别量得一样。离得远（>4"）就保持原位不动。
+  · **只有选中的 panel 有描边（红色），其它一律不加**（Leo：「画出来的没必要再加青色虚线，改过的
+    也不用加紫色虚线」）。一度给手画的加青虚线、给改过的加紫虚线，实际立面上那是叠在 gasket 圈上的
+    第三第四层虚线框，反而把「我正在editer哪一块」淹掉了。**panel 是什么，看填色；怎么来的，看
+    editor 和计数。** 手画的可以改类型（4 种全开）、改 gasket、删掉；自动 panel 的删除是「划掉」
+    而不是真删，重新 import 也不会复活。
+  · 拖拽用 module 级的 mousedown/mousemove/mouseup，靠 SVG 自己的 `getScreenCTM()` 换算坐标，
+    所以任何缩放/容器宽度都对；不在画笔模式时三个 handler 全是空转。
+  验证：`node t-draw.js` —— 画 panel 进量、吸附、划掉误判、手画门出两根 jamb 且与解析出的门量相同、
+  存档往返、旧平表兼容，15 条全过。
+
+- **一次性批量导出 Excel，每个 elevation 一张 sheet，全在一个文件里**（2026-08-20，Leo：「上司要求
+  给每一个 elevation 做一个 excel 表格，你参考 750XT page，帮我做一次性批量生成 excel 表格功能
+  全放一个文件里」）。版式**照抄他自己那份 `750XT / 45TU takeoff.xlsx` 的 750XT 页**——因为老板
+  已经在看那张表了。每张 sheet 分两段，跟他手工做的一模一样：
+  · **上半段 = 订货表**：Part # / Detail(B:D 合并) / Total Cut Length (in) / Stocks (FFD) / Unit /
+    Stocks +15% (pcs) / Unit，按参考表的分区横幅分组（Dark Bronze 型材、Non-Color 附件、Fastener、
+    Gasket、Hardware、Anchor）。
+  · **下半段 = 明细**：本工具自己的逐件 dump（含每个数字背后的 roles），不然那张订货表没法核。
+  · 第一张 sheet 是 **ALL ELEVATIONS**，同样版式，装项目总量（走 `buildPooledPacking`）。
+  **分区归属和每箱数量是从参考表里抄下来的，不是猜的**（`XL_PART_SECTION` / `XL_BOX_QTY`）；表里
+  没有的料号走一条兜底规则，**同时**在 console 和 sheet 底部列出来——新料号会以「问题」的形式出现，
+  而不是悄悄落进错误的分区。
+  **`xlsx-writer.js`：自己写的、无依赖的 .xlsx 生成器。** 不引 SheetJS 的理由：takeoff 是没有构建
+  步骤、没有第三方运行时依赖的静态页，最不能接受的失败是「CDN 连不上所以交不出东西」。xlsx 就是一个
+  装 XML 的 zip，这里要的东西（几张表、合并、列宽、一小组固定样式、数字/文本/公式）两百行就够。
+  zip 条目用 **STORED 不压缩**——Excel / LibreOffice / Google Sheets 都认，省掉唯一真正需要库的部分。
+  **两个必须记住的坑**：①`<worksheet>` 里子元素**顺序是 schema 规定死的**（sheetPr → sheetViews →
+  cols → sheetData → mergeCells → pageMargins → pageSetup），LibreOffice 会容忍顺序错，**Excel 会
+  直接报文件损坏并提示修复**。②styles.xml 里每个 `count=` 必须和实际条目数一致。
+  验证：`node t-xl.js <dxf>` —— 张数/命名/唯一性、订货表的 FFD 与 cut list 一致、+15% 是向上取整、
+  gasket 的 LF 与 gasket diagram 一致，最后**真的用 openpyxl 解析 + 真的用 LibreOffice 打开**
+  （能转出 csv 就说明没有「文件已损坏」弹窗）。
+
+- **Fastener / hardware / anchor 规则进了 accessories 引擎**（2026-08-20，从 YKK `04-4014-25`
+  YCW 750XT 安装手册提取，并与 Leo 自己那份 takeoff.xlsx 的公式互校；只做他 Excel 里出现的那几个件）。
+  **最有用的发现：规则本来就在他自己的表格公式里**（`=G77*2`、`=G78`、`=(E18+E19+E20)/9`），手册逐条
+  印证，没有一条是猜的。
+  · `HF-2510-W1` = **每个 shear block ×2**（p6 / p26 / p27 STEP 5 / p47）
+  · `FC-1220` = **每根横档每端 ×2** = 每个 shear block ×2（p6 / p46 / p47 STEP 16）
+  · `FC-1212` = 同上，但**只用于 90° 外角 shear block**（p6 / p46）；AC3 没有外角 → 恒为 0，保留可见
+  · `HD-2516-W3-SS` = **pressure plate 总长 ÷ 9"**（p62 STEP 28：料本身按 9" O.C. 冲 0.281" 孔；
+    扭矩 30 in-lb，自下而上）。1" 和 1-1/2" 两个玻璃厚度段都是 9"，与厚度无关。
+  · `E1-3504` shear block = **每根横档每端 1 个 = 每根横档 2 个**（p26 STEP 5）。Leo 原来记的是
+    「44 openings × 8」——4 根横档 × 2 端正好是 8，改成 per-piece 后在不规整立面上是准的。
+  · 锚件 `E1-1222` / `E1-1234`：手册**给不出数量**（p47/p49「per approved shop drawings」、p3 注 9
+    「system-to-structure fasteners are not supplied by YKK AP」）。Leo：「always follow excel」，
+    所以照抄他 ACCESSORIES 块的口径（F anchor 8/opening，T anchor 1/中竖梃），由他自己改。
+  **引擎加了两种规则类型**（原来五种全是量框料的，量不了「挂在别的件上」的紧固件）：
+  · `per_part` —— 数量 = param × 被引用件的**件数**
+  · `per_part_len` —— 数量 = 被引用件的**总长** ÷ param（param = o.c. 英寸）
+  这两种规则下，**Positions 列填的是料号，不是 role**。被引用的可以是 stock 件（走 cut list）也可以是
+  另一条 accessory 行；**只允许一层引用、不允许链式**，所以求值顺序永远无关紧要（两趟计算：先算非引用
+  规则，再把 stock 件件数 ∪ 已算出的 accessory 数量喂给引用规则）。没填引用的行会明说
+  「no part referenced」，而不是安静地报 0。
+  **`E1-3603` / `E2-0513` 从 750XT 的 parts 库里删掉了**（进 `RETIRED_PARTS`）。它们本来挂着 roles 当
+  型材算，结果工具在「用 24 尺料切 48 根 setting block」，而且会和新的 accessory 行**重复计**、还会出现
+  在 cutting diagram 上。现在改成 accessory：**按下横档的跑长算**（Leo：一块玻璃只有下边的料上有
+  setting block 和 chair，所以 run-length 是对的），且**只挂 Sill/Horizontal 系 role，绝不挂竖料**。
+  料号 **E1-3603 = Setting Block Chair、E2-0513 = Setting Block**（Leo 2026-08-20 确认；这两个就是
+  04-4014-25 里 1" 玻璃那套的号，尽管 AC3 玻璃是 1-1/16"）。它们**留在 accessories、不回 parts 库**：
+  当 parts 会被 FFD 排到 24 尺料上、还会画进 cutting diagram，并与这两行重复计。
+  `PARTS_DB_VERSION` bump 到 20260820（parts + accessories 会随版本重灌）。
+  验证：`node t-acc.js <dxf>` —— 18 条断言，逐条核对上述每个数量、setting block 不再被切料也不再留在
+  parts 库、Excel 里每个件落在正确的分区、没有任何件走兜底规则。
+
+- **Report 底部按钮改竖排**（2026-08-20，Leo：「改成竖排，不要超出框」）。原来 `.tk-report__foot`
+  是一行 flex：公式在左、导出按钮在右。加到六个按钮后那一行顶出了面板边界，还把公式挤成了一列一个词。
+  改成 column：公式独占一行，按钮 `.tk-report__actions` 在下面竖着排、各自按标签宽度（`align-items:
+  flex-start`，不拉满）。**真正止住溢出的是子元素上的 `min-width: 0`** —— flex item 默认
+  `min-width:auto`，拒绝缩到内容宽度以下，这才是当初按钮溢出而不是被容器收住的原因。公式加
+  `overflow-wrap: anywhere`（一长串等宽字符，窄宽度下没有自然断点）。
+  改的是 `styles.css`，所以 `index.html` 里 `styles.css` 也得带 `?v=`（以前没带，会吃缓存）。
+
+- **配件规则也是云同步的 —— 光 bump PARTS_DB_VERSION 没用**（2026-08-20，Leo：装完规则后打开，
+  fastener 一条没有、setting block 没有、显示出来的行没有料号、Dark Bronze 下面还多了两行空白）。
+  原因和当初 E2-0120/E2-0127 一模一样：**accessories 和 parts 在同一个云端 `systems` 文档里**，本地
+  按版本重灌之后，下一次云快照又把旧的盖回来。**一次性 migration 永远赢不了云快照，必须是常驻和解器。**
+  最初写成逐行 merge/adopt 的和解器，Leo 直接否掉：「**不用管我原来的规则，用新的规则全部洗一遍**」。
+  所以现在是 **`washSeedAccessories()`：750XT 的配件规则归 systems.js 所有** —— 不 merge、不逐行对，
+  整组替换。同时清掉所有 **system 为空** 的历史行（它们早于「按系统分规则」，会作用到每一个洞口，
+  一条空 system 的 `Glazing Gasket` / `Shear Block` 就压在 750XT 的同名规则上重复计）。
+  45TU / IR501T / 450 的规则不动。老的 `Shear Block` 只挂 `Horizontal + Transom Bar`，漏掉了 head/sill，
+  而 04-4014-25 Detail 6 画得很清楚 head 和 sill 上都有 —— 这也是必须整组换而不是保留 positions 的原因。
+  **判据是「有没有」，不是版本标记 —— 这一点栽过一次，值得记住。** 先写的是 `ACC_WASH_VERSION`
+  版本标记，让每个浏览器只洗一次。结果那一次发生在**页面加载时、Firestore 快照到达之前**：洗完盖章，
+  快照随后把旧行盖回来，而标记说「洗过了」，于是永远停在旧数据上。**任何「我做过了吗」式的开关，
+  在这个竞态里都必输。**
+  改成 presence：**只要 seeded 料号里有任何一个不在 750XT 集合里，就说明这套是旧的** —— 不管它是谁、
+  什么时候放进来的 —— 洗掉重装并推上云。云上装好之后每个料号都在，wash 自然停火；而且判的是「在不在」
+  不是「等不等」，所以手改某条规则的 param 不会被改回去。整条删掉的话下次 render 会回来（这些是手册
+  背书的规则，本来就该如此；要改去改 systems.js，或者就地改 param）。
+  `applySystemsDocs()` 在写完 `state.accessories` 之后会调 `renderAll()`，wash 就挂在那儿；而它是先设
+  `lastSyncedSystemsJSON` 再 render，所以 wash 改完之后那次 push 一定会被判为有差异、真的写上去。
+  另外留一条常驻的 `pruneLegacyAccessories()`：**既没 system 又没料号**的行永远删 —— 这种行下不了单、
+  必然与某条具名规则重复；万一有没洗过的浏览器把旧数据推回来，下一次 render 会再剥掉。
+- **Excel 去掉 TAKEOFF DETAIL 块**（Leo：「excel doesn't need to have takeoff detail」）。明细留在工具里
+  （viewer + report），不再钉在每张表底下。
+- **既没有料号又没有描述的配件行不进 Excel**。这种行没法下单，而且没有任何东西可供分区判断，于是从前
+  会掉进兜底分支、以两行空白出现在 Dark Bronze 下面。现在跳过并在表底注明跳过了几条，让它变成一个
+  「去把它命名了」的提示，而不是一个看不懂的空行。
+
+- **setting block / chair 按 24 尺料下单**（2026-08-20，Leo：「stock length 是 24 feet，除完向上取整」）。
+  它们是挤压件，takeoff 出来的是跑长（LF），下单要的是 24 尺料的**根数** = `ceil(LF / 24)`。
+  为此把原来的 `XL_BOX_QTY`（料号 → 每箱数量）换成 `xlOrderPack(partNumber, description)`，返回
+  `{per, unit}`：`per` = 一个可下单单位里含多少个「takeoff 单位」，`unit` = 下单单位。
+  · 有料号的走 `XL_ORDER_PACK`（100/箱、500 LF/箱……，抄自参考表）
+  · setting block / chair：`E1-3603` / `E2-0513` → `{ per: 24, unit: 'PCS' }`。
+    （曾短暂按描述匹配，因为当时没有料号；Leo 给了号之后已并入按料号那张表。）
+    **不挂在 accessory 规则上**：`cloud-sync.js` 的 `cleanAccessories()` 只保留
+    partNumber/description/rule/positions/param/min/unit，**任何额外字段过一趟 Firestore 就没了**，
+    所以「怎么买」这件事必须放在 app.js 的表里。
+  SF06：65.80 LF ÷ 24 → **3 PCS**。回归里有断言：per 列是 24、下单单位是 PCS、数值等于 `ceil(LF/24)`、
+  并且是向上取整不是四舍五入（24.1 LF → 2 根）。
+
+- **setting block / chair 改成「每块 panel 2 个」，新增 `per_panel` 规则**（2026-08-20，Leo：
+  「install setting block chairs and rubber/silicone setting blocks at the 1/4 points of the daylight
+  opening (D.L.O.) along the sill or intermediate horizontal member，so 2 for each panel (not just
+  lite because imp-1 panel needs setting block too)」）。
+  之前按下横档跑长（per_lf）是错的。`per_lite` 也不行 —— lite 是 vision glass 的数量，**IMP-1 板不是
+  lite 但一样要垫块**。所以加了 `per_panel`：**直接读 panel map**（就是 gasket 那套 glass/IMP-1/
+  louver/door，含手画和手动改类型的），`positions` 列在这条规则下填的是 **panel 类型**
+  （Glass / IMP-1 / Louver / Door），留空 = Glass + IMP-1。louver 和 door 不给。
+  好处是它跟着 panel 走：**手画一块 panel 或把 glass 改成 IMP-1，这个数自己就变了。**
+  SF06：20 块 panel 里 glass 9 + IMP-1 5 = 14 → **28 ea**（louver 5、door 1 不算）。
+  **24 尺料那条随之取消**：现在算出来的是「个数」不是跑长，没有东西可以去除以 24。等 Leo 给了单块长度
+  再谈从 24 尺料上裁多少根；在那之前按「个」下单。
+- **wash 的判据从「料号在不在」升级成「结构签名」**：`partNumber | rule | positions`（**不含
+  param/min**）。因为这次只改了规则类型、料号没变，按料号判的话云端永远收不到新规则。
+  界线是：**结构（用哪条规则、读什么）归 systems.js；量值（param/min）归 Leo，在表里改不会被洗掉。**
+
+- **框料可以在立面图上直接拖了：拖端点改长短、拖矩形新增，带磁吸**（2026-08-20，Leo 在做 45TU：
+  「识别得很不好 / 增加手动 edit piece 功能，现在可以 add 但只是文字，需要在图上可以改长，改短，
+  新添，需要有磁吸，像画 panel 那样」）。
+  framing view 原来除了一个文本表单之外是只读的。**在识别得差的系统上，逐根改数字是不能用的** ——
+  图就在眼前，改就应该在图上改。交互与 panel map 完全一致：
+  · **选中一根 → 两端各出一个红色抓手**（长度的 10%，最小可点），拖动即改长短。只动被拖的那一端，
+    另一端钉住；不允许拖过另一端（负长度不是东西）。
+  · **✏ Draw a piece → 拖一个矩形新增**。宽的成 Horizontal、高的成 Vertical，**role 之后在下面的
+    编辑器里改** —— 从一个随手画的矩形去猜 Head / Sill / Horizontal 只会添乱。
+  · **磁吸 `CUT_SNAP_IN = 4"`**，吸附到其它框料的表面。`cutSnapAxes(o, skipIdx)` **要排除被拖的那根
+    自己**，否则端点会黏在原地、看起来像坏了。
+  · `setCutGeometry()` 是唯一改几何的入口：**同步更新 `length`（取长边）**，让料表和图永远一致；
+    **并把 `roleEdits` 的 pin 一起搬过去** —— pin 是按 `srcKey` 存的，几何一变 key 就变，不搬的话
+    手工定过的 role 会悄悄丢失。
+  拖拽用 module 级 mousedown/mousemove/mouseup + SVG 自己的 `getScreenCTM()`，不在 framing view 时全是空转。
+  验证：`node t-cutdrag.js` —— 磁吸窗口内外的行为、加长/缩短后 length 跟着走、横料取宽不取高、
+  pin 随几何迁移、画出来的件真的进 cut list。
+
+- **三处「750XT 的假设漏到 45TU」**（2026-08-20，Leo 在做 45TU 时一次报了三条）：
+  1. **gasket diagram 只给 750XT**。parse 里 `if (system === '750XT')` 才写 `panelCells`，所以别的系统
+     连 panel map 都没有。改成**所有系统都出** —— panel map 是核对和纠正 takeoff 的手段，在识别得差的
+     系统上只会更有用。各系统的 gasket 内容交给新的 `SYSTEM_GASKET` 表；**表里没有的系统就画一张没有
+     gasket 圈的图**，而不是硬套 E2-0127（错的图比没有图更糟）。
+     **45TU = 每块 panel 2 圈 E2-0052**，这与原来的 per-role 规则**在算术上完全等价**：原规则是周边
+     role（Jamb/Door Jamb/Head/Sill）2×LF、内部 role（Vertical/Corner/Horizontal）4×LF；一根周边料只
+     邻一块 panel、一根内部料邻两块，所以「每块 panel 2 圈」正好还原成 2·L 和 4·L。
+     **systems.js 里那两条 per-role E2-0052 同时删掉了 —— 留着就是双倍。** 实测 372.4 → 373.17 LF
+     （差 0.2%，因为 panel 量的是 DLO 洞口、老规则量的是整根料长；panel 这个更准）。
+     storefront perimeter / door jamb 两笔是 750XT 专有，45TU 的 `perimeterPart`/`doorPart` 为 null，
+     既不计也不画。accessories 汇总里 perimeter/door 改成**按料号累加**，因为一个项目里可能同时有
+     750XT 和 45TU 的洞口。
+  2. **鼠标浮上去显示的是 750XT 的剖面**。`role-sections.js` 和 `part-sections.js` 都是从 750XT 的图里
+     抽的，而且**只按 role 名索引**，于是 45TU 的 `Head` 直接命中了 750XT 的 `Head`，显示了一根完全不
+     相干的型材。**错的剖面比没有剖面更糟 —— 它看起来很权威。** 加 `SECTION_LIBRARY_SYSTEM = '750XT'`
+     把两处（hover tooltip、角色表展开）都门控住；非 750XT 时改为列出**该系统里覆盖这个 role 的料号**，
+     那是我们真正有的、有用的答案。
+  3. **Position 下拉出现 750XT 的 role**。`POSITIONS_LIST()` 是所有系统 role 的并集 —— 这对零件表是对的
+     （一行可以属于任何系统），对 viewer 的下拉是错的（这根料已经属于某个系统了）。而且不只是噪音：
+     选中一个 750XT 的 role，45TU 没有任何零件覆盖它，**这根料就会悄悄从 takeoff 里消失**。
+     新增 `POSITIONS_FOR(system, current)`，只给该系统的 role（∪ customRoles ∪ 当前值，保证已有的
+     怪值不会因为打开菜单就丢）。
+  wash 的覆盖范围从 `'750XT'` 扩到 `ACC_OWNED_SYSTEMS = ['750XT','45TU']`；IR501T / 450 / 1600 不碰
+  （它们的规则从来没在这儿整理过，洗了等于把云上的东西扔掉）。
+  验证：`node t-45tu.js` —— 下拉隔离、剖面库门控、45TU 出 panel map、只吃 E2-0052、不吃 750XT 的料号、
+  不画金线、以及 750XT 一切照旧。
+- **2026-08-20** — **(IMP-1) framing roles retired.** `Jamb (IMP-1)` / `Vertical (IMP-1)` /
+  `Vertical (wide IMP-1)` are gone from SYSTEM_DEFS. Their only difference from the plain roles
+  was the gasket, and the gasket is now a per-PANEL takeoff, so the distinction bought nothing
+  and cost a mullion being split into three sticks. Legacy data collapses automatically:
+  ROLE_REMAP chains point at the base role only (never the `(X)` louver variant),
+  `normalizeImp1RoleToBase` runs first in classifyRoles, `recognizedRolesForSystem` filters a
+  curated list at read time, and a stale `state.roleEdits` pin is REWRITTEN to the base role
+  rather than dropped (dropping it would re-expose the piece to auto-classification).
+  `mergeCollinearVerticals` fuses the old three-way splits back into one member.
+- **2026-08-20** — **Gasket = per-panel, hand-editable.** Every infill cell parsed from the DXF
+  is stored on the opening as `o.panelCells` (survives reload; ELEV_EXPORTS does not) and
+  resolved through `state.panelEdits[mark][panelKey]` into `o.panels`. A panel carries a type
+  (glass/IMP-1, auto-detected from the IMP-1 hatch exactly as before) and its own gasket spec
+  `[{part, loops}]`. LF = perimeter × loops, summed per part number — there is no glass/imp1
+  bucket any more. Default for BOTH types is `E2-0127 ×1 + E2-0120 ×1`; the type is still stored
+  separately because Leo expects the two to diverge again. Louver/door panels are shown but
+  locked. Overrides ride in the EXISTING `elevEdits/{mark}` Firestore doc under a `panels` field
+  — deliberately not a new collection, which would need its own security rule published before
+  any write would land.
+- **2026-08-20** — **E1-0120 / E1-0127 deleted from 750XT** via a STANDING sanitizer
+  (`pruneRetiredParts`, called from renderAll), not a one-shot migration: those rows were
+  hand-added to the CLOUD parts library, which overwrites local state on every snapshot, so a
+  one-shot would be undone on the next sync. It strips them, pushes the clean 750XT doc back up
+  on a deferred macrotask (after cloud-sync's `applyingRemote` guard clears), then no-ops forever.
+- **2026-08-20** — **Cutting DXF is landscape + carries drawings.** Elevations run left→right,
+  wrapping so the sheet lands near 1.6:1; each column = mark → its frame diagram (1:1 from
+  `cuts[].src`, panels outlined) → its cut list, with each part's extrusion cross-section drawn
+  under its name. Sections come from the new `part-sections.js` (13 profiles auto-extracted from
+  `new block.dxf`) and are emitted as one DXF **BLOCK per part + INSERT** — inline lines put a
+  single elevation at 270KB and would have run to megabytes across 40. Parts with no section
+  (BY7-9065, AS-7110, E9-1660, and every non-750XT part) export as text and are reported to the
+  user, not silently skipped.
+
 - **2026-07-16 (review)** — **S4** = thread user-selected system into `parseRawDxfOpenings`
   (`forcedSystem` overrides `dxfSystemForMark`); classification/whitelist must use the confirmed
   system, not the mark. Root of "door detected as frames".

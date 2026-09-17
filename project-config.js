@@ -11,6 +11,10 @@
 window.PROJECT = {
   name: 'Atlantic-Chestnut Building 3',
   code: 'AC3',
+  // AF Hub reporting (hub-report.js) - see Downloads/af-hub/README.md
+  hubId:    'ac3',
+  hubUnit:  'openings',
+  hubScope: 'Storefront / Curtain Wall',
 
   // localStorage identity — NEVER change on a live project (orphans local caches)
   storageKey:  'ac3_install_v1',
