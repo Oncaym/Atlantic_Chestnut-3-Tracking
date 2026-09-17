@@ -38,6 +38,54 @@
   let isReadOnly = false;
   let lastRemoteSnapshot = null;   // last good remote state (for revert)
 
+  /* ── Role (Leo, 2026-09-17) ───────────────────────────────────────────────
+     `isReadOnly` answers "can this account write?". It was ALSO being used to
+     answer "is this account the GC?" — a different question that happened to
+     have the same answer. The consequence: any signed-in account that was not
+     on /allowlist was handed the GC's narrowed view and could post items
+     stamped source:'gc'. Nobody had to be invited to become the GC.
+
+       editor — on /allowlist                      → full edit
+       gc     — not on /allowlist, but on /gcList   → GC view, read-only
+       none   — on neither                          → blocked, sees no data
+
+     Rollout is deliberately fail-open: while /gcList does not exist, behaviour
+     is exactly as before (read-only accounts are treated as the GC) so this can
+     ship ahead of the Console work. It starts enforcing the moment the node is
+     created — see firebase-database-rules.json. */
+  let role = null;                 // 'editor' | 'gc' | 'none', once resolved
+  let onGcList = false;
+  let gcListConfigured = false;    // false → /gcList not created yet, keep old behaviour
+
+  /* Firebase paths cannot hold a '.', and the rules key on
+     auth.token.email.replace('.', ','), whose replace is GLOBAL. Match it exactly:
+     a single-dot replace looks right for leo@af.com and silently misses
+     leo.sun@af.com — which is the shape of most of these addresses. */
+  function emailKey(email) { return String(email || '').replace(/\./g, ','); }
+
+  function resolveRole() {
+    if (!currentUser) { role = null; return; }
+    if (!isReadOnly)  { role = 'editor'; hideNoAccess(); return; }
+    if (!gcListConfigured) { role = 'gc'; hideNoAccess(); return; }   // pre-rollout
+    role = onGcList ? 'gc' : 'none';
+    if (role === 'none') showNoAccess(); else hideNoAccess();
+  }
+
+  function readGcList() {
+    onGcList = false; gcListConfigured = false;
+    if (!db || !currentUser) { resolveRole(); return; }
+    db.ref('gcList').once('value').then(function (snap) {
+      gcListConfigured = snap.exists();
+      onGcList = !!(snap.val() && snap.val()[emailKey(currentUser.email)]);
+      if (!gcListConfigured)
+        console.warn('[CloudSync] /gcList does not exist yet — every non-editor is still '
+                   + 'treated as the GC. Create it to start enforcing.');
+    }).catch(function () {
+      // Rules not published (or no read permission) — stay on the old behaviour.
+      gcListConfigured = false;
+    }).then(resolveRole);
+  }
+
   // ---------- Public API ----------
   window.CloudSync = {
     init(config) {
@@ -63,6 +111,8 @@
     isSignedIn() { return !!currentUser; },
     currentUser() { return currentUser; },
     isReadOnly() { return isReadOnly; },
+    role() { return role; },
+    isGC() { return role === 'gc'; },
     logout() { if (auth) auth.signOut(); },
     openHistory() { openHistoryPanel(); },
 
@@ -75,8 +125,8 @@
       if (!currentUser) return Promise.reject(new Error('not signed in'));
       const rec = Object.assign({}, payload || {}, {
         by: currentUser.email,
-        // AF vs GC comes from the same allowlist check that drives read-only mode.
-        source: isReadOnly ? 'gc' : 'af',
+        // Only an account actually on /gcList may stamp an item as coming from the GC.
+        source: (role === 'gc') ? 'gc' : 'af',
         ts: firebase.database.ServerValue.TIMESTAMP,
       });
       Object.keys(rec).forEach(k => { if (rec[k] === undefined || rec[k] === '') delete rec[k]; });
@@ -128,6 +178,20 @@
       <div class="cs-auth-bg"></div>
     `;
     document.body.appendChild(gate);
+
+    /* The hub's Open ↗ passes the already-signed-in address as #u=... — a fragment,
+       so it never reaches a server or a referrer. Fill it in, then strip it from the
+       address bar so it is not what gets bookmarked or pasted into chat. */
+    try {
+      const m = /[#&]u=([^&]*)/.exec(location.hash || '');
+      if (m && m[1]) {
+        const em = document.getElementById('cs-email');
+        if (em) em.value = decodeURIComponent(m[1]);
+        history.replaceState(null, '', location.pathname + location.search);
+        const pw = document.getElementById('cs-password');
+        if (pw) pw.focus();
+      }
+    } catch (e) {}
 
     document.getElementById('cs-auth-form').addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -217,11 +281,14 @@
       subscribeToState();
       subscribeToPresence();
       subscribeToGcItems();
+      readGcList();
     } else {
       // Clear read-only flag + banner so the next sign-in starts clean.
       isReadOnly = false;
+      role = null; onGcList = false; gcListConfigured = false;
       lastRemoteSnapshot = null;
       hideReadOnlyBanner();
+      hideNoAccess();
       unmountStatusBadge();
       showAuthGate();
       // Stop listening (Firebase auto-unsubs when ref handle is dropped, but be defensive)
@@ -398,6 +465,8 @@
     isReadOnly = true;
     console.warn('[CloudSync] read-only mode:', reason);
     showReadOnlyBanner(reason);
+    // "cannot write" is now only half the answer — decide gc vs no-access.
+    resolveRole();
     // Let the app hide editor-only controls the moment we know (F-033 v2).
     try { if (typeof window._onReadOnly === 'function') window._onReadOnly(); } catch (e) {}
     // Snapshot whatever the app currently has as the "good" baseline so
@@ -428,6 +497,33 @@
   }
   function hideReadOnlyBanner() {
     const el = document.getElementById('cs-readonly-banner');
+    if (el) el.remove();
+  }
+
+  /* Signed in, but on neither list. Before this existed such an account was shown
+     the GC view. It gets a plain wall instead — and the database rules, not this
+     overlay, are what actually withhold the data. */
+  function showNoAccess() {
+    if (document.getElementById('cs-noaccess')) return;
+    const who = (currentUser && currentUser.email) || '';
+    const el = document.createElement('div');
+    el.id = 'cs-noaccess';
+    el.innerHTML = `
+      <div class="cs-na-card">
+        <div class="cs-na-icon">🔒</div>
+        <div class="cs-na-title">No access to this project</div>
+        <div class="cs-na-body">
+          <b>${escapeHtml(who)}</b> is signed in, but is not on this project's team
+          or GC list. Ask the project manager to add you.
+        </div>
+        <button type="button" id="cs-na-out">Sign out</button>
+      </div>`;
+    document.body.appendChild(el);
+    const b = document.getElementById('cs-na-out');
+    if (b) b.addEventListener('click', () => { if (auth) auth.signOut(); });
+  }
+  function hideNoAccess() {
+    const el = document.getElementById('cs-noaccess');
     if (el) el.remove();
   }
 
@@ -902,6 +998,28 @@
       font-size: 12px; font-weight: 500; font-family: inherit;
     }
     .cs-setup-dismiss:hover { background: rgba(0,0,0,0.25); }
+
+    /* Signed in but on neither list — a wall, not the GC view. */
+    #cs-noaccess {
+      position: fixed; inset: 0; z-index: 100000; display: flex;
+      align-items: center; justify-content: center; padding: 24px;
+      background: rgba(8,11,15,.93); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+    }
+    #cs-noaccess .cs-na-card {
+      background: #1a2028; border: 1px solid #2d3744; border-radius: 12px;
+      padding: 28px 26px; max-width: 380px; width: 100%; text-align: center;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      box-shadow: 0 18px 44px rgba(0,0,0,.5);
+    }
+    #cs-noaccess .cs-na-icon  { font-size: 26px; margin-bottom: 10px; }
+    #cs-noaccess .cs-na-title { color: #e6edf3; font-size: 17px; font-weight: 600; margin-bottom: 8px; }
+    #cs-noaccess .cs-na-body  { color: #8b949e; font-size: 13px; line-height: 1.55; margin-bottom: 18px; }
+    #cs-noaccess .cs-na-body b { color: #e6edf3; font-weight: 600; word-break: break-all; }
+    #cs-noaccess button {
+      background: #232b36; color: #e6edf3; border: 1px solid #2d3744; border-radius: 7px;
+      padding: 9px 20px; font: inherit; font-size: 13px; cursor: pointer;
+    }
+    #cs-noaccess button:hover { border-color: #4493f8; }
 
     /* Read-only banner — shown at the top when user is not in /allowlist */
     #cs-readonly-banner {

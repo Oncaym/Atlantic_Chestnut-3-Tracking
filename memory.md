@@ -1768,6 +1768,33 @@ no Firestore elev-cloud setup for CP2. Only the `api/parse.js` status-enum fix s
   layer/hatch, all systems) + **Layer B** (learned feature-signature rules from #1's saved
   edits). Enabled by user confirming IMP-1 is on a distinct layer/hatch.
 
+## Resolved — 2026-09-17
+
+### The plan flipped black ⇄ white on every save
+Symptom (Leo): save anything on the plan → all white linework; save again → all black;
+endlessly. **Nothing in the JS was wrong.** `index.html:2098` never carried
+`data-plan-light` / `data-plan-dark`, so `_planLightSrc()` fell through to
+`img.getAttribute('src')` — and on this project `PLAN_GF_SRC` is never pinned, because
+`project-config.js` defines no `floors`, so the level buttons never render and
+`setLevel()` — the only thing that pins it — is never called. After the first runtime
+canvas inversion the `src` IS the inverted data URL, so the "light source" became the
+function's own output and every `renderPlan()` (i.e. every save) inverted it again,
+alternating forever as `_INVERT_CACHE` filled in both directions.
+
+Fix: wire the pair that was already sitting on disk since 2026-09-03 —
+`data-plan-light="2.png" data-plan-dark="2-white.png"` — and drop the inline
+`style="filter:invert(1)"`. `_floorDarkSrc()` now returns the shipped twin, so the
+canvas inversion never runs on the ground floor at all, and `_planLightSrc()` returns a
+fixed filename that can never be its own output. Both halves fixed by the same two
+attributes; this is exactly what CLAUDE.md §4.8 has been asking for.
+
+Both PNGs re-checked against the §4.8 spec before wiring: RGBA, corner alpha 0,
+transparent fraction 0.927.
+
+Verified in headless Chromium against the real `applyPlanTheme()` block lifted verbatim
+from app.js: the old markup flips WHITE/BLACK 7 times across 8 saves, the new markup
+holds `2-white.png` for all 8 and never builds a data URL.
+
 ## Scratch / notes
 
 <!-- transient working notes — safe to clear each session -->

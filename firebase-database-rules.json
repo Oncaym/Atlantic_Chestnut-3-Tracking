@@ -8,9 +8,26 @@
     // 读：任何登录用户（包括非 editor，用来给主 tracker 和 chat 看数据）
     // 写：仅 allowlist 内的 editor
     "state": {
-      ".read":  "auth != null",
+      // 读：allowlist（编辑）或 gcList（总包）。
+      //   ⚠ 2026-09-17 之前这里是 "auth != null" —— 这个 Firebase 项目里**任何**登录账号
+      //   都能读走整个工地的数据，而且前端会把他当成 GC（narrowed view + 能以 source:'gc'
+      //   提条目）。真正的边界在这一行，不在前端的遮罩。
+      //   最后那个 !exists() 是灰度开关：/gcList 还没建之前保持旧行为，建好当天开始生效，
+      //   和 cloud-sync.js 里的 gcListConfigured 完全对应。
+      ".read":  "auth != null && (root.child('allowlist').child(auth.token.email.replace('.', ',')).exists() || root.child('gcList').child(auth.token.email.replace('.', ',')).exists() || !root.child('gcList').exists())",
       ".write": "auth != null && root.child('allowlist').child(auth.token.email.replace('.', ',')).exists()",
       ".validate": "newData.hasChildren(['_clientId', '_ts', '_by'])"
+    },
+
+    // ---------- 总包名单 (GC list) ----------
+    // 谁是 GC 必须是**被点名的**，不能是"不在 allowlist 里就算"。
+    // 读：任何登录用户 —— 前端要能分辨"这个节点还没建"（灰度）和"建了但我不在里面"
+    //     （= 没有权限）。代价是登录用户能看到 GC 的邮箱列表，可以接受。
+    // 写：只在 Firebase Console 里改。键是邮箱把 '.' 全换成 ','，值随便（true 即可）：
+    //     { "gcList": { "pm@broadwaybuilder,com": true } }
+    "gcList": {
+      ".read":  "auth != null",
+      ".write": false
     },
 
     // ---------- 周五到货调度 (Friday glass delivery triage) ----------
