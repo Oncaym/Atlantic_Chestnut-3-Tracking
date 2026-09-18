@@ -46,14 +46,20 @@
      stamped source:'gc'. Nobody had to be invited to become the GC.
 
        editor — on /allowlist                      → full edit
-       gc     — not on /allowlist, but on /gcList   → GC view, read-only
-       none   — on neither                          → blocked, sees no data
+       gc     — not on /allowlist, but on /gcList   → the GC's narrowed view, read-only
+       viewer — on neither                          → the FULL internal board, read-only
 
-     Rollout is deliberately fail-open: while /gcList does not exist, behaviour
-     is exactly as before (read-only accounts are treated as the GC) so this can
-     ship ahead of the Console work. It starts enforcing the moment the node is
-     created — see firebase-database-rules.json. */
-  let role = null;                 // 'editor' | 'gc' | 'none', once resolved
+     /allowlist is EDITOR permission, nothing more. Not being on it makes you a
+     viewer — one of us, without edit rights — NOT an outsider. An earlier cut of
+     this change put a "no access" wall in front of viewers; that was wrong, and
+     Leo corrected it on 2026-09-18.
+
+     Rollout is deliberately fail-open: while /gcList does not exist, behaviour is
+     exactly as before (a read-only account is treated as the GC), so this can ship
+     ahead of the Console work. Failing the other way would be worse than the bug
+     itself — it would put our internal-only elevations and drawings in front of the
+     real GC until the node was created. Enforcement starts the moment /gcList exists. */
+  let role = null;                 // 'editor' | 'gc' | 'viewer', once resolved
   let onGcList = false;
   let gcListConfigured = false;    // false → /gcList not created yet, keep old behaviour
 
@@ -64,11 +70,14 @@
   function emailKey(email) { return String(email || '').replace(/\./g, ','); }
 
   function resolveRole() {
-    if (!currentUser) { role = null; return; }
-    if (!isReadOnly)  { role = 'editor'; hideNoAccess(); return; }
-    if (!gcListConfigured) { role = 'gc'; hideNoAccess(); return; }   // pre-rollout
-    role = onGcList ? 'gc' : 'none';
-    if (role === 'none') showNoAccess(); else hideNoAccess();
+    if (!currentUser)      { role = null;     return; }
+    if (!isReadOnly)       { role = 'editor'; return; }
+    if (!gcListConfigured) { role = 'gc';     return; }   // pre-rollout, see above
+    role = onGcList ? 'gc' : 'viewer';
+    /* A viewer needs no special screen — they get the ordinary board. But the GC-only
+       narrowing in app.js keys off _isGC(), and this resolves AFTER the first paint,
+       so poke the app to re-apply now that the answer is known. */
+    try { if (typeof window._onReadOnly === 'function') window._onReadOnly(); } catch (e) {}
   }
 
   function readGcList() {
@@ -288,7 +297,6 @@
       role = null; onGcList = false; gcListConfigured = false;
       lastRemoteSnapshot = null;
       hideReadOnlyBanner();
-      hideNoAccess();
       unmountStatusBadge();
       showAuthGate();
       // Stop listening (Firebase auto-unsubs when ref handle is dropped, but be defensive)
@@ -497,33 +505,6 @@
   }
   function hideReadOnlyBanner() {
     const el = document.getElementById('cs-readonly-banner');
-    if (el) el.remove();
-  }
-
-  /* Signed in, but on neither list. Before this existed such an account was shown
-     the GC view. It gets a plain wall instead — and the database rules, not this
-     overlay, are what actually withhold the data. */
-  function showNoAccess() {
-    if (document.getElementById('cs-noaccess')) return;
-    const who = (currentUser && currentUser.email) || '';
-    const el = document.createElement('div');
-    el.id = 'cs-noaccess';
-    el.innerHTML = `
-      <div class="cs-na-card">
-        <div class="cs-na-icon">🔒</div>
-        <div class="cs-na-title">No access to this project</div>
-        <div class="cs-na-body">
-          <b>${escapeHtml(who)}</b> is signed in, but is not on this project's team
-          or GC list. Ask the project manager to add you.
-        </div>
-        <button type="button" id="cs-na-out">Sign out</button>
-      </div>`;
-    document.body.appendChild(el);
-    const b = document.getElementById('cs-na-out');
-    if (b) b.addEventListener('click', () => { if (auth) auth.signOut(); });
-  }
-  function hideNoAccess() {
-    const el = document.getElementById('cs-noaccess');
     if (el) el.remove();
   }
 
@@ -998,28 +979,6 @@
       font-size: 12px; font-weight: 500; font-family: inherit;
     }
     .cs-setup-dismiss:hover { background: rgba(0,0,0,0.25); }
-
-    /* Signed in but on neither list — a wall, not the GC view. */
-    #cs-noaccess {
-      position: fixed; inset: 0; z-index: 100000; display: flex;
-      align-items: center; justify-content: center; padding: 24px;
-      background: rgba(8,11,15,.93); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
-    }
-    #cs-noaccess .cs-na-card {
-      background: #1a2028; border: 1px solid #2d3744; border-radius: 12px;
-      padding: 28px 26px; max-width: 380px; width: 100%; text-align: center;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      box-shadow: 0 18px 44px rgba(0,0,0,.5);
-    }
-    #cs-noaccess .cs-na-icon  { font-size: 26px; margin-bottom: 10px; }
-    #cs-noaccess .cs-na-title { color: #e6edf3; font-size: 17px; font-weight: 600; margin-bottom: 8px; }
-    #cs-noaccess .cs-na-body  { color: #8b949e; font-size: 13px; line-height: 1.55; margin-bottom: 18px; }
-    #cs-noaccess .cs-na-body b { color: #e6edf3; font-weight: 600; word-break: break-all; }
-    #cs-noaccess button {
-      background: #232b36; color: #e6edf3; border: 1px solid #2d3744; border-radius: 7px;
-      padding: 9px 20px; font: inherit; font-size: 13px; cursor: pointer;
-    }
-    #cs-noaccess button:hover { border-color: #4493f8; }
 
     /* Read-only banner — shown at the top when user is not in /allowlist */
     #cs-readonly-banner {

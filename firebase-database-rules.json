@@ -8,13 +8,11 @@
     // 读：任何登录用户（包括非 editor，用来给主 tracker 和 chat 看数据）
     // 写：仅 allowlist 内的 editor
     "state": {
-      // 读：allowlist（编辑）或 gcList（总包）。
-      //   ⚠ 2026-09-17 之前这里是 "auth != null" —— 这个 Firebase 项目里**任何**登录账号
-      //   都能读走整个工地的数据，而且前端会把他当成 GC（narrowed view + 能以 source:'gc'
-      //   提条目）。真正的边界在这一行，不在前端的遮罩。
-      //   最后那个 !exists() 是灰度开关：/gcList 还没建之前保持旧行为，建好当天开始生效，
-      //   和 cloud-sync.js 里的 gcListConfigured 完全对应。
-      ".read":  "auth != null && (root.child('allowlist').child(auth.token.email.replace('.', ',')).exists() || root.child('gcList').child(auth.token.email.replace('.', ',')).exists() || !root.child('gcList').exists())",
+      // 读：任何登录用户。账号是管理员在 Firebase Console 里一个个建的（没有自助注册），
+      //   所以"能登录"本身就是授权。不在 allowlist 里 = viewer：照样看内部看板，只是不能改。
+      //   2026-09-17 我一度把这里收紧成 allowlist ∪ gcList，那是错的 —— 那样公司自己人
+      //   没给 editor 权限就看不到自己的项目了。Leo 2026-09-18 纠正。
+      ".read":  "auth != null",
       ".write": "auth != null && root.child('allowlist').child(auth.token.email.replace('.', ',')).exists()",
       ".validate": "newData.hasChildren(['_clientId', '_ts', '_by'])"
     },
