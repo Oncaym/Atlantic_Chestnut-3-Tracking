@@ -3595,7 +3595,17 @@ function importDxfInTracker(e){
 <script src="dxf-elevations.js?v=20260716a"></script>
 <script src="app.js?v=20260805y"></script>
 <!-- boot handled inside app.js (core) -->
-<script src="af-hub-config.js?v=4"></script>
-<script src="hub-report.js?v=5"></script>
+<!-- F-059 (2026-09-17): loaded from the hub, NOT copied into this repo.
+     These two files used to live in every tracker, so changing the reporter meant
+     deploying four projects and bumping four ?v= numbers — and forgetting one left
+     that tracker silently reporting with old code. One copy, one deploy, no version
+     numbers to keep in step. af-hub pins `Cache-Control: max-age=0, must-revalidate`
+     on both (see af-hub/vercel.json) so a hub deploy reaches every tracker on the
+     next page load.
+     If the hub is ever unreachable the scripts simply do not load: the tracker is
+     completely unaffected and just does not report that session, which is the same
+     behaviour as a failed push. -->
+<script src="https://af-hub-two.vercel.app/af-hub-config.js"></script>
+<script src="https://af-hub-two.vercel.app/hub-report.js"></script>
 </body>
 </html>
